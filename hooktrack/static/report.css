@@ -1,0 +1,35 @@
+/* Client report: standalone, light, print-friendly. Prefixed .rp so it can also sit inside the app's preview modal. */
+.rp { --rp-ink: #0f172a; --rp-mute: #64748b; --rp-line: #e2e8f0; --rp-bg: #ffffff; --rp-accent: #6366f1; --rp-good: #15803d; --rp-bad: #b91c1c;
+  max-width: 880px; margin: 0 auto; padding: 24px 16px 40px; color: var(--rp-ink); background: var(--rp-bg);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.rp h1 { font-size: 26px; margin: 2px 0 4px; line-height: 1.2; }
+.rp h2 { font-size: 15px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--rp-mute); }
+.rp-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 18px; }
+.rp-kicker { font-size: 13px; color: var(--rp-mute); font-weight: 600; }
+.rp-sub { color: var(--rp-mute); font-size: 14px; }
+.rp-print { border: 1px solid var(--rp-line); background: #fff; border-radius: 8px; padding: 8px 12px; font: inherit; cursor: pointer; white-space: nowrap; }
+.rp-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+.rp-kpi, .rp-card { border: 1px solid var(--rp-line); border-radius: 12px; padding: 14px 16px; background: #fff; }
+.rp-card { margin-bottom: 14px; }
+.rp-k { font-size: 12px; color: var(--rp-mute); text-transform: uppercase; letter-spacing: .04em; }
+.rp-v { font-size: 28px; font-weight: 700; line-height: 1.2; }
+.rp-d { font-size: 12.5px; color: var(--rp-mute); }
+.rp-up { color: var(--rp-good); } .rp-down { color: var(--rp-bad); } .rp-flat { color: var(--rp-mute); }
+.rp-chart { width: 100%; height: 120px; display: block; } .rp-chart rect { fill: var(--rp-accent); }
+.rp table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.rp th, .rp td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--rp-line); }
+.rp th { font-size: 12px; color: var(--rp-mute); text-transform: uppercase; letter-spacing: .03em; }
+.rp .n { text-align: right; font-variant-numeric: tabular-nums; }
+.rp-scroll { overflow-x: auto; }
+.rp-list { list-style: none; margin: 0; padding: 0; }
+.rp-list li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--rp-line); }
+.rp-list li:last-child { border-bottom: 0; }
+.rp-meta { font-size: 13px; color: var(--rp-mute); }
+.rp-badge { font-weight: 700; white-space: nowrap; color: var(--rp-accent); align-self: center; }
+.rp-badge.good { color: var(--rp-good); }
+.rp-muted { color: var(--rp-mute); margin: 4px 0 0; }
+.rp-foot { font-size: 12.5px; color: var(--rp-mute); margin-top: 6px; }
+@media (max-width: 640px) { .rp-kpis { grid-template-columns: repeat(2, 1fr); } .rp-head { flex-direction: column; } }
+@media print { .rp-print { display: none; } .rp { padding: 0; max-width: none; } .rp-card, .rp-kpi { break-inside: avoid; } }
+body.rp-page { margin: 0; background: #f8fafc; }
+.rp-state { max-width: 520px; margin: 18vh auto; padding: 0 16px; text-align: center; color: #475569; font: 16px/1.5 system-ui, sans-serif; }

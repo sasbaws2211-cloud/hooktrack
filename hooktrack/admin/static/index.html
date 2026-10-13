@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HookTrack Platform Admin</title>
+<link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+<div id="shell" hidden>
+  <header class="top">
+    <div class="brand"><span class="logo">▲</span> Platform Admin</div>
+    <nav id="nav">
+      <a href="#/overview" data-tab="overview">Overview</a>
+      <a href="#/workspaces" data-tab="workspaces">Workspaces</a>
+      <a href="#/funnel" data-tab="funnel">Funnel</a>
+      <a href="#/plans" data-tab="plans">Plans</a>
+      <a href="#/payments" data-tab="payments">Payments</a>
+      <a href="#/users" data-tab="users">Users</a>
+      <a href="#/settings" data-tab="settings">Settings</a>
+      <a href="#/admins" data-tab="admins">Admins</a>
+    </nav>
+    <div class="top-right"><span id="who" class="muted small"></span><button class="btn sm" id="logout">Sign out</button></div>
+  </header>
+  <main id="app"></main>
+</div>
+<div id="gate" class="gate" hidden></div>
+<dialog id="modal"></dialog>
+<div id="toast" role="status"></div>
+<script src="/admin.js"></script>
+</body>
+</html>

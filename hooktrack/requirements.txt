@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+psycopg2-binary
+anthropic
+openpyxl
+python-multipart
+pydantic
+pytest
+cryptography
+httpx
+tzdata

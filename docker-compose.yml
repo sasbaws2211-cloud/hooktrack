@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: hooktrack-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hooktrack
+      POSTGRES_PASSWORD: ht_dev_pw
+      POSTGRES_DB: hooktrack
+    ports:
+      - "55434:5432"
+    volumes:
+      - hooktrack_pgdata:/var/lib/postgresql/data
+volumes:
+  hooktrack_pgdata:

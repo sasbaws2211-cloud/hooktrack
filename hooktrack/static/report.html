@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="referrer" content="no-referrer">
+<title>Report</title>
+<link rel="stylesheet" href="/report.css?v=1">
+</head>
+<body class="rp-page">
+<div id="root"><div class="rp-state">Loading the report…</div></div>
+<script src="/report.js?v=1"></script>
+<script>
+(async function () {
+  const root = document.getElementById('root');
+  const token = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
+  try {
+    const r = await fetch('/api/public/report/' + encodeURIComponent(token), { headers: { Accept: 'application/json' } });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'This report is not available.');
+    window.renderReport(root, d);
+  } catch (e) {
+    root.innerHTML = '<div class="rp-state"><h1 style="font-size:22px;margin:0 0 8px">Report not available</h1><p></p></div>';
+    root.querySelector('p').textContent = e.message || 'This report link is no longer active.';
+  }
+})();
+</script>
+</body>
+</html>
