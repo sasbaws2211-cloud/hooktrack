@@ -2429,6 +2429,12 @@ pages.billing = async app => {
 };
 
 /* ---------------- accounts ---------------- */
+function syncDays() {
+  let d = 14;
+  try { d = +localStorage.getItem('ht_sync_days') || 14; } catch (e) {}
+  return [14, 30, 60, 90].includes(d) ? d : 14;
+}
+
 pages.accounts = async app => {
   const pins = getPins();
   state.accounts = [...state.accounts].sort((a, b) => {
@@ -2441,6 +2447,7 @@ pages.accounts = async app => {
   if (loose.length) groups.push({ p: { id: null, label: 'No phone', color: '#94a3b8' }, rows: loose });
   app.innerHTML = `<div class="page-head"><div><h1>Accounts</h1><div class="sub">${state.accounts.length} accounts across ${state.phones.length} phones</div></div>
     <div class="row"><button class="btn" id="addphone">+ Phone</button><button class="btn primary" id="addacc">+ Account</button>
+      <select id="syncdays" style="width:auto" title="How far back a manual sync reads (TikTok; Instagram and YouTube return what the platform lists). Longer reads use more credits.">${[14, 30, 60, 90].map(d => `<option value="${d}" ${syncDays() === d ? 'selected' : ''}>Last ${d} days</option>`).join('')}</select>
       <button class="btn" id="syncall" title="Sync all accounts with Auto-sync on">Sync all</button></div></div>
     ${groups.map(({ p, rows }) => `<div class="card" style="margin-bottom:14px"><div class="row" style="margin-bottom:8px">
       <span class="dot" style="background:${esc(p.color)}"></span><b>${esc(p.label)}</b><span class="muted">${rows.length} accounts</span><span class="spacer"></span>
@@ -2469,17 +2476,19 @@ pages.accounts = async app => {
   $$('[data-sync]', app).forEach(b => (b.onclick = guard(async () => {
     const btn = b; busy(btn, true, '…');
     try {
-      const r = await api('POST', `/api/accounts/${b.dataset.sync}/sync?days_back=14`);
+      const r = await api('POST', `/api/accounts/${b.dataset.sync}/sync?days_back=${syncDays()}`);
       toast(`Synced @${r.handle || ''}: ${r.upserted} posts (~${r.credits_est || '?'} credits)`);
       route();
     } finally { busy(btn, false, 'Sync'); }
   })));
+  const sd = $('#syncdays', app);
+  if (sd) sd.onchange = () => { try { localStorage.setItem('ht_sync_days', sd.value); } catch (e) {} };
   const sa = $('#syncall', app);
   if (sa) sa.onclick = guard(async () => {
     if (!(state.sv && state.sv.configured)) { toast('Reading from the platforms is not set up on this server yet', true); return; }
     busy(sa, true, 'Syncing…');
     try {
-      const r = await api('POST', '/api/sync/all?days_back=14');
+      const r = await api('POST', `/api/sync/all?days_back=${syncDays()}`);
       toast(`Synced ${r.synced}/${r.total} accounts`);
       route();
     } finally { busy(sa, false, 'Sync all'); }

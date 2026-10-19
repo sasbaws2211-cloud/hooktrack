@@ -19,7 +19,8 @@ from . import crypto, db, leases, logic
 BASE = "https://api.sociavault.com/v1/scrape"
 TIMEOUT = 45.0
 log = logging.getLogger("hooktrack.sociavault")
-MAX_PAGES_FULL = 3   # full manual sync
+MAX_PAGES_FULL = 3   # full manual sync (14 days or less)
+MAX_PAGES_HISTORY = 15   # manual sync asking for more than 14 days: it still stops at the first post older than the window
 MAX_PAGES_LIGHT = 1  # scheduled: one videos page (~1 credit)
 
 SYNC_LEASE = "sociavault-scheduled-sync"
@@ -554,7 +555,7 @@ def sync_tiktok_account(workspace_id: int, account_id: int, days_back: int = 14,
     upserted = 0
     tz = logic.workspace_tz(workspace_id)
     today = logic.today_in(tz)
-    pages = MAX_PAGES_LIGHT if light else MAX_PAGES_FULL
+    pages = MAX_PAGES_LIGHT if light else (MAX_PAGES_HISTORY if days_back > 14 else MAX_PAGES_FULL)
 
     for _ in range(pages):
         page = tiktok_videos(handle, key, max_cursor=cursor)
