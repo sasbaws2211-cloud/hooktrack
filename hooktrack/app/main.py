@@ -1070,6 +1070,16 @@ def winners(days: int = 60, limit: int = 20, account_id: Optional[int] = None, l
     return out[:max(1, min(limit, 200))]
 
 
+@app.post("/api/hooks/score")
+def hooks_score(ctx: Ctx = Depends(current)):
+    """Score every judged hook from its measured results now (also runs after each sync). Free: no AI call."""
+    ws = ctx.workspace_id
+    perf = logic.performance(ws)
+    scored = logic.apply_auto_scores(ws, perf)
+    judged = sum(1 for pf in perf.values() if logic.engine_scores(pf))
+    return {"scored": scored, "judged": judged, "waiting": sum(1 for pf in perf.values() if not logic.engine_scores(pf))}
+
+
 @app.post("/api/posts")
 def post_create(b: PostIn, ctx: Ctx = Depends(current)):
     return _get_post(ctx.workspace_id, _insert_post(ctx.workspace_id, b))

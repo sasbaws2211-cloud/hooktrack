@@ -2077,6 +2077,7 @@ pages.hooks = async app => {
   const hasLikes = posts.some(p => p.likes != null);
   app.innerHTML = `<div class="page-head"><div><h1>Hooks</h1><div class="sub">Your posted videos, pulled in from your accounts. Press Post on a Scale hook (Scripted) or a Tweak hook (Idea) to send it to Posts. Rules: Scale ${state.settings.scale_vsc}+, Tweak ${state.settings.mutate_vsc}–${state.settings.scale_vsc - 1}, Stop below.</div></div>
     <div class="row"><select id="fs" style="width:auto"><option value="">All statuses</option>${['posted', 'analysed'].map(s => `<option value="${s}" ${state.hookStatus === s ? 'selected' : ''}>${PIPE_LABEL[s]}</option>`).join('')}</select>
+      <button class="btn" id="scorehooks" title="Score every judged hook from its real results (free, no AI). This also runs after every sync.">Score hooks</button>
       <button class="btn" id="simdec" title="What if thresholds changed?">Simulate thresholds</button>
       <select id="fa" style="width:auto">${accountOptions(state.hookAccount, 'All accounts')}</select>
       <label class="check small" title="Posts that beat their own account's normal"><input type="checkbox" id="winonly" ${state.hookWinners ? 'checked' : ''}> Winners only (${winnerCount})</label>
@@ -2090,12 +2091,21 @@ pages.hooks = async app => {
     ${posts.map(p => `<tr class="band" style="--band:${esc(p.phone_color || 'transparent')};cursor:pointer" data-id="${p.id}"><td>${esc(p.post_date)}</td><td class="handle">${esc(p.handle || '—')}</td>
       <td class="wrap">${p.variant_label ? `<span class="badge" title="A/B variant">${esc(p.variant_label)}</span> ` : ''}${esc(p.hook || '—')}${p.made_from ? `<div class="small" style="color:var(--accent)" title="A video you made from another hook">↻ made from “${esc(short(p.made_from.hook || '', 40))}” · generation ${p.made_from.generation}</div>` : ''}<div class="muted small">${esc(short(p.ai_prompt, 60))}</div></td><td>${pill(p.status)}</td>
       <td class="num">${fmt(p.views)}</td><td class="num">${winnerChip(p.perf)}</td>${hasLikes ? `<td class="num">${p.likes == null ? '<span class="muted">-</span>' : fmt(p.likes)}</td>` : ''}<td class="num">${fmt(p.comments)}</td>${hasSS ? `<td class="num">${p.saves == null ? '<span class="muted">-</span>' : fmt(p.saves)}</td><td class="num">${p.shares == null ? '<span class="muted">-</span>' : fmt(p.shares)}</td>` : ''}<td class="num">${p.perf && p.perf.intent_per_1k != null ? p.perf.intent_per_1k : '<span class="muted">-</span>'}</td><td class="num">${p.perf && p.perf.comments_read ? `<span title="${p.perf.buy_comments} want to buy, ${p.perf.ask_comments} ask how/where; ${p.perf.comments_read} comments read">${p.perf.intent_comments}<span class="muted"> / ${p.perf.comments_read}</span></span>` : '<span class="muted" title="Open the post and read its comments">-</span>'}</td><td>${p.intent ? '✓' : ''}</td>
-      <td class="num">${p.vsc == null ? '<span class="muted">—</span>' : p.vsc + '/30'}${p.score_by === 'ai' ? ` <span title="${p.score_blind === true ? 'AI score on the wording alone' : p.score_blind === false ? 'AI score that saw the results' : 'AI score'}">${p.score_blind === false ? '✨*' : '✨'}</span>` : ''}${p.score_confidence != null ? ` <span class="muted small" title="Confidence">${Math.round(p.score_confidence*100)}%</span>` : ''}</td><td title="${esc(p.decision_basis || '')}">${pill(p.decision)}${p.decision ? `<div class="muted small">${decisionSource(p)}</div>` : ''}</td>
+      <td class="num">${p.vsc == null ? '<span class="muted">—</span>' : p.vsc + '/30'}${p.score_by === 'auto' ? ` <span class="muted small" title="${esc(p.score_reasoning || 'Calculated from this video’s real results against the account’s normal')}">auto</span>` : ''}${p.score_by === 'ai' ? ` <span title="${p.score_blind === true ? 'AI score on the wording alone' : p.score_blind === false ? 'AI score that saw the results' : 'AI score'}">${p.score_blind === false ? '✨*' : '✨'}</span>` : ''}${p.score_confidence != null ? ` <span class="muted small" title="Confidence">${Math.round(p.score_confidence*100)}%</span>` : ''}</td><td title="${esc(p.decision_basis || '')}">${pill(p.decision)}${p.decision ? `<div class="muted small">${decisionSource(p)}</div>` : ''}</td>
       <td>${postCell(p)}</td></tr>`).join('')}</tbody></table></div>`
       : `<div class="empty card"><h2>No posted videos yet</h2><p>Hooks fills itself from your accounts: add your TikTok, Instagram or YouTube handles, then press Sync. Posted videos and their views appear here.</p>
       <div class="row" style="justify-content:center;gap:8px;margin-top:12px">
         <a class="btn primary" href="#/accounts">Add accounts</a>
       </div></div>`}`;
+  $('#scorehooks').onclick = async e => {
+    const b = e.currentTarget; busy(b, true, 'Scoring…');
+    try {
+      const r = await api('POST', '/api/hooks/score');
+      toast(r.scored ? `Scored ${r.scored} hook${r.scored === 1 ? '' : 's'}` : (r.judged ? 'Scores are up to date' : 'Nothing to score yet: hooks need a few days of views and 5+ posts on the account'));
+      if (r.scored) route();
+    } catch (err) { toast(err.message || 'Could not score hooks'); }
+    finally { busy(b, false, 'Score hooks'); }
+  };
   $('#fs').onchange = e => { state.hookStatus = e.target.value; route(); };
   $('#fa').onchange = e => { state.hookAccount = e.target.value; route(); };
   $$('[data-hot]', app).forEach(b => (b.onclick = () => postModal(hot.find(h => h.id === +b.dataset.hot), null, route)));

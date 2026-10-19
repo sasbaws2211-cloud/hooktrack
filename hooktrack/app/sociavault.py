@@ -978,6 +978,10 @@ def sync_account(workspace_id: int, account_id: int, days_back: int = 14,
         logic.log_decisions(workspace_id)
     except Exception:
         pass
+    try:                                         # score every judged hook from its measured results
+        logic.apply_auto_scores(workspace_id)
+    except Exception:
+        log.exception("auto hook scoring failed")
     try:                                         # a very strong first day: tell the owner while it is hot
         from . import hotstart
         hotstart.notify(workspace_id)

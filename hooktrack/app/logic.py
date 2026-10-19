@@ -317,6 +317,99 @@ def _median(xs):
     return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2
 
 
+# ---------- the hook score engine ----------
+# A hook score (V + S + C, each 0-10, total /30) calculated from what actually happened, never from the wording.
+# Each part is the post's result against ITS OWN account's normal, on a log scale: 1x normal = 5, 2x = 7.5, 4x+ = 10,
+# half = 2.5, a quarter or less = 0. Built the way outlier / creative-scoring tools work (a video against its own
+# baseline, with a minimum-data gate), using the signals the sync provides:
+#   V  Pull         views vs the account's normal views              (did the opening stop the scroll and travel?)
+#   S  Resonance    saves + shares per view vs the account's normal  (did people want to keep or pass it on?)
+#   C  Conversion   comments per view vs normal, plus buy/ask comments (did it make people act?)
+ENGINE_MIN_VIEWS = 100          # fewer views than this and a rate is noise
+ENGINE_NEUTRAL = 5              # used for a part that has no baseline yet (flagged, and confidence drops to low)
+_CONF = {"low": 0.4, "medium": 0.7, "high": 0.9}
+
+
+def _score_part(multiple):
+    """1x normal = 5; each doubling adds 2.5; clamped to 0..10."""
+    if multiple is None:
+        return None
+    if multiple <= 0:
+        return 0
+    from math import log2
+    return int(round(max(0.0, min(10.0, 5 + 2.5 * log2(multiple)))))
+
+
+def engine_scores(pf: dict) -> dict | None:
+    """{v, s, c, total, confidence, reasoning, diagnosis} for a measured post, else None.
+
+    Needs a judged post (WINNER / AVERAGE / DUD): too-young posts and posts with no baseline get no score, because
+    guessing would be exactly the wording-only scoring that did not separate winners from duds.
+    """
+    if not pf or pf.get("label") not in ("WINNER", "AVERAGE", "DUD") or pf.get("multiple") is None:
+        return None
+    v = _score_part(pf["multiple"])
+    s = _score_part(pf.get("_res_multiple"))
+    c = _score_part(pf.get("_conv_multiple"))
+    assumed = []
+    if s is None:
+        s = ENGINE_NEUTRAL
+        assumed.append("resonance")
+    if c is None:
+        c = ENGINE_NEUTRAL
+        assumed.append("conversion")
+    boost = ""
+    share = pf.get("intent_share")
+    if share is not None and share >= 10 and c < 10:
+        c, boost = min(10, c + 2), f" (+2: {share}% of comments ask to buy or where to get it)"
+    why = [f"Pull {v}/10: {pf['multiple']}x this account's normal views",
+           f"Resonance {s}/10: " + ("no saves/shares baseline yet, assumed average" if "resonance" in assumed
+                                    else f"saves+shares {pf['_res_multiple']:.1f}x normal"),
+           f"Conversion {c}/10: " + (("no comments baseline yet, assumed average" if "conversion" in assumed
+                                     else f"comments {pf['_conv_multiple']:.1f}x normal") + boost)]
+    if v >= 7 and s <= 4:
+        diag = "People watch but do not keep or share it: the opening works, rework the body or the payoff."
+    elif v <= 4 and (s >= 6 or c >= 6):
+        diag = "Few people saw it, but those who did acted: the idea works, rework the first 3 seconds."
+    elif v <= 4 and s <= 4 and c <= 4:
+        diag = "Weak on every signal: change the angle, not just the wording."
+    elif v >= 7 and s >= 6:
+        diag = "Strong reach and strong resonance: repeat this angle."
+    else:
+        diag = ""
+    conf = "low" if assumed else (pf.get("confidence") or "low")
+    return {"v": v, "s": s, "c": c, "total": v + s + c, "confidence": conf,
+            "reasoning": "; ".join(why) + ".", "diagnosis": diag}
+
+
+def apply_auto_scores(ws: int, perf: dict | None = None) -> int:
+    """Write the engine's score onto posts that have no human score. Returns how many posts changed.
+
+    Never touches a score typed by a person ('manual'), imported from a sheet ('imported') or made by the old AI
+    ('ai'); it only creates and refreshes its own ('auto'), because results keep arriving after each sync.
+    """
+    perf = perf if perf is not None else performance(ws)
+    ids = [pid for pid, pf in perf.items() if engine_scores(pf)]
+    if not ids:
+        return 0
+    mine = {r["id"]: r for r in db.query(
+        "SELECT id, v, s, c, score_by FROM posts WHERE workspace_id=%s AND id = ANY(%s) "
+        "AND (score_by IS NULL OR score_by IN ('', 'auto'))", (ws, ids))}
+    n = 0
+    for pid, row in mine.items():
+        e = engine_scores(perf[pid])
+        if (row["v"], row["s"], row["c"], row["score_by"]) == (e["v"], e["s"], e["c"], "auto"):
+            continue                                    # unchanged since the last sync: no churn
+        conf = _CONF[e["confidence"]]
+        db.execute(
+            "UPDATE posts SET v=%s, s=%s, c=%s, score_by='auto', score_confidence=%s, score_reasoning=%s, "
+            "score_blind=FALSE WHERE id=%s AND workspace_id=%s",
+            (e["v"], e["s"], e["c"], conf, e["reasoning"], pid, ws))
+        record_score_snapshot(ws, pid, e["v"], e["s"], e["c"], conf, e["reasoning"], "", "auto", blind=False)
+        n += 1
+    return n
+
+
 def performance(ws: int, today: date | None = None, days: int = 180) -> dict:
     """post_id -> how that post did against ITS OWN account's normal, plus its engagement mix.
 
@@ -396,6 +489,21 @@ def performance(ws: int, today: date | None = None, days: int = 180) -> dict:
         mature = [r for r in posts if (age(r) is None or age(r) >= MATURE_DAYS)]
         recent = mature[:BASELINE_POSTS + 1]
         acc_intent = _median(intent(r) for r in mature)
+
+        def res_rate(r):
+            v_ = r["views"] or 0
+            if v_ < ENGINE_MIN_VIEWS or (r["saves"] is None and r["shares"] is None):
+                return None
+            return ((r["saves"] or 0) + (r["shares"] or 0)) / v_
+
+        def conv_rate(r):
+            v_ = r["views"] or 0
+            return None if v_ < ENGINE_MIN_VIEWS or r["comments"] is None else (r["comments"] or 0) / v_
+
+        res_pool = [x for x in (res_rate(r) for r in mature) if x is not None]
+        conv_pool = [x for x in (conv_rate(r) for r in mature) if x is not None]
+        res_base = _median(res_pool) if len(res_pool) >= MIN_BASELINE else None
+        conv_base = _median(conv_pool) if len(conv_pool) >= MIN_BASELINE else None
         early_pool = [e for e in (early_views(r) for r in mature) if e]
         early_base = _median(early_pool) if len(early_pool) >= MIN_BASELINE else None
         for r in posts:
@@ -458,6 +566,8 @@ def performance(ws: int, today: date | None = None, days: int = 180) -> dict:
                 "reach": round(views / followers, 2) if followers else None,
                 "reach_multiple": round(reach_mult, 2) if reach_mult is not None else None,
                 "growth_note": _growth_note(multiple, reach_mult),
+                "_res_multiple": (res_rate(r) / res_base) if res_base and res_rate(r) is not None else None,
+                "_conv_multiple": (conv_rate(r) / conv_base) if conv_base and conv_rate(r) is not None else None,
             }
     # one weak post is not a reason to stop: count the weak ones among this post and the two before it
     for (acc, _fmt), posts in by_acc.items():
@@ -573,6 +683,11 @@ def _sure(pf) -> str:
     return ""
 
 
+def _diag(pf) -> str:
+    e = engine_scores(pf)
+    return f". {e['diagnosis']}" if e and e["diagnosis"] else ""
+
+
 def evidence_decision(total, st, pf) -> tuple[str, str]:
     """(decision, basis). What happened outranks what the hook score predicted.
 
@@ -594,13 +709,13 @@ def evidence_decision(total, st, pf) -> tuple[str, str]:
             if duds is None or duds >= 2:        # no history given (older callers), or a pattern: stop it
                 return "KILL", f"Measured: only {m}x this account's normal{tail}"
             return "MUTATE", (f"Measured: only {m}x this account's normal, but one weak post is not a pattern: "
-                              f"rework the angle, not the account{tail}")
+                              f"rework the angle, not the account{tail}" + _diag(pf))
         hi = (st.get("hold_high_pct") or HOLD_HIGH * 100) / 100.0
         lo = (st.get("hold_low_pct") or HOLD_LOW * 100) / 100.0
         if m >= hi:
-            return "MUTATE", f"Measured: {m}x this account's normal (above normal, so strengthen it){tail}"
+            return "MUTATE", f"Measured: {m}x this account's normal (above normal, so strengthen it){tail}" + _diag(pf)
         if m <= lo:
-            return "MUTATE", f"Measured: {m}x this account's normal (below normal, so rework it){tail}"
+            return "MUTATE", f"Measured: {m}x this account's normal (below normal, so rework it){tail}" + _diag(pf)
         return "HOLD", f"Measured: {m}x this account's normal (about normal, nothing to change){tail}"
     if pf and pf["label"] == "HOT_START" and pf.get("early_multiple") is not None:
         return "SCALE", f"Fast start: {pf['early_multiple']}x this account's usual first day"
