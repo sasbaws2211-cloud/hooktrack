@@ -385,7 +385,7 @@ def engine_scores(pf: dict) -> dict | None:
 def apply_auto_scores(ws: int, perf: dict | None = None) -> int:
     """Write the engine's score onto posts that have no human score. Returns how many posts changed.
 
-    Never touches a score typed by a person ('manual'), imported from a sheet ('imported') or made by the old AI
+    Never touches a score typed by a person ('manual'), imported from a sheet with scores ('imported') or made by the old AI
     ('ai'); it only creates and refreshes its own ('auto'), because results keep arriving after each sync.
     """
     perf = perf if perf is not None else performance(ws)
@@ -394,7 +394,9 @@ def apply_auto_scores(ws: int, perf: dict | None = None) -> int:
         return 0
     mine = {r["id"]: r for r in db.query(
         "SELECT id, v, s, c, score_by FROM posts WHERE workspace_id=%s AND id = ANY(%s) "
-        "AND (score_by IS NULL OR score_by IN ('', 'auto'))", (ws, ids))}
+        "AND (score_by IS NULL OR score_by IN ('', 'auto') "
+        "     OR (score_by = 'imported' AND v IS NULL AND s IS NULL AND c IS NULL))",   # a sync tags its posts 'imported'
+        (ws, ids))}
     n = 0
     for pid, row in mine.items():
         e = engine_scores(perf[pid])
