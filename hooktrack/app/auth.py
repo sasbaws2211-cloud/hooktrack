@@ -134,15 +134,14 @@ def session_ctx(request: Request) -> Optional[Ctx]:
     if not token:
         return None
     row = db.one(
-        "SELECT u.id, u.email, u.name, s.workspace_id, s.token_hash FROM sessions s "
-        "JOIN users u ON u.id = s.user_id WHERE s.token_hash = %s AND s.expires_at > now()",
+        "SELECT u.id, u.email, u.name, s.workspace_id, s.token_hash, m.role FROM sessions s "
+        "JOIN users u ON u.id = s.user_id "
+        "LEFT JOIN memberships m ON m.workspace_id = s.workspace_id AND m.user_id = u.id "
+        "WHERE s.token_hash = %s AND s.expires_at > now()",
         (_hash_token(token),))
     if row is None:
         return None
-    ws, role = row["workspace_id"], None
-    if ws is not None:
-        m = db.one("SELECT role FROM memberships WHERE workspace_id=%s AND user_id=%s", (ws, row["id"]))
-        role = m["role"] if m else None
+    ws, role = row["workspace_id"], row["role"]
     if role is None:   # membership was removed: fall back to another workspace, if any
         m = db.one("SELECT workspace_id, role FROM memberships WHERE user_id=%s ORDER BY created_at LIMIT 1", (row["id"],))
         ws, role = (m["workspace_id"], m["role"]) if m else (None, None)

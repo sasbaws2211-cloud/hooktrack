@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -154,6 +155,7 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="HookTrack", lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=1024)   # app.js is ~200 KB; no streaming responses exist
 
 
 @app.middleware("http")
