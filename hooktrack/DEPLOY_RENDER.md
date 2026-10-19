@@ -8,6 +8,37 @@ HookTrack = 2 web services (customer app + platform admin) + 1 Postgres. `render
 - `.env` is git-ignored: never commit it. Production values go in the Render dashboard.
 - Push to GitHub/GitLab: `git add -A && git commit -m "render deploy" && git push`.
 
+## Deploy WITHOUT a Blueprint (create each piece by hand)
+Skip `render.yaml` entirely. Everything below is done from **New +** in the dashboard. Only the instance type you pick costs money.
+
+**1. Database.** New -> PostgreSQL -> name `hooktrack-db`, database `hooktrack`. Free plan works for testing but is deleted after 30 days;
+for $0 long-term use an outside free Postgres (Neon or Supabase) and paste its connection string as `DATABASE_URL` instead.
+Copy the **Internal Database URL** (Render DB) or the connection string (external).
+
+**2. Customer app.** New -> Web Service -> connect the repo, then:
+- Language: **Python 3**, Root Directory: `hooktrack`
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Instance type: Free is allowed, but it sleeps after ~15 min idle, which pauses the sync/digest/backup loops (and the first visit after a sleep takes ~1 min). Starter keeps it awake.
+- Environment: add the variables from the table in section 2 (at minimum `DATABASE_URL`, `HOOKTRACK_SECRET`, `HOOKTRACK_SECURE_COOKIES=1`, `HOOKTRACK_TRUSTED_PROXIES=1`, `HOOKTRACK_PUBLIC_URL`, `PYTHON_VERSION=3.11.9`).
+  Generate the secret with `python -c "import secrets;print(secrets.token_urlsafe(48))"`.
+
+**3. Admin app** (optional on Render). Same steps, name `hooktrack-admin`, Start Command `python -m uvicorn admin.main:app --host 0.0.0.0 --port $PORT`,
+same `DATABASE_URL` and the **same** `HOOKTRACK_SECRET`, plus `HOOKTRACK_ADMIN_EMAIL` / `HOOKTRACK_ADMIN_PASSWORD`.
+To avoid paying for a second service, run the admin on your own PC against the production database instead:
+set `DATABASE_URL` to the **external** URL and `python -m uvicorn admin.main:app --port 8040`.
+
+**Using Docker instead:** a `Dockerfile` is included. In step 2/3 choose **Language: Docker** (Root Directory `hooktrack`, no build/start command needed).
+The admin service uses the same image with Docker Command `python -m uvicorn admin.main:app --host 0.0.0.0 --port $PORT`.
+Native Python and Docker behave the same; Docker only helps if you want the identical image elsewhere.
+
+**Free-tier limits to accept:** sleeping web service, no persistent disk (uploads and local backups are lost on redeploy), free Postgres expires.
+For a real launch, the one upgrade worth paying for is the customer app on Starter.
+
+---
+
+(Blueprint route, which needs a paid plan for the disk and always-on services:)
+
 ## 1. Create the Blueprint
 Render dashboard -> **New -> Blueprint** -> pick the repo -> Render reads `render.yaml` and proposes
 `hooktrack` (web), `hooktrack-admin` (web), `hooktrack-db` (Postgres). Fill the prompted env vars (step 3), then **Apply**.

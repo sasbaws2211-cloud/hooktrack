@@ -1,0 +1,11 @@
+venv
+.env
+.secret
+uploads
+backups
+spike
+tests
+tools
+__pycache__
+*.pyc
+.pytest_cache
