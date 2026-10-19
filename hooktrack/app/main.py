@@ -1662,6 +1662,7 @@ def publish_managed_disconnect(account_id: str, ctx: Ctx = Depends(admin)):
 
 class ConnectIn(BaseModel):
     platform: str
+    return_to: Optional[str] = None    # where to land after connecting, e.g. "#/pipeline" (an in-app route only)
 
 
 @app.get("/api/publish/managed")
@@ -1685,7 +1686,8 @@ def publish_managed_connect(b: ConnectIn, request: Request, ctx: Ctx = Depends(a
     base = (os.environ.get("HOOKTRACK_PUBLIC_URL") or str(request.base_url)).rstrip("/")
     try:
         billing.require_connected(ctx.workspace_id, len(latehub.accounts(ctx.workspace_id)))
-        return {"auth_url": latehub.connect_url(ctx.workspace_id, b.platform.lower(), f"{base}/#/settings")}
+        back = b.return_to if (b.return_to and re.fullmatch(r"#/[a-z]{1,20}", b.return_to)) else "#/settings"
+        return {"auth_url": latehub.connect_url(ctx.workspace_id, b.platform.lower(), f"{base}/{back}")}
     except latehub.LateHubError as e:
         raise HTTPException(e.status if e.status in (403, 404) else 400, str(e))
 

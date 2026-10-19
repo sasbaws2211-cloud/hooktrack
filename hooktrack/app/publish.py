@@ -291,6 +291,14 @@ def publish_post(
         when_hint = _parse_schedule(schedule_at)
     except PublishError:
         pass
+    if "_managed_accounts" in conf and not dry_run:
+        # refuse now, not hours later when a queued job comes due: a platform with no connected account cannot publish
+        ids = _managed_ids(conf["_managed_accounts"], platforms, (account or {}).get("handle") or "")
+        missing = [p for p in platforms if p not in ids]
+        if missing:
+            names = {"tiktok": "TikTok", "instagram": "Instagram", "youtube": "YouTube"}
+            raise PublishError("Connect your " + ", ".join(names.get(m, m) for m in missing) +
+                               " account first (Connect in the publish window, or Settings, Publishing).", 409)
     media_url = _media_for(post, conf, when_hint)
     if provider != "mock" and not media_url and any(x.lower() in ("tiktok", "instagram", "youtube") for x in platforms):
         raise PublishError("Attach a video first: this card has no video file or video link to publish.")
@@ -575,8 +583,8 @@ def _dispatch(provider: str, secret: str, conf: dict, payload: dict, account: Op
                 ids = _late_account_ids(client, base, headers, conf, platforms, (account or {}).get("handle") or "")
             missing = [p for p in platforms if p not in ids]
             if missing:
-                raise PublishError("Late has no connected " + ", ".join(missing) +
-                                   " account. Connect one in your Late dashboard, then try again.")
+                raise PublishError("No connected " + ", ".join(missing) +
+                                   " account. Connect it under Settings, Publishing, then try again.")
             body: dict = {
                 "content": caption,
                 "platforms": [{"platform": p, "accountId": ids[p]} for p in platforms],

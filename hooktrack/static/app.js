@@ -1638,7 +1638,8 @@ async function scheduleDialog(post, opts = {}) {
   const zone = wsTz();
   const sm = openModal(`<h2>${resched ? 'Move to a new time' : 'Publish / schedule'}</h2>
     ${resched ? '' : `<div class="fields"><div class="full"><label class="f">Publish to</label>
-      <div class="row" style="gap:12px;flex-wrap:wrap">${Object.entries(PLATFORM_LABEL).map(([k, v]) => `<label class="check small"><input type="checkbox" data-plat="${k}" ${chosen.has(k) ? 'checked' : ''}> ${v}</label>`).join('')}</div></div></div>`}
+      <div class="row" style="gap:12px;flex-wrap:wrap;align-items:center" id="plats"></div>
+      <div class="small" id="connnote" style="margin-top:6px"></div></div></div>`}
     <div class="fields">
       ${resched ? '' : '<div class="full"><label class="f"><input type="radio" name="when" value="now"> Publish now</label></div>'}
       <div class="full">${resched ? '' : '<label class="f"><input type="radio" name="when" value="later" checked> Schedule for</label>'}
@@ -1647,6 +1648,47 @@ async function scheduleDialog(post, opts = {}) {
         <div class="small muted" style="margin-top:4px">Time zone: ${esc(zone)} (your workspace setting). Suggested times are free slots for this account.</div></div>
     </div>
     <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="pubgo">${resched ? 'Move' : 'Go'}</button></div>`, true);
+  // which platforms are connected: a platform with no account is offered a Connect button right here, and
+  // after signing in on the platform the user lands back on this card with the dialog open again
+  const managed = !!(state.publish && state.publish.managed_available);
+  const held = !!(state.publish && state.publish.held);
+  let connected = null;                                    // null = not known (own provider keys, or still loading)
+  const goBtn = () => $('#pubgo', sm);
+  const renderPlats = () => {
+    const box = $('#plats', sm); if (!box) return;
+    box.innerHTML = Object.entries(PLATFORM_LABEL).map(([k, v]) => {
+      const ok = connected === null || connected.has(k);
+      return `<span class="row" style="gap:6px"><label class="check small"><input type="checkbox" data-plat="${k}" ${ok && chosen.has(k) ? 'checked' : ''} ${ok ? '' : 'disabled'}> ${v}</label>${ok ? '' :
+        (isAdmin() ? `<button type="button" class="btn sm" data-conn="${k}" ${held ? 'disabled title="Unlocks with a paid plan"' : ''}>Connect ${v}</button>` : '<span class="muted small">not connected: ask an admin</span>')}</span>`;
+    }).join('');
+    const sel = () => $$('[data-plat]', box).filter(c => c.checked && !c.disabled);
+    const note = $('#connnote', sm);
+    const wanted = [...chosen].filter(k => connected && !connected.has(k));
+    if (note) note.innerHTML = wanted.length
+      ? `<span style="color:var(--bad, #ef4444)">${wanted.map(k => PLATFORM_LABEL[k]).join(', ')} is not connected yet.</span> Connect it to publish this card: you will sign in on the platform and come straight back here.`
+      : '';
+    const sync = () => { const g = goBtn(); if (g) g.disabled = !sel().length; };
+    $$('[data-plat]', box).forEach(c => c.onchange = sync);
+    sync();
+    $$('[data-conn]', box).forEach(b => b.onclick = guard(async () => {
+      busy(b, true, 'Opening…');
+      try {
+        try { sessionStorage.setItem('ht_resume_publish', JSON.stringify({ id: post.id, platform: b.dataset.conn })); } catch (e) { /* ignored */ }
+        const r2 = await api('POST', '/api/publish/managed/connect', { platform: b.dataset.conn, return_to: '#/pipeline' });
+        location.href = r2.auth_url;
+      } finally { busy(b, false); }
+    }));
+  };
+  if (!resched) {
+    renderPlats();
+    if (managed) {
+      if ($('#pubgo', sm)) $('#pubgo', sm).disabled = true;      // until we know what is connected
+      api('GET', '/api/publish/managed').then(r => {
+        if (r.error) { connected = null; } else { connected = new Set((r.accounts || []).map(a => String(a.platform).toLowerCase())); }
+        renderPlats();
+      }).catch(() => { connected = null; renderPlats(); });
+    }
+  }
   // the dialog is usable at once; free-slot suggestions fill in when they arrive
   api('GET', `/api/publish/suggest-times?account_id=${post.account_id || ''}&n=4`).then(r => {
     const box = $('#slots', sm); if (!box) return;
@@ -1674,7 +1716,7 @@ async function scheduleDialog(post, opts = {}) {
         sm.close(); toast(`Moved to ${fmtWhen(job.scheduled_for)}`); if (opts.onMoved) opts.onMoved(job);
         return;
       }
-      const platforms = $$('[data-plat]', sm).filter(c => c.checked).map(c => c.dataset.plat);
+      const platforms = $$('[data-plat]', sm).filter(c => c.checked && !c.disabled).map(c => c.dataset.plat);
       if (!platforms.length) throw new Error('Choose at least one platform');
       const body = { platforms };
       if (later) body.schedule_local = local;
@@ -1727,8 +1769,23 @@ pages.scheduled = async app => {
   }));
 };
 
+// back from connecting a platform in the middle of a publish: reopen the dialog on the same card
+async function resumePendingPublish() {
+  let raw = null;
+  try { raw = sessionStorage.getItem('ht_resume_publish'); sessionStorage.removeItem('ht_resume_publish'); } catch (e) { return; }
+  if (!raw) return;
+  try {
+    const { id, platform } = JSON.parse(raw);
+    const p = await api('GET', `/api/posts/${id}`);
+    state.publish = await api('GET', '/api/addons/publish').catch(() => state.publish);
+    toast(`${PLATFORM_LABEL[platform] || 'Your account'} connected: choose when to publish`);
+    scheduleDialog(p, { onPublished: job => { toast(job.status === 'queued' ? 'Scheduled: it will publish automatically' : (job.error || 'Done'), job.status === 'failed'); route(); } });
+  } catch (e) { /* the card is gone or the session expired: nothing to resume */ }
+}
+
 /* ---------------- pipeline kanban ---------------- */
 pages.pipeline = async app => {
+  setTimeout(resumePendingPublish, 700);
   const view = state.postsView === 'calendar' ? 'calendar' : 'board';
   const accountFilter = state.pipeAccount || state.calAccount || '';
 
