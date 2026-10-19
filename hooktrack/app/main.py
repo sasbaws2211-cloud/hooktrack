@@ -1572,6 +1572,27 @@ class AskIn(BaseModel):
     question: str = Field(min_length=3, max_length=1000)
 
 
+class AssistantIn(BaseModel):
+    messages: list[dict] = Field(min_length=1, max_length=40)
+    page: dict = Field(default_factory=dict)
+
+
+@app.post("/api/assistant/chat")
+def assistant_chat(b: AssistantIn, ctx: Ctx = Depends(current)):
+    """The floating guide. Not counted against the workspace's AI allowance (help should never be rationed away),
+    but each person is capped per day so a loop can't run up the platform's bill."""
+    from . import assistant
+    if not assistant.allow(ctx.user_id):
+        raise HTTPException(429, "You have asked a lot of questions today. Please try again tomorrow, or contact support.")
+    try:
+        text = _ai_guard(assistant.reply, ai.resolve(ctx.workspace_id), ctx.workspace_id, ctx.user_id, b.messages, b.page)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not text:
+        raise HTTPException(502, "The guide could not answer just now. Please try again.")
+    return {"answer": text}
+
+
 @app.post("/api/ai/ask")
 def ai_ask(b: AskIn, ctx: Ctx = Depends(current)):
     ws = ctx.workspace_id

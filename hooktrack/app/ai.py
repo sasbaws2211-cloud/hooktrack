@@ -331,6 +331,25 @@ def _text(cfg, system, prompt, max_tokens=1500):
     return text
 
 
+def chat(cfg, system: str, messages: list, max_tokens: int = 700) -> str:
+    """A multi-turn text conversation: messages are [{"role": "user"|"assistant", "content": str}], ending on the user."""
+    _require(cfg)
+    if cfg.provider == "anthropic":
+        msg = _get_client(cfg).messages.create(model=cfg.model, max_tokens=max_tokens, system=system, messages=messages)
+        return "".join(b.text for b in msg.content if b.type == "text").strip()
+
+    def go(budget):
+        data = _openai_chat(cfg, {"max_tokens": budget,
+                                  "messages": [{"role": "system", "content": system}, *messages]})
+        choice = (data.get("choices") or [{}])[0]
+        return ((choice.get("message") or {}).get("content") or "").strip(), choice.get("finish_reason")
+
+    text, finish = go(max_tokens)
+    if not text and finish == "length":
+        text, _ = go(max_tokens * 3)                     # a thinking model used its whole budget: give it room once
+    return text
+
+
 def suggest_niche(cfg, name: str, bio: str) -> str:
     """A one to three word niche label for an account ("fitness", "skincare tips"), or "" when it can't tell.
 

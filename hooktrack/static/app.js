@@ -135,7 +135,7 @@ function askText(message, opts = {}) {
 const TIPS = [
   { id: 'home', hash: 'dashboard', title: 'Your home base', body: 'Finish these steps to unlock Scale / Tweak / Stop insights. You can also load sample data to explore first.' },
   { id: 'views', hash: 'views', title: 'Log views here', body: 'Type weekly view counts, or use AI screenshot entry if AI is on. This feeds the dashboard.' },
-  { id: 'hooks', hash: 'hooks', title: 'Score your hooks', body: 'Rate the first 3 seconds (out of 30). High scores + strong views → Scale.' },
+  { id: 'hooks', hash: 'hooks', title: 'Your hooks, scored for you', body: 'Each posted video gets a score out of 30 from its real results, and a Scale / Tweak / Hold / Stop call. Press Score hooks to refresh them.' },
   { id: 'posts', hash: 'pipeline', title: 'Plan content on Posts', body: 'Use the Board for stages (Idea → Posted) or switch to Calendar for dates. Same posts either way.' },
 ];
 function tipsKey() {

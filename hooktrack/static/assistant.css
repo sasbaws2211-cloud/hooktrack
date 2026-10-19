@@ -1,0 +1,56 @@
+/* HookTrack Guide: floating help button and chat panel */
+#guide-root[hidden] { display: none; }
+#guide-fab { position: fixed; right: 20px; bottom: 20px; z-index: 90; display: flex; align-items: center; gap: 8px; border: 0; cursor: pointer;
+  background: var(--accent); color: var(--accent-text); padding: 0 16px 0 6px; height: 48px; border-radius: 999px; font: inherit; font-weight: 600;
+  box-shadow: 0 6px 20px rgba(20, 20, 60, .28); transition: transform .15s, box-shadow .15s; }
+#guide-fab:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(20, 20, 60, .34); }
+#guide-fab:focus-visible { outline: 3px solid var(--accent-soft); outline-offset: 2px; }
+#guide-fab .gd-ico { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(255, 255, 255, .22); font-size: 19px; }
+#guide-root.open #guide-fab { display: none; }
+
+#guide-panel { position: fixed; right: 20px; bottom: 20px; z-index: 91; width: 380px; max-width: calc(100vw - 24px); height: min(600px, calc(100vh - 40px));
+  display: flex; flex-direction: column; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(10, 10, 40, .32); overflow: hidden; }
+#guide-panel[hidden] { display: none; }
+#guide-panel header { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 14px; background: var(--accent); color: var(--accent-text); }
+#guide-panel header b { display: block; font-size: 15px; }
+#guide-panel header span { display: block; font-size: 12px; opacity: .85; }
+.gd-hbtns { display: flex; gap: 6px; align-items: center; }
+.gd-hbtns button { border: 0; background: rgba(255, 255, 255, .2); color: inherit; border-radius: 8px; padding: 5px 9px; cursor: pointer; font: inherit; font-size: 12px; }
+.gd-hbtns button:hover { background: rgba(255, 255, 255, .32); }
+#guide-x { font-size: 18px !important; line-height: 1; padding: 3px 9px !important; }
+
+#guide-list { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: var(--bg); }
+.gd-msg { max-width: 88%; padding: 9px 12px; border-radius: 14px; font-size: 14px; line-height: 1.5; word-wrap: break-word; }
+.gd-msg p { margin: 0 0 6px; } .gd-msg p:last-child, .gd-msg ol:last-child, .gd-msg ul:last-child { margin-bottom: 0; }
+.gd-msg ol, .gd-msg ul { margin: 4px 0 6px; padding-left: 20px; } .gd-msg li { margin: 2px 0; }
+.gd-bot { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+.gd-me { align-self: flex-end; background: var(--accent); color: var(--accent-text); border-bottom-right-radius: 4px; }
+.gd-msg a { color: var(--accent); font-weight: 600; text-decoration: underline; }
+.gd-typing { display: flex; gap: 4px; padding: 13px 14px; }
+.gd-typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: gd-bounce 1.1s infinite ease-in-out; }
+.gd-typing i:nth-child(2) { animation-delay: .15s; } .gd-typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes gd-bounce { 0%, 80%, 100% { opacity: .3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-4px); } }
+
+#guide-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px; background: var(--bg); }
+#guide-chips:not(:empty) { padding-bottom: 10px; }
+.gd-chip { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: 6px 11px; font: inherit; font-size: 12.5px; cursor: pointer; text-align: left; }
+.gd-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+#guide-form { display: flex; gap: 8px; align-items: flex-end; padding: 10px 12px; border-top: 1px solid var(--border); background: var(--surface); }
+#guide-in { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 10px; padding: 9px 10px; font: inherit; font-size: 14px; background: var(--bg); color: var(--text); max-height: 110px; }
+#guide-in:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+#guide-send { border: 0; background: var(--accent); color: var(--accent-text); border-radius: 10px; padding: 9px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+#guide-send:hover { filter: brightness(.95); }
+.gd-note { margin: 0; padding: 0 14px 10px; font-size: 11px; color: var(--muted); background: var(--surface); }
+
+/* the first-visit tip card used to sit in the same corner */
+.coach { bottom: 84px !important; }
+
+@media (max-width: 700px) {
+  #guide-fab { right: 14px; bottom: 14px; }
+  #guide-fab .gd-lbl { display: none; }
+  #guide-fab { padding: 0 6px; }
+  #guide-panel { right: 0; bottom: 0; width: 100vw; max-width: 100vw; height: 82vh; border-radius: 16px 16px 0 0; }
+}
+@media (prefers-reduced-motion: reduce) { .gd-typing i { animation: none; opacity: .6; } #guide-fab { transition: none; } }
