@@ -1138,7 +1138,7 @@ function postModal(post, defaults, onDone) {
     <div class="full"><label class="f">Caption + hashtags</label><textarea id="caption">${esc(p.caption)}</textarea></div>
     <div><label class="f">Views</label><input id="views" inputmode="numeric" value="${p.views || 0}"></div>
     <div><label class="f">Comments</label><input id="comments" inputmode="numeric" value="${p.comments || 0}"></div>
-    ${p.external_id ? '' : `<div class="full"><label for="posturl">Posted video link</label>
+    ${p.external_id ? '' : `<div class="full" id="linkblock" ${['posted', 'analysed'].includes(normStatus(p.status)) || p.url || p.result_post_id ? '' : 'hidden'}><label for="posturl">Posted video link</label>
       <input id="posturl" type="url" inputmode="url" placeholder="https://www.tiktok.com/@you/video/…" value="${esc(p.url || '')}">
       ${!p.result_post_id && p.id ? '<div style="margin-top:6px"><button class="btn sm" id="findvid" type="button">🔎 Find it in synced videos</button></div>' : ''}
       <div class="small muted" style="margin-top:4px">${p.result_post_id
@@ -1555,6 +1555,14 @@ function postModal(post, defaults, onDone) {
   refreshFilmSched();
   if ($('#status', m)) $('#status', m).addEventListener('change', refreshFilmSched);
   m._afterUpload = refreshFilmSched;
+  // nothing is posted yet on an Idea, Scripted or Filmed card, so there is no video to link or find: the link
+  // field and the match button appear only once the card is Posted (or Analysed)
+  const refreshLinkBlock = () => {
+    const lb = $('#linkblock', m); if (!lb) return;
+    const st = $('#status', m) ? $('#status', m).value : normStatus(post && post.status);
+    lb.hidden = !(['posted', 'analysed'].includes(st) || (post && (post.url || post.result_post_id)));
+  };
+  if ($('#status', m)) $('#status', m).addEventListener('change', refreshLinkBlock);
   const startPublish = async () => {
     await save();
     scheduleDialog(post, {
@@ -1568,6 +1576,7 @@ function postModal(post, defaults, onDone) {
           const st = $('#status', m); if (st) st.value = 'posted';
           post.status = 'posted';
           post.external_post_id = job.external_id || '';
+          refreshLinkBlock();
           toast(job.status === 'scheduled' ? 'Scheduled at provider' : 'Published');
         } else {
           toast(job.error || 'Publish failed', true);
