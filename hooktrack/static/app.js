@@ -9,6 +9,19 @@ const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); r
 const mondayOf = d => addDays(d, -((d.getDay() + 6) % 7));
 const browserTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
 const wsTz = () => (state.me && state.me.workspace && state.me.workspace.timezone) || browserTz();
+// a UTC timestamp read in the WORKSPACE time zone, so a schedule means the same thing whatever the browser's zone is
+const zoneParts = iso => {
+  try {
+    const f = new Intl.DateTimeFormat('en-GB', { timeZone: wsTz(), year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(iso));
+    const g = t => (f.find(x => x.type === t) || {}).value || '';
+    return { date: `${g('year')}-${g('month')}-${g('day')}`, time: `${g('hour') === '24' ? '00' : g('hour')}:${g('minute')}` };
+  } catch { return null; }
+};
+const fmtWhen = iso => {
+  if (!iso) return '';
+  try { return new Intl.DateTimeFormat('en-GB', { timeZone: wsTz(), weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso)); }
+  catch { return String(iso).slice(0, 16); }
+};
 // "now" as a Date whose local fields are the current calendar date in the WORKSPACE time zone
 const nowLocal = () => {
   try { return parseISO(new Intl.DateTimeFormat('en-CA', { timeZone: wsTz(), year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())); }
@@ -1137,7 +1150,7 @@ function postModal(post, defaults, onDone) {
       <div id="baseline" style="margin-top:12px"></div>
       <div id="vidupload" style="margin-top:10px"></div>
       <div id="vidstatus" class="small" style="margin-top:8px">${p.video_url ? `🎬 <a href="${esc(p.video_url)}" target="_blank" rel="noopener">Video ready</a>` : ''}</div>
-      <div id="pubstatus" class="small" style="margin-top:4px">${p.external_post_id ? `📤 Published · ${esc(p.publish_platforms || '')} · id ${esc(p.external_post_id)}` : (p.scheduled_for ? `📅 Scheduled ${esc(String(p.scheduled_for).slice(0,16))}` : '')}</div></div></div></div>
+      <div id="pubstatus" class="small" style="margin-top:4px">${p.external_post_id ? `📤 Published · ${esc(p.publish_platforms || '')} · id ${esc(p.external_post_id)}` : (p.scheduled_for ? `📅 Scheduled ${esc(fmtWhen(p.scheduled_for))} (${esc(wsTz())})` : '')}</div></div></div></div>
     <div class="actions">${post ? '<button class="btn danger" id="del">Delete</button>' : ''}<span class="spacer"></span>
       ${post && post.id ? `${post.external_id ? '' : '<button class="btn" id="dup" title="Duplicate as new idea">Duplicate</button>'}
       ${post.external_id
@@ -1149,7 +1162,8 @@ function postModal(post, defaults, onDone) {
             const why = held ? state.publish.held_message
               : !on ? 'Publishing is not set up on this server yet'
               : !media ? 'Attach a video first: move the card back to Scripted, upload it, then move it to Filmed' : 'Publish to social platforms';
-            return `<button class="btn primary" id="dopub" ${normStatus(p.status) === 'filmed' ? '' : 'hidden'} ${on && media && !held ? '' : 'disabled'} title="${esc(why)}">📤 Publish</button>`;
+            return `<button class="btn primary" id="dopub" ${normStatus(p.status) === 'filmed' ? '' : 'hidden'} ${on && media && !held ? '' : 'disabled'} title="${esc(why)}">📤 Publish</button>
+              <button class="btn primary" id="filmsched" hidden ${on && !held ? '' : 'disabled'} title="The video is attached: mark this card Filmed and choose when it goes out">🎬 Mark filmed &amp; schedule</button>`;
           })()}` : ''}
       <button class="btn" data-close>Cancel</button><button class="btn primary" id="save">Save</button></div>`);
 
@@ -1338,6 +1352,7 @@ function postModal(post, defaults, onDone) {
       const fd = new FormData(); fd.append('file', f);
       const r = await api('POST', `/api/posts/${post.id}/video/upload`, fd);
       post.has_video_file = true; post.video_file_name = r.name; post.video_file_size = r.size; post.video_url = '';
+      if (m._afterUpload) m._afterUpload();
       const vs = $('#vidstatus', m); if (vs) vs.innerHTML = '';
       toast('Matching video uploaded');
       if (onDone) onDone();
@@ -1531,43 +1546,23 @@ function postModal(post, defaults, onDone) {
     toast(r.created ? `Added to Posts as ${PIPE_LABEL[r.status] || r.status}` : 'Already in Posts');
     m.close(); onDone && onDone();
   });
-  if ($('#dopub', m)) $('#dopub', m).onclick = guard(async () => {
+  const hasVideo = () => !!(post && (post.has_video_file || post.video_url));
+  const refreshFilmSched = () => {
+    const fs = $('#filmsched', m); if (!fs) return;
+    const st = $('#status', m) ? $('#status', m).value : normStatus(post && post.status);
+    fs.hidden = !(post && post.id && ['idea', 'scripted'].includes(st) && hasVideo());
+  };
+  refreshFilmSched();
+  if ($('#status', m)) $('#status', m).addEventListener('change', refreshFilmSched);
+  m._afterUpload = refreshFilmSched;
+  const startPublish = async () => {
     await save();
-    const platforms = (state.publish && state.publish.config && state.publish.config.default_platforms) || ['tiktok'];
-    const platStr = Array.isArray(platforms) ? platforms.join(', ') : String(platforms);
-    // default: tomorrow 9:00 local, or empty for "now"
-    const def = new Date(Date.now() + 864e5);
-    def.setMinutes(0, 0, 0);
-    const pad = n => String(n).padStart(2, '0');
-    const localVal = `${def.getFullYear()}-${pad(def.getMonth()+1)}-${pad(def.getDate())}T${pad(def.getHours())}:${pad(def.getMinutes())}`;
-    const sm = openModal(`<h2>Publish / schedule</h2>
-      <p class="muted">Platforms: <b>${esc(platStr)}</b>. Caption and video URL are sent to your publish provider.</p>
-      <div class="fields">
-        <div class="full"><label class="f"><input type="radio" name="when" value="now" checked> Publish now</label></div>
-        <div class="full"><label class="f"><input type="radio" name="when" value="later"> Schedule for</label>
-          <input type="datetime-local" id="sched" value="${localVal}" style="margin-top:6px"></div>
-      </div>
-      <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="pubgo">Go</button></div>`, true);
-    $('#pubgo', sm).onclick = guard(async () => {
-      const later = $$('input[name=when]', sm).find(r => r.checked)?.value === 'later';
-      let schedule_at = null;
-      if (later) {
-        const v = $('#sched', sm).value;
-        if (!v) throw new Error('Pick a date and time');
-        schedule_at = new Date(v).toISOString();
-        if (new Date(schedule_at) <= new Date()) throw new Error('Schedule time must be in the future');
-      }
-      const btn = $('#pubgo', sm);
-      busy(btn, true, later ? 'Scheduling…' : 'Publishing…');
-      try {
-        const body = { platforms: Array.isArray(platforms) ? platforms : undefined };
-        if (schedule_at) body.schedule_at = schedule_at;
-        const job = await api('POST', `/api/posts/${post.id}/publish`, body);
-        sm.close();
+    scheduleDialog(post, {
+      onPublished: job => {
         const el = $('#pubstatus', m);
         if (job.status === 'queued') {
-          if (el) el.textContent = `📅 Scheduled ${esc((job.scheduled_for || schedule_at || '').toString().slice(0, 16))}`;
-          toast('Scheduled — will publish automatically');
+          if (el) el.textContent = `📅 Scheduled ${fmtWhen(job.scheduled_for)} (${wsTz()})`;
+          toast('Scheduled: it will publish automatically');
         } else if (job.status === 'done' || job.status === 'scheduled') {
           if (el) el.textContent = `📤 ${job.status} · id ${job.external_id || ''}`;
           const st = $('#status', m); if (st) st.value = 'posted';
@@ -1577,8 +1572,15 @@ function postModal(post, defaults, onDone) {
         } else {
           toast(job.error || 'Publish failed', true);
         }
-      } finally { busy(btn, false); }
+        if (onDone) onDone();
+      },
     });
+  };
+  if ($('#dopub', m)) $('#dopub', m).onclick = guard(startPublish);
+  if ($('#filmsched', m)) $('#filmsched', m).onclick = guard(async () => {
+    if ($('#status', m)) $('#status', m).value = 'filmed';
+    const pb = $('#dopub', m); if (pb) pb.hidden = false;
+    await startPublish();
   });
 
 if (post) $('#del', m).onclick = guard(async () => {
@@ -1615,6 +1617,65 @@ if (post) $('#del', m).onclick = guard(async () => {
 
 
 
+/* ---------------- publish / schedule dialog ---------------- */
+const PLATFORM_LABEL = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube' };
+// mode 'publish': choose platforms and now/later. mode 'reschedule': move a queued publish to a new time.
+async function scheduleDialog(post, opts = {}) {
+  const resched = opts.mode === 'reschedule';
+  const defaults = (state.publish && state.publish.config && state.publish.config.default_platforms) || ['tiktok'];
+  const acct = state.accounts.find(a => a.id === post.account_id);
+  const own = acct && String(acct.platform || '').toLowerCase();
+  const chosen = new Set(own && PLATFORM_LABEL[own] ? [own] : (Array.isArray(defaults) ? defaults : [String(defaults)]));
+  const zone = wsTz();
+  const sm = openModal(`<h2>${resched ? 'Move to a new time' : 'Publish / schedule'}</h2>
+    ${resched ? '' : `<div class="fields"><div class="full"><label class="f">Publish to</label>
+      <div class="row" style="gap:12px;flex-wrap:wrap">${Object.entries(PLATFORM_LABEL).map(([k, v]) => `<label class="check small"><input type="checkbox" data-plat="${k}" ${chosen.has(k) ? 'checked' : ''}> ${v}</label>`).join('')}</div></div></div>`}
+    <div class="fields">
+      ${resched ? '' : '<div class="full"><label class="f"><input type="radio" name="when" value="now"> Publish now</label></div>'}
+      <div class="full">${resched ? '' : '<label class="f"><input type="radio" name="when" value="later" checked> Schedule for</label>'}
+        <div class="chips" id="slots"><span class="muted small">Finding free times…</span></div>
+        <input type="datetime-local" id="sched" value="" style="margin-top:6px">
+        <div class="small muted" style="margin-top:4px">Time zone: ${esc(zone)} (your workspace setting). Suggested times are free slots for this account.</div></div>
+    </div>
+    <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="pubgo">${resched ? 'Move' : 'Go'}</button></div>`, true);
+  // the dialog is usable at once; free-slot suggestions fill in when they arrive
+  api('GET', `/api/publish/suggest-times?account_id=${post.account_id || ''}&n=4`).then(r => {
+    const box = $('#slots', sm); if (!box) return;
+    const slots = r.slots || [];
+    box.innerHTML = slots.map(x => `<button type="button" class="btn sm" data-slot="${esc(x.local)}">${esc(x.label)}</button>`).join('');
+    if (slots[0] && !$('#sched', sm).value) $('#sched', sm).value = slots[0].local;
+    $$('[data-slot]', box).forEach(b => b.onclick = () => {
+      $('#sched', sm).value = b.dataset.slot;
+      const rd = $$('input[name=when]', sm).find(x => x.value === 'later'); if (rd) rd.checked = true;
+    });
+  }).catch(() => { const box = $('#slots', sm); if (box) box.innerHTML = ''; });
+  $('#pubgo', sm).onclick = guard(async () => {
+    const later = resched || $$('input[name=when]', sm).find(r => r.checked)?.value === 'later';
+    const local = $('#sched', sm).value;
+    if (later) {
+      if (!local) throw new Error('Pick a date and time');
+      const z = zoneParts(new Date().toISOString());
+      if (z && local <= `${z.date}T${z.time}`) throw new Error('Schedule time must be in the future');
+    }
+    const btn = $('#pubgo', sm);
+    busy(btn, true, resched ? 'Moving…' : later ? 'Scheduling…' : 'Publishing…');
+    try {
+      if (resched) {
+        const job = await api('POST', `/api/posts/${post.id}/reschedule`, { schedule_local: local });
+        sm.close(); toast(`Moved to ${fmtWhen(job.scheduled_for)}`); if (opts.onMoved) opts.onMoved(job);
+        return;
+      }
+      const platforms = $$('[data-plat]', sm).filter(c => c.checked).map(c => c.dataset.plat);
+      if (!platforms.length) throw new Error('Choose at least one platform');
+      const body = { platforms };
+      if (later) body.schedule_local = local;
+      const job = await api('POST', `/api/posts/${post.id}/publish`, body);
+      sm.close();
+      if (opts.onPublished) opts.onPublished(job);
+    } finally { busy(btn, false); }
+  });
+}
+
 /* ---------------- scheduled publishes ---------------- */
 pages.scheduled = async app => {
   const [rows, attention] = await Promise.all([
@@ -1628,16 +1689,16 @@ pages.scheduled = async app => {
       <button class="btn sm" data-resolve="${a.id}" data-act="not_posted">It wasn't posted</button>
       <button class="btn sm primary" data-resolve="${a.id}" data-act="posted">It was posted</button></div>`).join('')}</div>` : ''}
   <div class="page-head"><div><h1>Scheduled</h1>
-    <div class="sub">Posts queued to publish later. HookTrack sends them to your provider when due (every ~45s).</div></div>
+    <div class="sub">Posts queued to publish later, in your workspace time zone (${esc(wsTz())}). HookTrack sends them to your provider when due (every ~45s).</div></div>
     <a class="btn" href="#/pipeline">Pipeline</a></div>
     ${rows.length ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Account</th><th>Hook</th><th>Status</th><th>Provider</th><th></th></tr></thead><tbody>
       ${rows.map(r => `<tr>
-        <td>${esc((r.scheduled_for || '').toString().slice(0, 16).replace('T',' '))}</td>
+        <td title="${esc(wsTz())}">${esc(fmtWhen(r.scheduled_for))}</td>
         <td>${esc(r.handle || '—')}</td>
         <td class="wrap">${esc(short(r.hook || r.caption || '', 50))}</td>
         <td>${pill(r.status)}</td>
         <td class="muted">${esc(r.provider || '')}</td>
-        <td><button class="btn sm danger" data-cancel="${r.id}">Cancel</button></td>
+        <td class="row" style="gap:4px;flex-wrap:nowrap">${r.status === 'queued' ? `<button class="btn sm" data-move="${r.post_id}">Reschedule</button>` : ''}<button class="btn sm danger" data-cancel="${r.id}">Cancel</button></td>
       </tr>`).join('')}</tbody></table></div>`
       : '<div class="empty card"><h2>Nothing scheduled</h2><p>Use <b>📤 Publish</b> on a post and choose <b>Schedule for</b>.</p></div>'}`;
   $$('[data-resolve]', app).forEach(b => b.onclick = guard(async () => {
@@ -1645,6 +1706,10 @@ pages.scheduled = async app => {
     if (!await askConfirm(posted ? 'Mark this post as published?' : 'Confirm it was NOT posted? You can then publish it again.', {danger: false, ok: 'Yes'})) return;
     await api('POST', `/api/publish/jobs/${b.dataset.resolve}/resolve`, { action: b.dataset.act });
     toast(posted ? 'Marked as posted' : 'Marked as not posted'); route();
+  }));
+  $$('[data-move]', app).forEach(b => b.onclick = guard(async () => {
+    const row = rows.find(r => r.post_id === +b.dataset.move);
+    scheduleDialog({ id: +b.dataset.move, account_id: row && row.account_id }, { mode: 'reschedule', onMoved: () => route() });
   }));
   $$('[data-cancel]', app).forEach(b => b.onclick = guard(async () => {
     if (!await askConfirm('Cancel this scheduled publish?', {ok: 'Cancel the publish'})) return;
@@ -1705,6 +1770,13 @@ pages.pipeline = async app => {
                 ${p.vsc != null ? `<span>${p.vsc}/30</span>` : ''}
                 ${p.views ? `<span>${fmt(p.views)} views</span>` : ''}
                 ${p.video_url || p.has_video_file ? '<span title="Has video">🎬</span>' : ''}
+                ${(() => {
+                  const vid = !!(p.video_url || p.has_video_file);
+                  if (p.scheduled_for && !p.external_post_id && s === 'filmed') return `<span class="tag good" title="Queued to publish (${esc(wsTz())})">📅 ${esc(fmtWhen(p.scheduled_for))}</span>`;
+                  if (s === 'scripted' && !vid) return '<span class="tag warn" title="Upload the filmed video on this card before it can be scheduled">needs video</span>';
+                  if (['scripted', 'filmed'].includes(s) && vid && !p.external_post_id) return '<span class="tag good" title="The video is attached: open the card to schedule it">ready to schedule</span>';
+                  return '';
+                })()}
                 ${['idea', 'scripted'].includes(s) && p.created_at ? (() => {
                   const d = Math.floor((Date.now() - new Date(p.created_at).getTime()) / 864e5);
                   return `<span class="${d >= 14 ? 'stale' : ''}" title="${d >= 14 ? 'Waiting two weeks or more: film it or delete it' : 'Time on the board'}">${d < 1 ? 'today' : d + 'd'}</span>`;
@@ -1719,8 +1791,14 @@ pages.pipeline = async app => {
                   ${s === 'posted' ? (p.result.settled
                     ? `<button type="button" class="btn sm" data-analyse="${p.id}" title="Move to Analysed and keep this verdict on the hook">Mark analysed</button>`
                     : '<div class="muted small" style="font-weight:500">still settling: verdict in a few days</div>') : ''}</div>`
-                : (['filmed', 'posted'].includes(s) ? `${p.url ? '<div class="pipe-result muted" title="Waiting for the next sync to find this video">⏳ waiting for sync</div>' : ''}
-                  <button type="button" class="btn sm" data-find="${p.id}" title="Match this card to a video the sync has pulled in">🔎 Find my video</button>` : '')}
+                : (s === 'posted' ? (() => {
+                    // a pasted link, or a post HookTrack published itself, is matched by the sync without any help:
+                    // the manual match is only offered when that has had its chance and still found nothing
+                    if (p.url) return '<div class="pipe-result muted" title="The next sync will find this video from the link you pasted">⏳ waiting for sync</div>';
+                    const ageDays = Math.round((parseISO(iso(nowLocal())) - parseISO(p.post_date)) / 864e5);
+                    if (p.external_post_id && ageDays < 3) return '<div class="pipe-result muted" title="HookTrack published this: its link comes back on its own after the next sync">⏳ link coming back</div>';
+                    return `<button type="button" class="btn sm" data-find="${p.id}" title="No link was pasted and the sync has not matched this card: pick the posted video yourself">🔎 Link my video</button>`;
+                  })() : '')}
             </div>`).join('') || '<div class="muted small" style="padding:8px">Drop cards here</div>'}
           </div>
         </div>`;
@@ -1836,18 +1914,24 @@ async function renderPostsCalendar(app, { accountFilter, toggle }) {
   const gridEnd = addDays(gridStart, 41);
   const q = `start=${iso(gridStart)}&end=${iso(gridEnd)}` + (accountFilter ? `&account_id=${accountFilter}` : '');
   const posts = await api('GET', `/api/posts?${q}`);
-  const by = {}; posts.forEach(p => (by[p.post_date] = by[p.post_date] || []).push(p));
+  const queued = p => !!(p.scheduled_for && !p.external_post_id && !p.external_id);   // waiting in HookTrack's queue
+  const dayOf = p => (queued(p) && zoneParts(p.scheduled_for) || {}).date || p.post_date;
+  const by = {}; posts.forEach(p => (by[dayOf(p)] = by[dayOf(p)] || []).push(p));
   const today = iso(nowLocal());
   const cells = [];
   for (let i = 0; i < 42; i++) {
     const d = addDays(gridStart, i), k = iso(d), list = (by[k] || []).slice().reverse();
     cells.push(`<div class="day ${d.getMonth() !== first.getMonth() ? 'out' : ''} ${k === today ? 'today' : ''}" data-day="${k}">
       <div class="dn"><span>${d.getDate()}</span>${list.length ? `<span>${list.length}</span>` : ''}</div>
-      ${list.slice(0, 3).map(p => `<button class="chip ${normStatus(p.status)}" data-id="${p.id}" style="--c:${esc(p.phone_color || 'var(--accent)')}" title="${esc((p.handle || '') + ': ' + p.hook)}">${esc(short(p.hook, 24) || p.handle || '…')}</button>`).join('')}
+      ${list.slice(0, 3).map(p => {
+        const when = queued(p) ? (zoneParts(p.scheduled_for) || {}).time : '';
+        const movable = !p.external_id && !['posted', 'analysed'].includes(normStatus(p.status));
+        return `<button class="chip ${normStatus(p.status)}" data-id="${p.id}" ${movable ? 'draggable="true"' : ''} style="--c:${esc(p.phone_color || 'var(--accent)')}" title="${esc((p.handle || '') + ': ' + p.hook + (when ? ' · publishes ' + fmtWhen(p.scheduled_for) + ' (' + wsTz() + ')' : '') + (movable ? ' · drag to another day to move it' : ''))}">${when ? '📅 ' + esc(when) + ' ' : ''}${esc(short(p.hook, 24) || p.handle || '…')}</button>`;
+      }).join('')}
       ${list.length > 3 ? `<div class="more">+${list.length - 3} more</div>` : ''}</div>`);
   }
   app.innerHTML = `<div class="page-head"><div><h1>Posts</h1>
-    <div class="sub">Plan by day. Same posts as the board — switch views anytime.</div></div>
+    <div class="sub">Plan by day. Same posts as the board — switch views anytime. Drag a card to another day to move it; 📅 cards are queued to publish at that time (${esc(wsTz())}).</div></div>
     <div class="row">
       ${toggle}
       <select id="cf" style="width:auto">${accountOptions(accountFilter, 'All accounts')}</select>
@@ -1863,6 +1947,30 @@ async function renderPostsCalendar(app, { accountFilter, toggle }) {
   $('#today').onclick = () => { const n0 = nowLocal(); state.calMonth = iso(new Date(n0.getFullYear(), n0.getMonth(), 1)); route(); };
   $('#cf').onchange = e => { state.calAccount = e.target.value; state.pipeAccount = e.target.value; route(); };
   $('#plan').onclick = () => planModal();
+  // drag a card to another day: a queued publish keeps its time of day, any other card just changes its date
+  let dragPost = null;
+  $$('.chip[draggable]', app).forEach(c => {
+    c.addEventListener('dragstart', e => { dragPost = posts.find(p => p.id === +c.dataset.id); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', c.dataset.id); } catch (err) { /* ignored */ } });
+    c.addEventListener('dragend', () => { dragPost = null; $$('.day.over', app).forEach(d => d.classList.remove('over')); });
+  });
+  $$('.day', app).forEach(el => {
+    el.addEventListener('dragover', e => { if (dragPost) { e.preventDefault(); el.classList.add('over'); } });
+    el.addEventListener('dragleave', () => el.classList.remove('over'));
+    el.addEventListener('drop', guard(async e => {
+      e.preventDefault(); el.classList.remove('over');
+      const p = dragPost; dragPost = null;
+      if (!p || el.dataset.day === dayOf(p)) return;
+      if (queued(p)) {
+        const t = (zoneParts(p.scheduled_for) || {}).time || '09:00';
+        const job = await api('POST', `/api/posts/${p.id}/reschedule`, { schedule_local: `${el.dataset.day}T${t}` });
+        toast(`Moved to ${fmtWhen(job.scheduled_for)}`);
+      } else {
+        await api('PATCH', `/api/posts/${p.id}`, { post_date: el.dataset.day });
+        toast(`Moved to ${el.dataset.day}`);
+      }
+      route();
+    }));
+  });
   $$('.day', app).forEach(el => el.addEventListener('click', e => {
     const chip = e.target.closest('.chip');
     if (chip) { postModal(posts.find(p => p.id === +chip.dataset.id), null, route); return; }

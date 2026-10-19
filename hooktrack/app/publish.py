@@ -209,9 +209,17 @@ def publish_post(
     *,
     platforms: Optional[list[str]] = None,
     schedule_at: Optional[str] = None,
+    schedule_local: Optional[str] = None,
     dry_run: bool = False,
 ) -> dict:
-    """Publish a HookTrack post via the configured provider. Explicit action only."""
+    """Publish a HookTrack post via the configured provider. Explicit action only.
+
+    schedule_local is a wall-clock time ("2026-10-21T19:00") in the WORKSPACE's time zone; schedule_at is an
+    absolute ISO time. Either one schedules; the local form is what the editor sends, so a user in another
+    browser time zone still gets the time they meant.
+    """
+    if schedule_local and not schedule_at:
+        schedule_at = local_to_utc_iso(workspace_id, schedule_local)
     cfg = get_config(workspace_id)
     if not cfg["enabled"] and not dry_run:
         raise PublishError("Social publish add-on is not enabled")
@@ -685,9 +693,94 @@ def test_connection(workspace_id: int) -> dict:
     return {"ok": True, "message": f"Provider {provider} configured"}
 
 
+# ---------- time zone, rescheduling and suggested slots ----------
+DEFAULT_SLOTS = ["09:00", "13:00", "19:00"]     # local times a post is offered at when the workspace has none of its own
+SLOT_GAP_HOURS = 2                               # an account is never offered a slot this close to one it already has
+SUPPORTED_PLATFORMS = ["tiktok", "instagram", "youtube"]
+
+
+def _tz(workspace_id: int):
+    from zoneinfo import ZoneInfo
+    from . import logic
+    return ZoneInfo(logic.workspace_tz(workspace_id))
+
+
+def _slot_times(workspace_id: int) -> list:
+    conf = (_get_config(workspace_id).get("config") or {})     # one query: the slot list needs no billing or provider checks
+    times = []
+    for t in (conf.get("slots") or DEFAULT_SLOTS):
+        try:
+            hh, mm = str(t).split(":")
+            times.append((int(hh), int(mm)))
+        except ValueError:
+            continue
+    return sorted(set(times)) or [(9, 0), (13, 0), (19, 0)]
+
+
+def local_to_utc_iso(workspace_id: int, local: str) -> str:
+    """A wall-clock time in the workspace's zone -> absolute UTC ISO. Refuses anything that is not a date and time."""
+    try:
+        naive = datetime.fromisoformat(str(local).strip())
+    except ValueError:
+        raise PublishError("Invalid time (use a date and time, e.g. 2026-10-21T19:00)")
+    if naive.tzinfo is not None:
+        return naive.astimezone(timezone.utc).isoformat()
+    return naive.replace(tzinfo=_tz(workspace_id)).astimezone(timezone.utc).isoformat()
+
+
+def reschedule(workspace_id: int, post_id: int, *, schedule_at: Optional[str] = None,
+               schedule_local: Optional[str] = None) -> dict:
+    """Move a post's still-queued publish to a new time. A job the provider already holds cannot be moved here."""
+    if schedule_local and not schedule_at:
+        schedule_at = local_to_utc_iso(workspace_id, schedule_local)
+    when = _parse_schedule(schedule_at)
+    if not when:
+        raise PublishError("Pick a date and time")
+    if when <= datetime.now(timezone.utc):
+        raise PublishError("The new time must be in the future")
+    row = db.one(
+        """UPDATE publish_jobs SET scheduled_for=%s, updated_at=now()
+           WHERE workspace_id=%s AND post_id=%s AND status='queued' RETURNING *""",
+        (when, workspace_id, post_id))
+    if not row:
+        raise PublishError("This post has no queued publish to move. If it was scheduled at the provider, "
+                           "cancel it on the Scheduled page and schedule it again.")
+    db.execute("UPDATE posts SET scheduled_for=%s WHERE id=%s AND workspace_id=%s", (when, post_id, workspace_id))
+    return _job_out(row)
+
+
+def suggest_slots(workspace_id: int, account_id: Optional[int] = None, n: int = 4, days: int = 7) -> list:
+    """The next free slots for an account: the workspace's slot times, skipping the past and anything within
+    SLOT_GAP_HOURS of a publish that account already has queued. These are scheduling defaults, not a prediction."""
+    from datetime import timedelta
+    tz = _tz(workspace_id)
+    times = _slot_times(workspace_id)
+    taken = [r["scheduled_for"] for r in db.query(
+        """SELECT j.scheduled_for FROM publish_jobs j JOIN posts p ON p.id = j.post_id
+           WHERE j.workspace_id=%s AND j.status='queued' AND j.scheduled_for IS NOT NULL
+             AND (%s::int IS NULL OR p.account_id = %s)""", (workspace_id, account_id, account_id))]
+    now = datetime.now(timezone.utc)
+    today = now.astimezone(tz).date()
+    out = []
+    for d in range(days + 1):
+        day = today + timedelta(days=d)
+        for hh, mm in times:
+            local = datetime(day.year, day.month, day.day, hh, mm, tzinfo=tz)
+            utc = local.astimezone(timezone.utc)
+            if utc < now + timedelta(minutes=15):
+                continue
+            if any(abs((utc - t).total_seconds()) < SLOT_GAP_HOURS * 3600 for t in taken):
+                continue
+            out.append({"local": local.strftime("%Y-%m-%dT%H:%M"), "utc": utc.isoformat(),
+                        "label": local.strftime("%a %d %b, %H:%M")})
+            if len(out) >= n:
+                return out
+    return out
+
+
 def list_scheduled(workspace_id: int, limit: int = 100) -> list:
     rows = db.query(
-        """SELECT j.*, p.hook, p.caption, p.video_url, p.status AS post_status, a.handle
+        """SELECT j.*, p.hook, p.caption, p.video_url, p.status AS post_status, p.account_id, a.handle
            FROM publish_jobs j
            JOIN posts p ON p.id = j.post_id
            LEFT JOIN accounts a ON a.id = p.account_id

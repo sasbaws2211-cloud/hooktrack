@@ -1626,6 +1626,7 @@ class PublishConfigIn(BaseModel):
 class PublishIn(BaseModel):
     platforms: Optional[list[str]] = None
     schedule_at: Optional[str] = None  # ISO datetime if scheduling
+    schedule_local: Optional[str] = None  # wall-clock time in the workspace's zone, e.g. 2026-10-21T19:00
     dry_run: bool = False
 
 
@@ -1705,6 +1706,7 @@ def post_publish(pid: int, b: PublishIn = PublishIn(), ctx: Ctx = Depends(curren
             ctx.workspace_id, pid,
             platforms=b.platforms,
             schedule_at=b.schedule_at,
+            schedule_local=b.schedule_local,
             dry_run=b.dry_run,
         )
     except publish.PublishError as e:
@@ -1740,6 +1742,27 @@ def post_publish_status(pid: int, ctx: Ctx = Depends(current)):
 def publish_scheduled_list(ctx: Ctx = Depends(current)):
     """Upcoming HookTrack-queued or provider-scheduled publish jobs."""
     return publish.list_scheduled(ctx.workspace_id)
+
+
+class RescheduleIn(BaseModel):
+    schedule_at: Optional[str] = None
+    schedule_local: Optional[str] = None
+
+
+@app.post("/api/posts/{pid}/reschedule")
+def post_reschedule(pid: int, b: RescheduleIn, ctx: Ctx = Depends(current)):
+    """Move a queued publish to a new time (calendar drag, Scheduled page)."""
+    try:
+        return publish.reschedule(ctx.workspace_id, pid, schedule_at=b.schedule_at, schedule_local=b.schedule_local)
+    except publish.PublishError as e:
+        raise HTTPException(e.status or 400, str(e))
+
+
+@app.get("/api/publish/suggest-times")
+def publish_suggest_times(account_id: Optional[int] = None, n: int = 4, ctx: Ctx = Depends(current)):
+    """Next free publish slots for an account, in the workspace's time zone."""
+    slots = publish.suggest_slots(ctx.workspace_id, account_id, max(1, min(12, n)))
+    return {"timezone": logic.workspace_tz(ctx.workspace_id), "slots": slots}
 
 
 @app.delete("/api/publish/scheduled/{jid}")
