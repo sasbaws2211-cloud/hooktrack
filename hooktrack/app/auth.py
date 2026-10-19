@@ -426,7 +426,7 @@ def digest_preview(ctx: Ctx = Depends(admin)):
     from . import digest, mailer
     d = digest.build(ctx.workspace_id)
     name = (db.one("SELECT name FROM workspaces WHERE id=%s", (ctx.workspace_id,)) or {}).get("name") or "Your workspace"
-    subject, text = digest.render(d, name, mailer.public_url() or "http://localhost", digest.unsubscribe_token(ctx.user_id))
+    subject, text = digest.render(d, name, mailer.public_url() or "https://hooktrack.site", digest.unsubscribe_token(ctx.user_id))
     sent = mailer.send(ctx.email, f"[Preview] {subject}", text) if mailer.configured() else False
     return {"subject": subject, "text": text, "sent": sent, "empty": d["empty"]}
 

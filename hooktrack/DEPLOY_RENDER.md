@@ -53,7 +53,7 @@ sync/digest/backup/publish loops that run inside the app process. Do not use fre
 | `HOOKTRACK_SECRET` | both, **identical** | auto-generated on `hooktrack`; copy it into `hooktrack-admin`. **Back it up**: losing it makes stored API keys undecryptable |
 | `HOOKTRACK_SECURE_COOKIES` | both | `1` |
 | `HOOKTRACK_TRUSTED_PROXIES` | both | `1` (Render has one proxy; makes per-IP signup limits work) |
-| `HOOKTRACK_PUBLIC_URL` | both | e.g. `https://hooktrack.onrender.com` or your custom domain (used in email/invite/report links) |
+| `HOOKTRACK_PUBLIC_URL` | both | `https://hooktrack.site` (used in email/invite/report links) |
 | `HOOKTRACK_ALLOWED_ORIGINS` | hooktrack | extra trusted hosts, e.g. your custom domain |
 | `HOOKTRACK_ADMIN_EMAIL` / `HOOKTRACK_ADMIN_PASSWORD` | admin | first platform admin (10+ char password); only used while none exists. Remove the password var afterwards |
 | `HOOKTRACK_OPS_EMAIL` | hooktrack | where balance/backup alerts go |
