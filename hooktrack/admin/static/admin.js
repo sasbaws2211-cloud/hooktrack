@@ -375,7 +375,7 @@ pages.settings = async app => {
         ? '<span class="badge good">enforced</span> New workspaces cannot sync until the owner clicks the link we email. People who signed up before this existed are treated as confirmed.'
         : (s.signup_protection.email_configured
           ? '<span class="badge warn">off</span> Ticked is needed to enforce it.'
-          : '<span class="badge warn">not enforced</span> This server cannot send email yet (set HOOKTRACK_SMTP_HOST and HOOKTRACK_PUBLIC_URL), so nobody could confirm. It switches on by itself once email works.')}
+          : '<span class="badge warn">not enforced</span> This server cannot send email yet (set RESEND_API_KEY, HOOKTRACK_EMAIL_FROM and HOOKTRACK_PUBLIC_URL), so nobody could confirm. It switches on by itself once email works.')}
         ${s.signup_protection.unverified_users ? `${fmt(s.signup_protection.unverified_users)} user(s) have not confirmed.` : ''}</p>
       <label class="f">New accounts allowed per network address per day (0 = no limit)</label>
       <input id="spip" type="number" min="0" max="1000" value="${esc(s.signup_protection.ip_daily_limit)}" style="max-width:160px">

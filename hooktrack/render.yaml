@@ -1,0 +1,79 @@
+# Render Blueprint. Repo root is the folder that contains `hooktrack/`, so rootDir points at it.
+databases:
+  - name: hooktrack-db
+    plan: basic-256mb        # free Postgres expires after 30 days; do not use it for real data
+    databaseName: hooktrack
+    user: hooktrack
+
+services:
+  - type: web
+    name: hooktrack
+    runtime: python
+    plan: starter            # must stay awake: sync, digest, backup and publish loops run inside this process
+    rootDir: hooktrack
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    disk:                    # keeps uploads + backups across deploys
+      name: hooktrack-data
+      mountPath: /var/data
+      sizeGB: 5
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL
+        fromDatabase: { name: hooktrack-db, property: connectionString }
+      - key: HOOKTRACK_SECRET
+        generateValue: true
+      - key: HOOKTRACK_SECURE_COOKIES
+        value: "1"
+      - key: HOOKTRACK_TRUSTED_PROXIES
+        value: "1"
+      - key: HOOKTRACK_BACKUP_DIR
+        value: /var/data/backups
+      - key: HOOKTRACK_PUBLIC_URL
+        sync: false
+      - key: HOOKTRACK_ALLOWED_ORIGINS
+        sync: false
+      - key: HOOKTRACK_OPS_EMAIL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: HOOKTRACK_MODEL
+        value: claude-sonnet-5-5
+      - key: HOOKTRACK_SOCIAVAULT_API_KEY
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: HOOKTRACK_LATE_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: HOOKTRACK_EMAIL_FROM
+        sync: false
+
+  - type: web
+    name: hooktrack-admin
+    runtime: python
+    plan: starter
+    rootDir: hooktrack
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn admin.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL
+        fromDatabase: { name: hooktrack-db, property: connectionString }
+      - key: HOOKTRACK_SECRET            # MUST equal the hooktrack service's value (copy it across)
+        sync: false
+      - key: HOOKTRACK_SECURE_COOKIES
+        value: "1"
+      - key: HOOKTRACK_TRUSTED_PROXIES
+        value: "1"
+      - key: HOOKTRACK_ADMIN_EMAIL
+        sync: false
+      - key: HOOKTRACK_ADMIN_PASSWORD
+        sync: false
+      - key: HOOKTRACK_PUBLIC_URL
+        sync: false
