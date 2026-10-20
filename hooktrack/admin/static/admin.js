@@ -356,13 +356,15 @@ pages.settings = async app => {
         <button class="btn" id="egcheck">Check</button><button class="btn primary" id="egsave">Save</button></div>
       <div id="egres" class="small" style="margin-top:6px"></div></div>
     <div class="card" style="margin-top:12px"><h2>Display exchange rate (USD)</h2>
-      <p class="small muted" style="margin:0 0 6px">Customers see plan prices as an approximate dollar amount with the real charge below it. This is display only: nothing is ever charged using this rate.</p>
+      <p class="small muted" style="margin:0 0 6px">Customers see plan prices as an approximate dollar amount with the real charge below it. The rate is also used to convert the price at checkout when you pick a currency under "Charge customers in" below.</p>
       ${s.fx.currencies.map(c => `<div class="row" style="margin-top:8px"><span style="min-width:90px">1 USD =</span>
         <input data-fx="${esc(c)}" type="number" min="0" step="0.01" value="${esc(s.fx.rates[c] ?? '')}" placeholder="e.g. 15.50" style="max-width:160px"><b>${esc(c)}</b></div>`).join('')}
       <div class="row" style="margin-top:8px"><span style="min-width:90px">1 USD =</span>
         <input id="fxnewrate" type="number" min="0" step="0.01" placeholder="rate" style="max-width:160px">
         <input id="fxnewcode" maxlength="3" placeholder="GHS" style="max-width:80px;text-transform:uppercase"><span class="muted small">add a currency</span></div>
       <div class="actions"><button class="btn primary" id="savefx">Save rate</button></div>
+      ${!s.fx.charge_currency && s.fx.rate_currencies.length
+        ? `<div class="notice" style="margin-top:12px;border-color:var(--bad, #ef4444)"><b>Customers are still being charged in USD.</b> You have set a ${esc(s.fx.rate_currencies.join(', '))} rate, but the box below is still on USD. If your Paystack account cannot take USD, payments will fail until you choose ${esc(s.fx.rate_currencies[0])} below and press Save, then press <b>Test key</b> under Billing.</div>` : ''}
       <label class="f" style="margin-top:12px">Charge customers in</label>
       <div class="row" style="gap:8px"><select id="chcur" style="max-width:220px"><option value="">The plan's own currency (USD)</option>
         ${s.fx.rate_currencies.map(c => `<option value="${esc(c)}" ${s.fx.charge_currency === c ? 'selected' : ''}>${esc(c)} (converted at the rate above)</option>`).join('')}</select>

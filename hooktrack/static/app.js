@@ -2450,7 +2450,8 @@ const priceBlock = (p, fx) => {
   const per = `<span class="muted small" style="font-weight:400"> / ${esc(p.interval)}</span>`;
   if (p.charge_currency && p.charge_currency !== p.currency) {      // priced in USD, charged in local currency
     return `<div style="margin:6px 0"><div style="font-size:22px;font-weight:700">${fmtMoney(p.price_minor, p.currency)}${per}</div>
-      <div class="muted" style="font-size:12px;margin-top:2px" title="This is the amount you are actually charged, at today's rate">≈ ${fmtMoney(p.charge_minor, p.charge_currency)} charged</div></div>`;
+      <div style="font-size:17px;font-weight:600;margin-top:2px;color:var(--accent)" title="This is the amount you are actually charged, at today's rate">≈ ${fmtMoney(p.charge_minor, p.charge_currency)}${per}</div>
+      <div class="muted" style="font-size:11.5px">charged at checkout, at today's rate</div></div>`;
   }
   const rate = fx[p.currency];
   if (p.currency === 'USD' || !rate) return `<div style="font-size:22px;font-weight:700;margin:6px 0">${fmtMoney(p.price_minor, p.currency)}${per}</div>`;
@@ -2551,7 +2552,7 @@ async function openPlanPicker(opts = {}) {
       ${shown.map(t => { const p = t.plan; return `<div class="card" style="margin:0;${[t.monthly, t.yearly].some(x => x && x.code === b.plan.code) && b.state === 'paid' ? 'border-color:var(--accent)' : ''}">
         <h3 style="margin:0">${esc(planTierName(t))}</h3>
         ${priceBlock(p, b.fx_usd || {})}
-        ${p.interval === 'year' && p.price_minor ? `<div class="muted small" style="margin-top:-2px">${fmtMoney(Math.round(p.price_minor / 12), p.currency)} / month, billed yearly${t.save ? ` · <b>save ${t.save}%</b>` : ''}</div>` : ''}
+        ${p.interval === 'year' && p.price_minor ? `<div class="muted small" style="margin-top:-2px">${fmtMoney(Math.round(p.price_minor / 12), p.currency)} / month${p.charge_currency && p.charge_currency !== p.currency ? ` (≈ ${fmtMoney(Math.round(p.charge_minor / 12), p.charge_currency)})` : ''}, billed yearly${t.save ? ` · <b>save ${t.save}%</b>` : ''}</div>` : ''}
         <ul style="padding-left:18px;margin:8px 0;font-size:13px"><li>${lim(p.max_accounts)} accounts</li><li>${lim(p.max_members)} team member${p.max_members === 1 ? '' : 's'}</li><li>${lim(p.max_ai_calls)} AI requests / month</li></ul>
         ${p.price_minor ? `<button type="button" class="btn primary" style="width:100%" data-pick="${esc(p.code)}" ${b.can_manage && b.payments_ready ? '' : 'disabled'}>${p.code === b.plan.code && b.state === 'paid' ? 'Renew' : 'Choose ' + esc(planTierName(t))}</button>` : ''}
       </div>`; }).join('')}</div>
@@ -2621,7 +2622,7 @@ pages.billing = async app => {
     ${shown.map(t => { const p = t.plan; return `<div class="card" style="${[t.monthly, t.yearly].some(x => x && x.code === b.plan.code) ? 'border-color:var(--accent)' : ''}">
       <h2 style="margin:0">${esc(planTierName(t))}</h2>
       ${priceBlock(p, b.fx_usd || {})}
-      ${p.interval === 'year' && p.price_minor ? `<div class="muted small" style="margin-top:-2px">${money(Math.round(p.price_minor / 12), p.currency)} / month, billed yearly${t.save ? ` · <b>save ${t.save}%</b>` : ''}</div>` : ''}
+      ${p.interval === 'year' && p.price_minor ? `<div class="muted small" style="margin-top:-2px">${money(Math.round(p.price_minor / 12), p.currency)} / month${p.charge_currency && p.charge_currency !== p.currency ? ` (≈ ${money(Math.round(p.charge_minor / 12), p.charge_currency)})` : ''}, billed yearly${t.save ? ` · <b>save ${t.save}%</b>` : ''}</div>` : ''}
       ${!t.exact ? `<div class="muted small">${iv === 'year' ? 'Billed monthly only' : 'Billed yearly only'}</div>` : ''}
       <div class="muted small">${esc(p.description)}</div>
       <ul style="padding-left:18px;margin:8px 0"><li>${lim(p.max_accounts)} accounts</li><li>${lim(p.max_members)} team members</li><li>${lim(p.max_ai_calls)} AI requests / month</li><li>${lim(p.max_connected)} connected publishing account${p.max_connected === 1 ? '' : 's'}</li><li>${lim(p.max_credits)} data credits / month</li><li>${p.max_reports === 0 ? 'No shareable client reports' : lim(p.max_reports) + ' shareable client report' + (p.max_reports === 1 ? '' : 's')}</li></ul>

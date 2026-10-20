@@ -108,6 +108,8 @@ section.alt .card{background:var(--bg)}
 .plan{display:flex;flex-direction:column}
 .plan .price{font-size:40px;font-weight:800;letter-spacing:-.02em;margin-top:12px}
 .plan .price small{font-size:16px;font-weight:500;color:var(--muted)}
+.plan .local-price{font-size:20px;font-weight:700;color:var(--accent-strong, var(--accent));margin-top:2px}
+.plan .local-price small{font-size:14px;font-weight:500;color:var(--muted)}
 .plan .charged{font-size:13px;color:var(--muted);min-height:20px}
 .plan ul{list-style:none;margin:18px 0 22px;padding:0;display:grid;gap:10px;flex:1}
 .plan li{display:flex;gap:10px;font-size:15px}
@@ -335,16 +337,17 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
       var popular = order.length >= 3 ? 1 : (order.length > 1 ? 0 : -1);   // the middle tier of three
       host.innerHTML = order.map(function (k, i) {
         var t = tiers[k], pl = t[interval] || t.month || t.year, exact = !!t[interval];
-        var charged = (pl.charge_currency && pl.charge_currency !== pl.currency)
-          ? '≈ ' + money(pl.charge_minor, pl.charge_currency) + ' charged at checkout' : '';
+        var local = (pl.charge_currency && pl.charge_currency !== pl.currency);
+        var charged = local ? 'Charged at checkout at today\u2019s rate' : '';
         var name = (pl.interval === 'year' && t.month ? t.month.name : pl.name).replace(/\s*\((yearly|annual|annually)\)\s*$/i, '');
         var perMonth = (pl.interval === 'year' && pl.price_minor)
-          ? money(Math.round(pl.price_minor / 12), pl.currency) + ' / month, billed yearly' + (t.save > 0 ? ' · save ' + t.save + '%' : '') : '';
+          ? money(Math.round(pl.price_minor / 12), pl.currency) + (local ? ' (≈ ' + money(Math.round(pl.charge_minor / 12), pl.charge_currency) + ')' : '') + ' / month, billed yearly' + (t.save > 0 ? ' · save ' + t.save + '%' : '') : '';
         var only = exact ? '' : (interval === 'year' ? 'Billed monthly only' : 'Billed yearly only');
         return '<div class="card plan' + (i === popular ? ' pop' : '') + '">' +
           '<h3>' + esc(name) + (i === popular ? '<span class="badge">Most popular</span>' : '') + '</h3>' +
           '<p>' + esc(pl.description) + '</p>' +
           '<div class="price">' + money(pl.price_minor, pl.currency) + '<small> / ' + esc(pl.interval) + '</small></div>' +
+          (local ? '<div class="local-price">≈ ' + money(pl.charge_minor, pl.charge_currency) + '<small> / ' + esc(pl.interval) + '</small></div>' : '') +
           '<div class="charged">' + esc([perMonth || only, charged].filter(Boolean).join(' · ')) + '</div>' +
           '<ul>' +
           '<li><span class="check">✓</span>' + esc(lim(pl.max_accounts, 'account', 'accounts')) + '</li>' +
