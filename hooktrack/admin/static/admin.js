@@ -366,10 +366,10 @@ pages.settings = async app => {
       ${!s.fx.charge_currency && s.fx.rate_currencies.length
         ? `<div class="notice" style="margin-top:12px;border-color:var(--bad, #ef4444)"><b>Customers are still being charged in USD.</b> You have set a ${esc(s.fx.rate_currencies.join(', '))} rate, but the box below is still on USD. If your Paystack account cannot take USD, payments will fail until you choose ${esc(s.fx.rate_currencies[0])} below and press Save, then press <b>Test key</b> under Billing.</div>` : ''}
       <label class="f" style="margin-top:12px">Charge customers in</label>
-      <div class="row" style="gap:8px"><select id="chcur" style="max-width:220px"><option value="">The plan's own currency (USD)</option>
-        ${s.fx.rate_currencies.map(c => `<option value="${esc(c)}" ${s.fx.charge_currency === c ? 'selected' : ''}>${esc(c)} (converted at the rate above)</option>`).join('')}</select>
+      <div class="row" style="gap:8px"><select id="chcur" style="max-width:220px"><option value="">USD: no conversion (plans are priced in USD)</option>
+        ${s.fx.rate_currencies.map(c => `<option value="${esc(c)}" ${s.fx.charge_currency === c ? 'selected' : ''}>${esc(c)}: convert at 1 USD = ${esc(s.fx.rates[c])} ${esc(c)}</option>`).join('')}</select>
         <button class="btn" id="savechcur">Save</button></div>
-      <p class="small muted" style="margin:6px 0 0">Use this when your Paystack account cannot take USD (for example a GHS-only account). Plans stay priced in USD; at checkout the customer is charged the converted amount in this currency at today's rate.</p></div>
+      <p class="small muted" style="margin:6px 0 0">Pick GHS here when your Paystack account cannot take USD (for example a GHS-only account), then press Save. If GHS is not in the list, save its rate above first. Plans stay priced in USD; at checkout the customer is charged the converted amount in this currency at today's rate.</p></div>
     <div class="card" style="margin-top:12px"><h2>Sign-up protection</h2>
       <p class="small muted" style="margin:0 0 6px">A free trial spends your SociaVault credits, so people will try to farm it.</p>
       <label class="check" style="margin-top:0"><input type="checkbox" id="spver" ${s.signup_protection.require_verification ? 'checked' : ''}> Require a confirmed email before the first sync</label>
