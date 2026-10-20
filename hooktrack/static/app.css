@@ -426,3 +426,20 @@ input.sv, td.sv input { border-color: var(--accent); }
 .tag.warn { background: rgba(245, 158, 11, .18); color: #b45309; }
 .cal .day.over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .chip[draggable="true"] { cursor: grab; }
+
+/* page-change feedback: a progress bar, a page-shaped placeholder, and a short fade-in */
+#loadbar { position: fixed; top: 0; left: 0; height: 3px; width: 100%; z-index: 120; pointer-events: none; transform-origin: left; background: var(--accent); }
+#loadbar[hidden] { display: none; }
+#loadbar.run { animation: lb-run 1.6s cubic-bezier(.2, .7, .2, 1) forwards; }
+#loadbar.done { animation: none; transform: scaleX(1); opacity: 0; transition: opacity .25s ease .05s; }
+@keyframes lb-run { 0% { transform: scaleX(0); } 25% { transform: scaleX(.45); } 70% { transform: scaleX(.8); } 100% { transform: scaleX(.92); } }
+.skel { border-radius: 8px; background: linear-gradient(90deg, var(--surface-2) 25%, color-mix(in srgb, var(--surface-2) 55%, var(--surface)) 50%, var(--surface-2) 75%); background-size: 200% 100%; animation: skel-shimmer 1.3s ease-in-out infinite; }
+.skel-row { display: flex; gap: 22px; padding: 12px 4px; border-bottom: 1px solid var(--border); }
+.skel-row:last-child { border-bottom: 0; }
+.skel-wrap .pipeline { margin-top: 14px; }
+@keyframes skel-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+#app.page-in { animation: page-in .22s ease-out; }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  #app.page-in { animation: none; } .skel { animation: none; } #loadbar.run { animation-duration: 0s; transform: scaleX(.6); }
+}

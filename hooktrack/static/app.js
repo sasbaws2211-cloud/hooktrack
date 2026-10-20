@@ -336,7 +336,13 @@ const scoreSourceChip = p => {
 
 const accColor = id => (state.accounts.find(a => a.id === id) || {}).phone_color || 'var(--accent)';
 
-async function loadBase() {
+// Moving through pages quickly must not start the same eight requests again for each one: share the load in flight.
+let baseInFlight = null;
+function loadBase() {
+  if (!baseInFlight) baseInFlight = loadBaseNow().finally(() => { baseInFlight = null; });
+  return baseInFlight;
+}
+async function loadBaseNow() {
   [state.accounts, state.phones, state.settings, state.ai, state.sv, state.publish, state.queued, state.clientList] = await Promise.all([
     api('GET', '/api/accounts'), api('GET', '/api/phones'), api('GET', '/api/settings'),
     api('GET', '/api/ai/status'),
@@ -392,6 +398,53 @@ function sectionStrip(tab) {
   app.insertBefore(el, app.firstChild);
 }
 
+/* ---------------- page-change feedback ----------------
+   Moving between pages waits on the server, and the old page used to just sit there until the new one replaced it in one
+   jump. Now a thin progress bar starts at once, and a page-shaped placeholder appears if the wait is longer than a blink
+   (fast loads show neither, so nothing flickers). A re-render of the page you are already on only gets the bar. */
+let routeSeq = 0, lastRouteTab = null, loadingTab = null;
+function loadBar() {
+  let el = $('#loadbar');
+  if (!el) { el = document.createElement('div'); el.id = 'loadbar'; el.hidden = true; document.body.appendChild(el); }
+  return el;
+}
+function skeletonFor(tab) {
+  const block = (h, w = '100%') => `<div class="skel" style="height:${h}px;width:${w}"></div>`;
+  const cards = n => `<div class="grid kpis">${Array.from({ length: n }, () => `<div class="card">${block(12, '45%')}${block(30, '70%')}${block(10, '55%')}</div>`).join('')}</div>`;
+  const rows = n => `<div class="card" style="margin-top:14px">${Array.from({ length: n }, () => `<div class="skel-row">${block(14, '22%')}${block(14, '38%')}${block(14, '14%')}${block(14, '12%')}</div>`).join('')}</div>`;
+  const head = `<div class="page-head"><div>${block(30, '220px')}<div style="height:8px"></div>${block(12, '320px')}</div></div>`;
+  if (tab === 'pipeline') return `<div class="skel-wrap" aria-busy="true">${head}<div class="pipeline">${Array.from({ length: 5 }, () => `<div class="pipe-col">${block(14, '50%')}<div style="height:10px"></div>${block(64)}<div style="height:8px"></div>${block(64)}</div>`).join('')}</div></div>`;
+  if (tab === 'dashboard') return `<div class="skel-wrap" aria-busy="true">${head}${cards(4)}${rows(4)}</div>`;
+  return `<div class="skel-wrap" aria-busy="true">${head}${rows(6)}</div>`;
+}
+function startRouteLoading(tab) {
+  const my = ++routeSeq, navigating = tab !== lastRouteTab;
+  loadingTab = tab;
+  const bar = loadBar(); bar.hidden = false; bar.className = 'run';
+  const app = $('#app');
+  if (navigating && app) {
+    setTimeout(() => {
+      if (my !== routeSeq || bar.hidden) return;            // it finished (or another page change took over)
+      app.classList.remove('page-in'); app.innerHTML = skeletonFor(tab);
+    }, 180);
+  }
+  return my;
+}
+function endRouteLoading(my, tab) {
+  if (my !== routeSeq) {                                       // a newer page change owns the bar now
+    // this older page may have just drawn itself over the newer one's placeholder: put the placeholder back
+    const stale = $('#app');
+    if (loadingTab && stale) { stale.classList.remove('page-in'); stale.innerHTML = skeletonFor(loadingTab); }
+    return;
+  }
+  loadingTab = null;
+  const bar = loadBar(); bar.className = 'done';
+  setTimeout(() => { if (my === routeSeq) { bar.hidden = true; bar.className = ''; } }, 260);
+  lastRouteTab = tab;
+  const app = $('#app');
+  if (app) { app.classList.remove('page-in'); void app.offsetWidth; app.classList.add('page-in'); }
+}
+
 async function route() {
   const hash = location.hash.replace('#/', '');
   if (hash.startsWith('invite/')) return renderInvite(hash.slice(7));
@@ -413,9 +466,10 @@ async function route() {
   const NAV_HOME = { today: 'accounts', views: 'accounts', calendar: 'pipeline', scheduled: 'pipeline', billing: 'settings' };
   const navTab = NAV_HOME[tab] || (pages[tab] ? tab : 'dashboard');
   $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.tab === navTab));
+  const myLoad = startRouteLoading(tab);
   try { await loadBase(); await page($('#app')); sectionStrip(tab); showCoachTip(); } catch (e) {
-    if (state.me) $('#app').innerHTML = `<div class="empty"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div>`;
-  }
+    if (state.me && myLoad === routeSeq) $('#app').innerHTML = `<div class="empty"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div>`;
+  } finally { endRouteLoading(myLoad, tab); }
 }
 window.addEventListener('hashchange', route);
 window.addEventListener('keydown', e => {
