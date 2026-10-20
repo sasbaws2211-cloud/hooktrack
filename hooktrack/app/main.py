@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import activation, ai, auth, baseline, billing, crypto, db, demo, legal, logic, media, publish, sociavault, vaultwatch
+from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, legal, logic, media, publish, sociavault, vaultwatch
 from . import backup, digest, reports
 from .auth import Ctx, admin, current
 from .import_xlsx import import_workbook
@@ -136,6 +136,7 @@ async def _maintenance_loop():
 @asynccontextmanager
 async def lifespan(_app):
     db.init_schema()
+    log.info("cache backend: %s", cache.status()["backend"])
     tasks = [asyncio.create_task(_maintenance_loop())]
     tasks.append(asyncio.create_task(_sync_scheduler_loop()))   # checks the (runtime-editable) schedule each tick
     cfg = sociavault.schedule_config()
@@ -156,6 +157,17 @@ async def lifespan(_app):
 
 app = FastAPI(title="HookTrack", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1024)   # app.js is ~200 KB; no streaming responses exist
+
+
+@app.middleware("http")
+async def invalidate_cache_on_write(request: Request, call_next):
+    """Any API write that went through (or may have half gone through) makes this workspace's cached reads stale."""
+    resp = await call_next(request)
+    if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith("/api/"):
+        ws = getattr(request.state, "ws", None)
+        if ws and (resp.status_code < 400 or resp.status_code >= 500):
+            await asyncio.to_thread(cache.bump, ws)
+    return resp
 
 
 @app.middleware("http")

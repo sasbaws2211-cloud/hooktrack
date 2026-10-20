@@ -419,11 +419,12 @@ pages.settings = async app => {
       <div><label class="f">New (10+ characters)</label><input id="pnew" type="password" autocomplete="new-password"></div></div>
       <div class="actions"><button class="btn" id="savepw">Change password</button></div></div>`;
   $('#savebill').onclick = guard(async () => {
-    await api('PUT', '/settings/billing', { enabled: $('#ben').checked, paystack_key: $('#psk').value || null });
+    const r = await api('PUT', '/settings/billing', { enabled: $('#ben').checked, paystack_key: $('#psk').value || null });
+    if (r.currency_check && !r.currency_check.ok) { toast('Saved, but customers cannot pay yet: ' + r.currency_check.message, true); return route(); }
     toast('Billing settings saved'); route();
   });
   if ($('#psclear')) $('#psclear').onclick = guard(async () => { await api('PUT', '/settings/billing', { clear_paystack_key: true }); toast('Key removed'); route(); });
-  $('#pstest').onclick = guard(async () => { const r = await api('POST', '/settings/paystack/test'); toast(r.message); });
+  $('#pstest').onclick = guard(async () => { const r = await api('POST', '/settings/paystack/test'); toast(r.message, !r.ok); });
   $('#runren').onclick = guard(async () => {
     const r = await api('POST', '/actions/run-renewals'); const o = r.result;
     toast(`Renewals: ${o.renewed} renewed, ${o.pending} pending, ${o.failed} failed, ${o.skipped} skipped`);

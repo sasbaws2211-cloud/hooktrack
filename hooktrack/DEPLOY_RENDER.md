@@ -50,6 +50,8 @@ sync/digest/backup/publish loops that run inside the app process. Do not use fre
 | Var | Service | Value |
 |---|---|---|
 | `DATABASE_URL` | both | auto-linked to hooktrack-db |
+| `REDIS_URL` | both | optional cache: the **Internal** URL of a Render Key Value (Redis) instance. Both services must use the same one. Unset = in-memory cache per process |
+| `HOOKTRACK_CACHE` | both | `0` turns the cache off completely (default on) |
 | `HOOKTRACK_SECRET` | both, **identical** | auto-generated on `hooktrack`; copy it into `hooktrack-admin`. **Back it up**: losing it makes stored API keys undecryptable |
 | `HOOKTRACK_SECURE_COOKIES` | both | `1` |
 | `HOOKTRACK_TRUSTED_PROXIES` | both | `1` (Render has one proxy; makes per-IP signup limits work) |
@@ -95,3 +97,14 @@ If you restore local data, set Render's `HOOKTRACK_SECRET` to your local one (th
 
 ## 7. Updating
 Push to the connected branch; Render auto-deploys. Schema upgrades run at startup.
+
+## Redis cache (faster pages)
+HookTrack caches its heaviest reads (the dashboard, hook performance numbers, workspace settings and time zone) for up to a
+minute, and clears a workspace's cache the moment anything in it changes.
+- **Create it:** New -> **Key Value** -> name `hooktrack-cache`, same **region** as the app and database, plan Free (it holds only
+  throwaway cache data), then copy its **Internal Redis URL** into `REDIS_URL` on both web services. The Blueprint does this for you.
+- **It is optional.** With no `REDIS_URL`, or if Redis goes down, the app keeps working using memory caching inside each process.
+  Use Redis when you run more than one process (the app and the admin console), so a change made in one clears the cache in the other.
+- **Check it:** the startup log says `cache backend: redis` (or `memory`).
+- **Why it helps most:** the dashboard makes about 26 database queries. Cached, it is one Redis read. If pages are still slow after
+  this, the app and the database are probably in different regions: put them in the same one.

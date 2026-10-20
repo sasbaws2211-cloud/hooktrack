@@ -579,13 +579,18 @@ def settings_billing(b: BillingSettingsIn, _a: Admin = Depends(require_admin)):
             # allowed (limits still protect the platform), but say so: nobody can pay yet
             log.warning("billing turned on without a Paystack key: paid plans cannot be bought yet")
         billing.set_enabled(b.enabled)
-    return {"enabled": billing.enabled(), "paystack": billing.paystack_status()}
+    out = {"enabled": billing.enabled(), "paystack": billing.paystack_status()}
+    if b.enabled and billing.paystack_status()["configured"]:
+        out["currency_check"] = billing.check_charge_currency()      # say now if customers will be unable to pay
+    return out
 
 
 @app.post("/api/settings/paystack/test")
 def paystack_test(_a: Admin = Depends(require_admin)):
     data = billing._paystack("GET", "/balance")
-    return {"ok": True, "message": "Paystack accepted the key", "balances": data.get("data")}
+    chk = billing.check_charge_currency()
+    msg = "Paystack accepted the key. " + chk["message"]
+    return {"ok": chk["ok"], "message": msg, "currency_check": chk, "balances": data.get("data")}
 
 
 class SociaVaultIn(BaseModel):

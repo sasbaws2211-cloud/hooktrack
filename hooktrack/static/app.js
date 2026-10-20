@@ -79,7 +79,7 @@ async function api(method, path, body) {
   if (r.status === 401 && !path.startsWith('/api/auth/')) { state.me = null; renderAuth(); throw new Error('Please sign in'); }
   if (r.status === 402 && data.code === 'trial_ended') {
     refreshTrialBar(true);
-    if (!location.hash.startsWith('#/billing')) setTimeout(() => (location.hash = '#/billing'), 1200);
+    if (!location.hash.startsWith('#/billing')) setTimeout(() => { openPlanPicker().catch(() => (location.hash = '#/billing')); }, 600);
   }
   if (!r.ok) {
     const d = data.detail;
@@ -452,8 +452,9 @@ async function refreshTrialBar(force) {
   bar.hidden = false;
   bar.className = 'trialbar' + (ended ? ' ended' : left <= 2 ? ' soon' : '');
   bar.innerHTML = ended
-    ? `<span><b>${b.subscription.lapsed ? 'Your plan has ended.' : b.trial.reason === 'trial_used' ? 'You have already used your free trial.' : 'Your free trial has ended.'}</b> You can view everything, but changes are paused until you choose a plan.</span> <a class="btn sm primary" href="#/billing">Choose a plan</a>`
-    : `<span><b>Free trial:</b> ${left} day${left === 1 ? '' : 's'} left.</span> <a class="btn sm" href="#/billing">Choose a plan</a>`;
+    ? `<span><b>${b.subscription.lapsed ? 'Your plan has ended.' : b.trial.reason === 'trial_used' ? 'You have already used your free trial.' : 'Your free trial has ended.'}</b> You can view everything, but changes are paused until you choose a plan.</span> <button type="button" class="btn sm primary" data-plans>Choose a plan</button>`
+    : `<span><b>Free trial:</b> ${left} day${left === 1 ? '' : 's'} left.</span> <button type="button" class="btn sm" data-plans>Choose a plan</button>`;
+  bar.onclick = e => { if (e.target.closest('[data-plans]')) openPlanPicker().catch(err => toast(err.message, true)); };
 }
 
 function renderVerifyBar() {
@@ -2469,6 +2470,110 @@ const cardPanel = b => {
     ${b.can_manage ? `<div class="row" style="gap:8px"><button class="btn sm" id="ar-toggle">${c.auto_renew ? 'Turn off auto-renew' : 'Turn on auto-renew'}</button><button class="btn sm danger" id="ar-remove">Remove card</button></div>` : ''}</div></div>`;
 };
 
+
+/* ---------------- paying for a plan without leaving the page ---------------- */
+const fmtMoney = (minor, cur) => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(minor / 100); } catch { return `${minor / 100} ${cur}`; } };
+const loadPaystackJs = () => window.PaystackPop ? Promise.resolve() : new Promise((res, rej) => {
+  const sc = document.createElement('script'); sc.src = 'https://js.paystack.co/v2/inline.js';
+  sc.onload = res; sc.onerror = () => rej(new Error('Could not load the Paystack checkout. Check your connection or ad blocker.'));
+  document.head.appendChild(sc);
+});
+// Ask our server (which asks Paystack) until the payment settles.
+async function pollPayment(ref, { everyMs = 3000, maxMs = 5 * 60 * 1000, closed = () => false, alive = () => true } = {}) {
+  const t0 = Date.now();
+  for (;;) {
+    let r;
+    try { r = await api('GET', `/api/billing/payments/${encodeURIComponent(ref)}`); } catch (e) { r = null; }
+    if (!alive()) return 'left';
+    if (r && r.status === 'success') return 'success';
+    if (r && r.status === 'failed') return 'failed';
+    if (closed()) return 'closed';
+    if (Date.now() - t0 >= maxMs) return 'timeout';
+    await new Promise(res => setTimeout(res, everyMs));
+  }
+}
+// One path for every "pay for a plan" button: quote (credit for unused time), Paystack popup, confirmation.
+async function payForPlan(planCode, { saveCard = false, banner = () => {}, alive = () => true, onDone = () => route() } = {}) {
+  const q = await api('GET', `/api/billing/quote?plan_code=${encodeURIComponent(planCode)}`);
+  if (q.credit_minor > 0) {
+    const ok = await askConfirm(`Switch from ${q.from_plan} to ${q.plan}?\n\nYou have ${q.remaining_days} day${q.remaining_days === 1 ? '' : 's'} left on ${q.from_plan}, worth ${fmtMoney(q.credit_minor, q.currency)}. That is taken off the price, so ${q.covers_all ? 'there is nothing to pay today' : `you pay ${fmtMoney(q.charge_minor, q.currency)} today`}. ${q.plan} starts now.`, { danger: false, ok: q.covers_all ? 'Switch now' : 'Continue to payment' });
+    if (!ok) return 'cancelled';
+  }
+  const r = await api('POST', '/api/billing/checkout', { plan_code: planCode, save_card: !!saveCard });
+  if (r.applied) { toast(`Switched to ${r.plan}. The unused time on your old plan covered it.`); refreshTrialBar(true); onDone(); return 'success'; }
+  await loadPaystackJs();
+  let popupClosed = false, paidSeen = false;
+  banner('Complete the payment in the Paystack window…');
+  const pollP = pollPayment(r.reference, { closed: () => popupClosed && !paidSeen, alive });
+  new window.PaystackPop().resumeTransaction(r.access_code, {
+    onSuccess: () => { paidSeen = true; banner('Waiting for payment confirmation…'); },
+    onCancel: () => { popupClosed = true; },
+    onError: e => { popupClosed = true; toast((e && e.message) || 'Paystack reported a problem', true); },
+  });
+  const outcome = await pollP;
+  banner('');
+  if (outcome === 'left') return outcome;
+  if (outcome === 'success') { toast('Payment received. Your plan is updated.'); refreshTrialBar(true); onDone(); }
+  else if (outcome === 'failed') toast('The payment did not go through. You have not been charged for a plan.', true);
+  else if (outcome === 'timeout') toast('Still waiting for Paystack. You can leave this page: your plan updates automatically once the payment is confirmed.', true);
+  else toast('Checkout closed. No payment was made.');
+  return outcome;
+}
+
+let planPickerEl = null;
+// The plan list as a window over whatever page the person is on, so the trial bar and a blocked action can lead
+// straight to paying instead of to another page.
+async function openPlanPicker(opts = {}) {
+  if (planPickerEl && planPickerEl.isConnected) return;
+  const b = await api('GET', '/api/billing');
+  if (!b.enabled) return;
+  const hasYear = b.plans.some(p => p.interval === 'year'), hasMonth = b.plans.some(p => p.interval !== 'year');
+  let iv = hasYear && hasMonth ? (state.billingInterval || (b.plan && b.plan.interval === 'year' ? 'year' : 'month')) : (hasYear ? 'year' : 'month');
+  let saveCard = b.card.auto_renew || !b.card.has_card;
+  const lim = n => (n === -1 ? 'Unlimited' : Number(n).toLocaleString());
+  const why = opts.reason || (b.state === 'expired'
+    ? (b.subscription.lapsed ? 'Your plan has ended.' : b.trial.reason === 'trial_used' ? 'This email has already used its free trial.' : 'Your free trial has ended.') + ' Choose a plan to keep working.'
+    : b.state === 'trial' ? `You have ${b.trial.days_left} day${b.trial.days_left === 1 ? '' : 's'} left on your free trial. You can pick a plan any time and keep everything.` : 'Pick the plan that fits.');
+  const m = openModal('<div id="pp"></div>', true);
+  planPickerEl = m;
+  const paint = () => {
+    const shown = planTiers(b.plans, iv);
+    const bestSave = Math.max(0, ...shown.map(t => t.save || 0));
+    $('#pp', m).innerHTML = `<h2 style="margin-top:0">Choose a plan</h2>
+      <p class="muted" style="margin:0 0 12px">${esc(why)}</p>
+      <div id="pp-banner" class="notice" style="margin-bottom:10px" hidden></div>
+      ${!b.can_manage ? '<div class="notice" style="margin-bottom:10px">Only a workspace owner or admin can pay. Ask one of them to open this window.</div>' : ''}
+      ${!b.payments_ready ? '<div class="notice" style="margin-bottom:10px">Payments are not available right now. Please try again later or contact support.</div>' : ''}
+      ${hasYear && hasMonth ? `<div class="row" style="gap:6px;margin:0 0 12px" role="group" aria-label="Billing period">
+        <button type="button" class="btn sm ${iv === 'month' ? 'primary' : ''}" data-iv="month" aria-pressed="${iv === 'month'}">Monthly</button>
+        <button type="button" class="btn sm ${iv === 'year' ? 'primary' : ''}" data-iv="year" aria-pressed="${iv === 'year'}">Yearly${bestSave ? ` · save up to ${bestSave}%` : ''}</button></div>` : ''}
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">
+      ${shown.map(t => { const p = t.plan; return `<div class="card" style="margin:0;${[t.monthly, t.yearly].some(x => x && x.code === b.plan.code) && b.state === 'paid' ? 'border-color:var(--accent)' : ''}">
+        <h3 style="margin:0">${esc(planTierName(t))}</h3>
+        ${priceBlock(p, b.fx_usd || {})}
+        ${p.interval === 'year' && p.price_minor ? `<div class="muted small" style="margin-top:-2px">${fmtMoney(Math.round(p.price_minor / 12), p.currency)} / month, billed yearly${t.save ? ` · <b>save ${t.save}%</b>` : ''}</div>` : ''}
+        <ul style="padding-left:18px;margin:8px 0;font-size:13px"><li>${lim(p.max_accounts)} accounts</li><li>${lim(p.max_members)} team member${p.max_members === 1 ? '' : 's'}</li><li>${lim(p.max_ai_calls)} AI requests / month</li></ul>
+        ${p.price_minor ? `<button type="button" class="btn primary" style="width:100%" data-pick="${esc(p.code)}" ${b.can_manage && b.payments_ready ? '' : 'disabled'}>${p.code === b.plan.code && b.state === 'paid' ? 'Renew' : 'Choose ' + esc(planTierName(t))}</button>` : ''}
+      </div>`; }).join('')}</div>
+      ${b.can_manage ? `<label class="check" style="margin:12px 0 0;display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="pp-card" ${saveCard ? 'checked' : ''} style="width:auto;margin-top:3px">
+        <span>Renew automatically with my card <span class="muted small">(pay by card in the next step; turn it off any time. Mobile money cannot be saved.)</span></span></label>` : ''}
+      <div class="actions"><a class="btn" href="#/billing" data-close>See full details</a><button class="btn" data-close>Not now</button></div>`;
+    $$('[data-close]', m).forEach(x => x.addEventListener('click', m.close));
+    $$('[data-iv]', m).forEach(x => (x.onclick = () => { iv = x.dataset.iv; state.billingInterval = iv; paint(); }));
+    if ($('#pp-card', m)) $('#pp-card', m).onchange = e => { saveCard = e.target.checked; };
+    $$('[data-pick]', m).forEach(btn => (btn.onclick = guard(async () => {
+      const ban = msg => { const el = $('#pp-banner', m); if (el) { el.hidden = !msg; el.textContent = msg || ''; } };
+      busy(btn, true, 'Opening checkout…');
+      let out;
+      try {
+        out = await payForPlan(btn.dataset.pick, { saveCard, banner: ban, onDone: () => { m.close(); route(); } });
+      } finally { if (btn.isConnected) busy(btn, false); }
+      return out;
+    })));
+  };
+  paint();
+}
+
 pages.billing = async app => {
   const b = await api('GET', '/api/billing');
   const money = (minor, cur) => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(minor / 100); } catch { return `${minor / 100} ${cur}`; } };
@@ -2558,25 +2663,16 @@ pages.billing = async app => {
   const finish = outcome => {
     if (outcome === 'left') return;
     banner('');
-    if (outcome === 'success') { toast('Payment received. Your plan is updated.'); route(); }
+    if (outcome === 'success') { toast('Payment received. Your plan is updated.'); refreshTrialBar(true); route(); }
     else if (outcome === 'failed') { toast('The payment did not go through. You have not been charged for a plan.', true); route(); }
     else if (outcome === 'timeout') toast('Still waiting for Paystack. You can leave this page: your plan updates automatically once the payment is confirmed.', true);
     else toast('Checkout closed. No payment was made.');
   };
   $$('[data-buy]', app).forEach(btn => (btn.onclick = guard(async () => {
     busy(btn, true, 'Opening checkout…');
-    let r;
-    try { r = await api('POST', '/api/billing/checkout', { plan_code: btn.dataset.buy, save_card: !!($('#savecard') && $('#savecard').checked) }); await loadPaystack(); }
-    finally { busy(btn, false); }
-    let popupClosed = false, paidSeen = false;
-    banner('Complete the payment in the Paystack window…');
-    const pollP = poll(r.reference, { closed: () => popupClosed && !paidSeen });
-    new window.PaystackPop().resumeTransaction(r.access_code, {
-      onSuccess: () => { paidSeen = true; banner('Waiting for payment confirmation…'); },
-      onCancel: () => { popupClosed = true; },
-      onError: e => { popupClosed = true; toast((e && e.message) || 'Paystack reported a problem', true); },
-    });
-    finish(await pollP);
+    try {
+      await payForPlan(btn.dataset.buy, { saveCard: !!($('#savecard') && $('#savecard').checked), banner, alive: onBilling, onDone: rerender });
+    } finally { if (btn.isConnected) busy(btn, false); }
   })));
   $$('[data-renew]', app).forEach(btn => (btn.onclick = guard(async () => {
     await api('PATCH', `/api/billing/addons/${btn.dataset.renew}/auto-renew`, { on: btn.dataset.on === '1' });

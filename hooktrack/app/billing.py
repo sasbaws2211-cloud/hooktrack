@@ -539,6 +539,43 @@ def _add_interval(start: datetime, interval: str) -> datetime:
     return start + timedelta(days=365 if interval == "year" else 30)
 
 
+PLAN_CHANGE_MIN_CHARGE = 100       # minor units: a smaller balance than this is not worth a card payment
+
+
+def plan_change_quote(ws: int, plan: dict) -> dict:
+    """What switching to `plan` costs right now.
+
+    Time already paid for on the current plan is not thrown away: its unused value is credited against the new plan.
+    If the credit covers the new plan, the switch is free and the leftover value becomes extra days.
+    """
+    amount, currency = charge_for(plan)
+    out = {"amount_minor": amount, "currency": currency, "credit_minor": 0, "charge_minor": amount,
+           "remaining_days": 0, "covers_all": False, "extra_days": 0, "from_plan": None}
+    sub = subscription(ws)
+    end = sub.get("current_period_end")
+    now = datetime.now(timezone.utc)
+    if sub["status"] != "active" or sub["plan_code"] in (FREE, plan["code"]) or sub.get("lapsed") or not end or end <= now:
+        return out
+    old = get_plan(sub["plan_code"])
+    if not old or old["price_minor"] <= 0:
+        return out
+    old_amount, old_currency = charge_for(old)
+    if old_currency != currency:
+        return out
+    total = (365 if old["interval"] == "year" else 30) * 86400
+    remaining = max(0.0, min((end - now).total_seconds(), total))
+    credit = int(old_amount * remaining / total)
+    out.update(credit_minor=credit, remaining_days=int(remaining // 86400), from_plan=old["name"])
+    charge = amount - credit
+    if charge < PLAN_CHANGE_MIN_CHARGE:
+        interval_days = 365 if plan["interval"] == "year" else 30
+        leftover = max(0, credit - amount)
+        out.update(covers_all=True, charge_minor=0, extra_days=int(interval_days * leftover / amount) if amount else 0)
+    else:
+        out["charge_minor"] = charge
+    return out
+
+
 def set_subscription(ws: int, plan_code: str, *, status: str = "active", period_end: Optional[datetime] = None,
                      note: str = "") -> dict:
     if not get_plan(plan_code):
@@ -555,6 +592,36 @@ def set_subscription(ws: int, plan_code: str, *, status: str = "active", period_
 
 def apply_payment(reference: str, paid_amount_minor: Optional[int], paid_currency: Optional[str],
                   authorization: Optional[dict] = None) -> dict:
+    """Mark a payment successful and extend the subscription, then email a receipt (once: only when it was applied)."""
+    out = _apply_payment_tx(reference, paid_amount_minor, paid_currency, authorization)
+    if out.get("applied"):
+        try:
+            _receipt(out["payment"], out.get("period_end"))
+        except Exception:
+            log.exception("receipt email failed")
+    return out
+
+
+def _receipt(pay: dict, period_end: Optional[datetime]) -> None:
+    """A plain confirmation after a checkout payment. Renewals have their own email."""
+    if pay.get("kind") == "renewal" or not pay.get("payer_email"):
+        return
+    from . import mailer
+    what = str(pay["plan_code"])
+    if what.startswith("addon:"):
+        what = "add-on"
+    else:
+        plan = get_plan(what)
+        what = (plan["name"] + " plan") if plan else what
+    amount = f"{int(pay['amount_minor']) / 100:,.2f} {pay['currency']}"
+    until = f" Your plan is active until {period_end.strftime('%d %b %Y')}." if period_end and what.endswith("plan") else ""
+    link = f"\n\nSee your plan and payment history: {mailer.public_url()}/#/billing" if mailer.public_url() else ""
+    _notify(pay["payer_email"], f"Payment received: {what}",
+            f"Thank you! We received your payment of {amount} for the {what}.{until}\n\nReference: {pay['reference']}{link}")
+
+
+def _apply_payment_tx(reference: str, paid_amount_minor: Optional[int], paid_currency: Optional[str],
+                      authorization: Optional[dict] = None) -> dict:
     """Mark a pending payment successful and extend the subscription. Safe to call any number of times.
     `authorization` is Paystack's authorization object: kept (encrypted) only when the customer agreed at checkout
     and it is a reusable card."""
@@ -660,6 +727,36 @@ def _reusable_card(auth_obj: Optional[dict]) -> Optional[dict]:
 
 
 # ---------- Paystack ----------
+
+def currency_problem(detail: str, currency: str) -> Optional[str]:
+    """A plain-words explanation when Paystack says the payment account cannot take this currency, else None."""
+    if "currency not supported" in str(detail).lower():
+        return (f"Payments are not ready: this platform's payment account does not accept {currency} yet. "
+                f"The platform owner needs to set a charge currency their account supports "
+                f"(Admin, Settings, Billing) and its exchange rate.")
+    return None
+
+
+def check_charge_currency() -> dict:
+    """Ask Paystack whether the account can take the currency customers will actually be charged in.
+    Starts an unpaid transaction for the cheapest paid plan (it expires unused) and reports what Paystack said."""
+    plans = [p for p in list_plans(only_active=True) if p["price_minor"] > 0]
+    if not plans:
+        return {"ok": True, "currency": "", "message": "There are no paid plans to charge for yet."}
+    plan = min(plans, key=lambda p: p["price_minor"])
+    try:
+        amount, currency = charge_for(plan)
+    except HTTPException as e:
+        return {"ok": False, "currency": "", "message": str(e.detail)}
+    try:
+        _paystack("POST", "/transaction/initialize", json={
+            "email": "currency-check@example.com", "amount": amount, "currency": currency,
+            "reference": "ht_probe_" + secrets.token_urlsafe(10).replace("-", "a").replace("_", "b"),
+            "metadata": {"probe": True}})
+    except HTTPException as e:
+        return {"ok": False, "currency": currency, "message": currency_problem(e.detail, currency) or str(e.detail)}
+    return {"ok": True, "currency": currency, "message": f"Customers can be charged in {currency}."}
+
 
 def _paystack(method: str, path: str, **kw) -> dict:
     key = paystack_secret()
@@ -1009,8 +1106,11 @@ def checkout(b: CheckoutIn, ctx: Ctx = Depends(auth.admin)):
         raise HTTPException(404, "That plan is not available")
     if plan["price_minor"] <= 0:
         raise HTTPException(400, "That plan is free: there is nothing to pay")
-    amount, currency = charge_for(plan)
+    quote = plan_change_quote(ctx.workspace_id, plan)
+    amount, currency = quote["charge_minor"], quote["currency"]
     ws = db.one("SELECT name FROM workspaces WHERE id=%s", (ctx.workspace_id,))
+    if quote["covers_all"]:
+        return _switch_with_credit(ctx, plan, quote, ws["name"] if ws else "")
     ref = "ht_" + secrets.token_urlsafe(16).replace("-", "a").replace("_", "b")
     db.execute(
         "INSERT INTO payments(workspace_id, workspace_name, plan_code, amount_minor, currency, reference, payer_email, save_card) "
@@ -1021,15 +1121,46 @@ def checkout(b: CheckoutIn, ctx: Ctx = Depends(auth.admin)):
         data = _paystack("POST", "/transaction/initialize", json={
             "email": ctx.email, "amount": amount, "currency": currency, "reference": ref,
             "metadata": {"workspace_id": ctx.workspace_id, "plan_code": plan["code"]}})
-    except HTTPException:
+    except HTTPException as e:
         db.execute("DELETE FROM payments WHERE reference=%s AND status='pending'", (ref,))   # never reached Paystack
+        friendly = currency_problem(e.detail, currency)
+        if friendly:
+            log.error("checkout failed: %s (charge currency %s)", e.detail, currency)
+            raise HTTPException(503, "Payments are not available right now. Please try again later or contact support.")
         raise
     d = data.get("data") or {}
     if not d.get("access_code"):
         db.execute("DELETE FROM payments WHERE reference=%s AND status='pending'", (ref,))   # never reached Paystack
         raise HTTPException(502, "Paystack did not return a checkout session")
     return {"reference": ref, "access_code": d["access_code"], "url": d.get("authorization_url"),
-            "amount_minor": amount, "currency": currency, "plan": plan["name"]}
+            "amount_minor": amount, "currency": currency, "plan": plan["name"],
+            "credit_minor": quote["credit_minor"], "from_plan": quote["from_plan"]}
+
+
+def _switch_with_credit(ctx: Ctx, plan: dict, quote: dict, ws_name: str) -> dict:
+    """The unused time on the current plan already pays for the new one: switch now, no card payment."""
+    now = datetime.now(timezone.utc)
+    interval_days = 365 if plan["interval"] == "year" else 30
+    new_end = now + timedelta(days=interval_days + quote["extra_days"])
+    ref = "ht_c_" + secrets.token_urlsafe(12).replace("-", "a").replace("_", "b")
+    db.execute(
+        "UPDATE workspace_subscriptions SET plan_code=%s, status='active', current_period_end=%s, note='', updated_at=now() "
+        "WHERE workspace_id=%s", (plan["code"], new_end, ctx.workspace_id))
+    db.execute(
+        "INSERT INTO payments(workspace_id, workspace_name, plan_code, amount_minor, currency, reference, payer_email, "
+        "status, paid_at, kind) VALUES (%s,%s,%s,0,%s,%s,%s,'success', now(), 'change')",
+        (ctx.workspace_id, ws_name, plan["code"], quote["currency"], ref, ctx.email))
+    return {"applied": True, "reference": ref, "plan": plan["name"], "amount_minor": 0, "currency": quote["currency"],
+            "credit_minor": quote["credit_minor"], "from_plan": quote["from_plan"], "period_end": new_end.isoformat()}
+
+
+@router.get("/quote")
+def quote(plan_code: str, ctx: Ctx = Depends(auth.admin)):
+    """What it would cost to switch to this plan right now (credit for unused time included). Changes nothing."""
+    plan = get_plan(plan_code)
+    if plan is None or not plan["active"] or plan["price_minor"] <= 0:
+        raise HTTPException(404, "That plan is not available")
+    return {**plan_change_quote(ctx.workspace_id, plan), "plan": plan["name"]}
 
 
 class AddonRenewIn(BaseModel):

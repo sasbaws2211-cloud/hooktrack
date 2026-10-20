@@ -146,6 +146,10 @@ def session_ctx(request: Request) -> Optional[Ctx]:
         m = db.one("SELECT workspace_id, role FROM memberships WHERE user_id=%s ORDER BY created_at LIMIT 1", (row["id"],))
         ws, role = (m["workspace_id"], m["role"]) if m else (None, None)
         db.execute("UPDATE sessions SET workspace_id=%s WHERE token_hash=%s", (ws, row["token_hash"]))
+    try:
+        request.state.ws = ws          # read by the cache-invalidation middleware after a write
+    except Exception:
+        pass
     return Ctx(row["id"], row["email"], row["name"], ws, role)
 
 

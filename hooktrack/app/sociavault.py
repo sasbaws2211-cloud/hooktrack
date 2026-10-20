@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from . import crypto, db, leases, logic
+from . import cache, crypto, db, leases, logic
 
 BASE = "https://api.sociavault.com/v1/scrape"
 TIMEOUT = 45.0
@@ -35,7 +35,11 @@ class SociaVaultError(Exception):
 
 
 def platform_get(key: str, default=None):
+    found, hit = cache.get_platform(key)
+    if found:
+        return hit["value"] if hit["found"] else default
     row = db.one("SELECT value FROM platform_settings WHERE key=%s", (key,))
+    cache.set_platform(key, {"found": row is not None, "value": row["value"] if row is not None else None})
     if row is None:
         return default
     return row["value"]
@@ -47,6 +51,7 @@ def platform_set(key: str, value) -> None:
            ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()""",
         (key, db.Json(value)),
     )
+    cache.drop_platform(key)
 
 
 def platform_delete(key: str) -> None:
@@ -955,6 +960,7 @@ def sync_account(workspace_id: int, account_id: int, days_back: int = 14,
         raise SyncSkipped("This account is already being synced, or was synced a moment ago")
     try:
         out = fn(workspace_id, account_id, days_back, mode=mode)
+        cache.bump(workspace_id)                 # the sync has written new numbers: everything cached for this workspace is stale
         record_credits(workspace_id, "sync", out.get("credits_est"))
     except SociaVaultError as e:
         _note_failure(workspace_id, account_id, e)
@@ -993,6 +999,7 @@ def sync_account(workspace_id: int, account_id: int, days_back: int = 14,
         estimate.fill(workspace_id, account_id)
     except Exception:
         pass
+    cache.bump(workspace_id)                     # scores, estimates and links written above
     return out
 
 

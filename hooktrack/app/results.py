@@ -54,6 +54,9 @@ def reconcile(ws: int) -> int:
         if sid:
             db.execute("UPDATE posts SET result_post_id=%s WHERE id=%s AND workspace_id=%s", (sid, cid, ws))
             linked += 1
+    if linked:
+        from . import cache
+        cache.bump(ws)
     return linked
 
 

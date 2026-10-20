@@ -376,6 +376,8 @@ def _parse_schedule(schedule_at: Optional[str]):
 
 
 def _fail_job(job_id: int, workspace_id: int, error: str):
+    from . import cache
+    cache.bump(workspace_id)
     db.execute(
         """UPDATE publish_jobs SET status='failed', error=%s, updated_at=now()
            WHERE id=%s AND workspace_id=%s""",
@@ -409,6 +411,8 @@ def _find_post_url(obj, depth: int = 0) -> str:
 
 
 def _apply_result(job_id: int, workspace_id: int, post_id: int, result: dict, platforms: list) -> dict:
+    from . import cache
+    cache.bump(workspace_id)
     status = result.get("status") or "done"
     external_id = str(result.get("external_id") or "")[:200]
     error = result.get("error") or ""

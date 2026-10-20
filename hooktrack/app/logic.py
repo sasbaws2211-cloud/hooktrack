@@ -2,7 +2,7 @@
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from . import db
+from . import cache, db
 
 DEFAULT_SETTINGS = {
     "scale_weekly": 100_000,   # weekly views that earn SCALE (needs a best hook)
@@ -30,6 +30,7 @@ SHORTS_MAX_SECONDS = 180       # YouTube Shorts can run up to 3 minutes
 HIGH_INTENT_MULTIPLE = 1.5     # intent rate this many times the account's median counts as "high intent"
 
 
+@cache.workspace_cached("settings", ttl=120)
 def get_settings(ws: int) -> dict:
     out = dict(DEFAULT_SETTINGS)
     for row in db.query("SELECT key, value FROM settings WHERE workspace_id = %s", (ws,)):
@@ -73,6 +74,7 @@ def valid_tz(name) -> bool:
         return False
 
 
+@cache.workspace_cached("tz", ttl=300)
 def workspace_tz(ws: int) -> str:
     row = db.one("SELECT timezone FROM workspaces WHERE id = %s", (ws,))
     tz = (row or {}).get("timezone") or "UTC"
@@ -189,6 +191,7 @@ def account_decision(a, weekly_total, best_hook, is_stalled, st, unverified=Fals
     return "HOLD", ""
 
 
+@cache.workspace_cached("dashboard", ttl=60)
 def dashboard(ws: int, today: date | None = None):
     today = today or globals()["today"](ws)
     st = get_settings(ws)
@@ -412,6 +415,7 @@ def apply_auto_scores(ws: int, perf: dict | None = None) -> int:
     return n
 
 
+@cache.workspace_cached("performance", ttl=60)
 def performance(ws: int, today: date | None = None, days: int = 180) -> dict:
     """post_id -> how that post did against ITS OWN account's normal, plus its engagement mix.
 

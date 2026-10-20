@@ -11,5 +11,12 @@ services:
       - "55434:5432"
     volumes:
       - hooktrack_pgdata:/var/lib/postgresql/data
+  cache:
+    image: redis:7-alpine
+    container_name: hooktrack-redis
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
+    ports:
+      - "6380:6379"
 volumes:
   hooktrack_pgdata:
