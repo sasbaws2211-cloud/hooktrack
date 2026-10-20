@@ -11,11 +11,11 @@ from urllib.parse import urlparse
 
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, legal, logic, media, publish, sociavault, vaultwatch
+from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, legal, logic, media, publish, seo, sociavault, vaultwatch
 from . import backup, digest, reports
 from .auth import Ctx, admin, current
 from .import_xlsx import import_workbook
@@ -2092,24 +2092,45 @@ def healthz():
 
 
 @app.get("/")
-def index():
-    return FileResponse(STATIC / "index.html")
+def index(request: Request):
+    """The home page. Someone with a session cookie gets the app; everyone else (search engines included) gets the
+    public landing page, so the site's front door is a real, indexable page. App links with a #/ route are handed
+    to /app by a small script on the landing page."""
+    if request.cookies.get(auth.COOKIE):
+        return FileResponse(STATIC / "index.html")
+    return HTMLResponse(seo.render("landing.html", request), headers={"Vary": "Cookie", "Cache-Control": "public, max-age=300"})
+
+
+@app.get("/app")
+def app_shell():
+    """The app at a stable address (sign-in and sign-up links go here). Never indexed."""
+    return FileResponse(STATIC / "index.html", headers={"X-Robots-Tag": "noindex, nofollow"})
 
 
 @app.get("/welcome")
-def welcome():
-    """The public landing page. The app itself stays at / (invite and reset links depend on that)."""
-    return FileResponse(STATIC / "landing.html")
+def welcome(request: Request):
+    """The landing page at its old address, which the app redirects strangers to. Its canonical address is /."""
+    return HTMLResponse(seo.render("landing.html", request), headers={"Cache-Control": "public, max-age=300"})
 
 
 @app.get("/terms")
-def terms_page():
-    return FileResponse(STATIC / "terms.html")
+def terms_page(request: Request):
+    return HTMLResponse(seo.render("terms.html", request), headers={"Cache-Control": "public, max-age=3600"})
 
 
 @app.get("/privacy")
-def privacy_page():
-    return FileResponse(STATIC / "privacy.html")
+def privacy_page(request: Request):
+    return HTMLResponse(seo.render("privacy.html", request), headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/robots.txt")
+def robots(request: Request):
+    return PlainTextResponse(seo.robots_txt(request), headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/sitemap.xml")
+def sitemap(request: Request):
+    return Response(seo.sitemap_xml(request), media_type="application/xml", headers={"Cache-Control": "public, max-age=3600"})
 
 
 @app.get("/api/public/legal")

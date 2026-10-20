@@ -3,11 +3,28 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HookTrack: find the hooks that actually sell</title>
-<meta name="description" content="HookTrack tracks every short-form post across all your TikTok, Instagram and YouTube accounts, flags the real winners against each account's own normal, and helps you make more of them.">
-<meta property="og:title" content="HookTrack: find the hooks that actually sell">
-<meta property="og:description" content="Track views across all your accounts, see which hooks beat their own account's normal, and make more of what works.">
+<script>/* an app link (an invite, a reset or a confirm email) opened at the site root arrives with a #/ route: hand it to the app */
+if (location.hash.indexOf('#/') === 0) location.replace('/app' + location.search + location.hash);</script>
+<title>HookTrack: Short-Form Video Analytics &amp; Winning Hook Finder</title>
+<meta name="description" content="Track every TikTok, Instagram Reels and YouTube Shorts account in one dashboard. See which hooks beat each account's normal, then scale the winners. Free trial.">
+<link rel="canonical" href="__SITE__/">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="theme-color" content="#4f46e5">
+<meta property="og:site_name" content="HookTrack">
 <meta property="og:type" content="website">
+<meta property="og:url" content="__SITE__/">
+<meta property="og:title" content="HookTrack: Short-Form Video Analytics &amp; Winning Hook Finder">
+<meta property="og:description" content="Short-form video analytics for TikTok, Reels and Shorts: see which hooks beat each account's normal and make more of them.">
+<meta property="og:image" content="__SITE__/og.jpg">
+<meta property="og:image:width" content="800">
+<meta property="og:image:height" content="420">
+<meta property="og:image:alt" content="HookTrack: which hooks beat each account's normal, with Scale, Tweak and Hold decisions">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="HookTrack: Short-Form Video Analytics &amp; Winning Hook Finder">
+<meta name="twitter:description" content="Short-form video analytics for TikTok, Reels and Shorts: see which hooks beat each account's normal and make more of them.">
+<meta name="twitter:image" content="__SITE__/og.jpg">
+<!--JSONLD-->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Cpath d='M8 21l5-6 4 4 7-9' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
 :root{
@@ -139,7 +156,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
 
 <header class="top">
   <div class="wrap row">
-    <a class="brand" href="/welcome"><span class="logo">▲</span> HookTrack</a>
+    <a class="brand" href="/"><span class="logo">▲</span> HookTrack</a>
     <nav aria-label="Sections">
       <a href="#features">Features</a>
       <a href="#how">How it works</a>
@@ -147,8 +164,8 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
       <a href="#faq">FAQ</a>
     </nav>
     <div class="actions">
-      <a class="btn sm" href="/#/login">Sign in</a>
-      <a class="btn sm primary" href="/#/signup" data-cta>Start free</a>
+      <a class="btn sm" href="/app#/login">Sign in</a>
+      <a class="btn sm primary" href="/app#/signup" data-cta>Start free</a>
     </div>
   </div>
 </header>
@@ -161,7 +178,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
     <h1>Find the hooks that <span class="hl">actually sell</span></h1>
     <p class="lead">HookTrack follows every post across all your TikTok, Instagram and YouTube accounts, compares each one with <b>its own account's normal</b>, and shows you which hooks really worked, so you can make more of them.</p>
     <div class="cta">
-      <a class="btn primary big" href="/#/signup" data-cta id="hero-cta">Start your free trial</a>
+      <a class="btn primary big" href="/app#/signup" data-cta id="hero-cta">Start your free trial</a>
       <a class="btn big" href="#how">See how it works</a>
     </div>
     <p class="fine"><span id="hero-fine">Free for a limited time. No card needed to start.</span> By signing up you agree to the <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
@@ -266,7 +283,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
     <div class="card">
       <h2>Stop guessing which hooks work</h2>
       <p class="muted" style="margin:14px auto 26px;max-width:560px;font-size:18px">Add your accounts and see your real winners in minutes.</p>
-      <a class="btn primary big" href="/#/signup" data-cta>Start your free trial</a>
+      <a class="btn primary big" href="/app#/signup" data-cta>Start your free trial</a>
     </div>
   </div>
 </section>
@@ -275,7 +292,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
 <footer>
   <div class="wrap row">
     <div class="brand"><span class="logo">▲</span> HookTrack</div>
-    <nav aria-label="Footer"><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="#" data-cookie-notice>Cookie notice</a><a href="/#/login">Sign in</a></nav>
+    <nav aria-label="Footer"><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="#" data-cookie-notice>Cookie notice</a><a href="/app#/login">Sign in</a></nav>
   </div>
 </footer>
 
@@ -357,7 +374,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
           '<li><span class="check">✓</span>' + esc(lim(pl.max_credits, 'data credit', 'data credits')) + ' a month</li>' +
           '<li><span class="check">✓</span>Winner detection, decisions and calendar</li>' +
           '</ul>' +
-          '<a class="btn ' + (i === popular ? 'primary' : '') + '" href="/#/signup">Start free trial</a></div>';
+          '<a class="btn ' + (i === popular ? 'primary' : '') + '" href="/app#/signup">Start free trial</a></div>';
       }).join('');
     }
     draw();
