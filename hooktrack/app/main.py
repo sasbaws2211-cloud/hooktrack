@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, legal, logic, media, publish, seo, sociavault, vaultwatch
+from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, legal, logic, media, pages, publish, seo, sociavault, vaultwatch
 from . import backup, digest, reports
 from .auth import Ctx, admin, current
 from .import_xlsx import import_workbook
@@ -2121,6 +2121,32 @@ def terms_page(request: Request):
 @app.get("/privacy")
 def privacy_page(request: Request):
     return HTMLResponse(seo.render("privacy.html", request), headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/compare")
+def compare_page(request: Request):
+    return _content(pages.render_page("/compare", request))
+
+
+@app.get("/alternatives/postiz")
+def alternatives_postiz_page(request: Request):
+    return _content(pages.render_page("/alternatives/postiz", request))
+
+
+@app.get("/blog")
+def blog_index(request: Request):
+    return _content(pages.render_blog_index(request))
+
+
+@app.get("/blog/{slug}")
+def blog_post(slug: str, request: Request):
+    return _content(pages.render_post(slug, request))
+
+
+def _content(page):
+    if page is None:
+        raise HTTPException(404, "Page not found")
+    return HTMLResponse(page, headers={"Cache-Control": "public, max-age=600"})
 
 
 @app.get("/robots.txt")

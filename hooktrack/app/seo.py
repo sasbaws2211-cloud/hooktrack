@@ -112,5 +112,12 @@ def sitemap_xml(request: Request) -> str:
             mtime = datetime.now(timezone.utc).date().isoformat()
         rows.append(f"  <url><loc>{html.escape(site + path)}</loc><lastmod>{mtime}</lastmod>"
                     f"<changefreq>{freq}</changefreq><priority>{prio}</priority></url>")
+    try:
+        from . import pages
+        for path, lastmod, freq, prio in pages.sitemap_entries():
+            rows.append(f"  <url><loc>{html.escape(site + path)}</loc><lastmod>{lastmod}</lastmod>"
+                        f"<changefreq>{freq}</changefreq><priority>{prio}</priority></url>")
+    except Exception:
+        pass
     return ('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
             + "\n".join(rows) + "\n</urlset>\n")
