@@ -466,3 +466,9 @@ details.pm-more[open] { padding-bottom: 14px; }
 .pm-menu > summary::-webkit-details-marker { display: none; }
 .pm-menu-list { position: absolute; bottom: 110%; left: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); z-index: 5; min-width: 140px; }
 @media (max-width: 640px) { .pm-steps li { font-size: 11.5px; } }
+
+/* board cards: a two-line hook and a single quiet line of detail */
+.pipe-card .h { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pipe-card .meta .handle-s { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.save-state { font-size: 12.5px; color: var(--muted); margin-right: 10px; }
+.save-state.bad { color: var(--bad, #ef4444); }

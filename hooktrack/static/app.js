@@ -1254,7 +1254,7 @@ function postModal(post, defaults, onDone) {
       ${post ? `<details class="pm-menu"><summary class="btn" aria-label="More actions">⋯</summary><div class="pm-menu-list">
         ${post.id && !post.external_id ? '<button class="btn" id="dup" type="button" title="Duplicate as new idea">Duplicate</button>' : ''}
         <button class="btn danger" id="del" type="button">Delete</button></div></details>` : ''}
-      <span class="spacer"></span><button class="btn primary" id="save">Save</button></div>`);
+      <span class="spacer"></span><span class="save-state" id="savestate" aria-live="polite"></span><button class="btn primary" id="save">${post ? 'Done' : 'Create post'}</button></div>`);
   m.querySelector('.modal').classList.add('post-editor');
 
   // what the platform and the audience have shown so far: early velocity + what people asked for
@@ -1611,6 +1611,7 @@ function postModal(post, defaults, onDone) {
       views: num('views'), comments: num('comments'), intent: $('#intent', m).checked,
       ...($('#posturl', m) ? { url: $('#posturl', m).value.trim() } : {}) };
   };
+  let lastSaved = JSON.stringify(body());           // what the server has, for working out what changed
   const save = async () => {
     const b = body();
     if (!b.post_date) throw new Error('Pick a date');
@@ -1619,8 +1620,45 @@ function postModal(post, defaults, onDone) {
       post = await api('POST', '/api/posts', b);
       if (b.url) post = await api('PATCH', `/api/posts/${post.id}`, { url: b.url });
     }
+    lastSaved = JSON.stringify(body());
     return post;
   };
+
+  // ---- autosave: an existing post saves itself a moment after you stop typing, sending only what changed ----
+  const stateEl = $('#savestate', m);
+  let saveTimer = null, inflight = false, again = false, touched = false;
+  const setState = (t, bad) => { if (stateEl) { stateEl.textContent = t; stateEl.className = 'save-state' + (bad ? ' bad' : ''); } };
+  const AUTOSAVE_FIELDS = new Set(['hook', 'account', 'caption', 'status', 'date', 'prompt', 'body', 'views', 'comments', 'intent', 'posturl']);
+  const flush = async () => {
+    if (!post || !post.id) return;
+    if (inflight) { again = true; return; }
+    const now = body(), prev = JSON.parse(lastSaved), changed = {};
+    Object.keys(now).forEach(k => { if (JSON.stringify(now[k]) !== JSON.stringify(prev[k])) changed[k] = now[k]; });
+    if (!Object.keys(changed).length) return;
+    if ('post_date' in changed && !changed.post_date) return;           // a half-cleared date is not worth saving
+    inflight = true; setState('Saving…');
+    try {
+      Object.assign(post, await api('PATCH', `/api/posts/${post.id}`, changed));
+      lastSaved = JSON.stringify(now); touched = true; setState('Saved ✓');
+    } catch (e) { setState('Not saved: ' + (e.message || 'try again'), true); }
+    finally { inflight = false; if (again) { again = false; flush(); } }
+  };
+  const scheduleSave = ms => { if (!post || !post.id) return; clearTimeout(saveTimer); setState(''); saveTimer = setTimeout(flush, ms); };
+  m.addEventListener('input', e => { if (AUTOSAVE_FIELDS.has(e.target.id) && e.target.id !== 'posturl') scheduleSave(900); });
+  m.addEventListener('change', e => { if (AUTOSAVE_FIELDS.has(e.target.id)) scheduleSave(e.target.id === 'caption' || e.target.id === 'hook' ? 900 : 250); });
+  // closing the window (the x, Escape) lets a pending save finish, then refreshes the page behind it
+  const finalize = async () => {
+    clearTimeout(saveTimer);
+    await flush();
+    while (inflight) await new Promise(r => setTimeout(r, 80));
+    if (touched && onDone) onDone();
+  };
+  m.addEventListener('click', e => { if (e.target.closest('[data-close]')) finalize(); }, true);
+  const onEsc = e => {
+    if (!m.isConnected) { document.removeEventListener('keydown', onEsc); return; }
+    if (e.key === 'Escape' && $('#modal-root').lastElementChild === m) finalize();
+  };
+  document.addEventListener('keydown', onEsc);
   $('#save', m).onclick = guard(async () => { await save(); m.close(); toast('Saved'); onDone && onDone(); });
   
   if ($('#dup', m)) $('#dup', m).onclick = guard(async () => {
@@ -1935,26 +1973,23 @@ pages.pipeline = async app => {
               <div class="h">${esc(short(p.hook || p.body || 'Untitled', 72))}</div>
               <div class="meta">
                 <span class="band-dot" style="background:${esc(p.phone_color || 'var(--accent)')}"></span>
-                <span>${esc(p.handle || '—')}</span>
-                ${['idea', 'scripted', 'filmed'].includes(s) && p.post_date ? (() => {
-                  const d = Math.round((parseISO(p.post_date) - parseISO(iso(nowLocal()))) / 864e5);
-                  const t = d < 0 ? `overdue ${-d}d` : d === 0 ? 'due today' : `due in ${d}d`;
-                  return `<span class="${d < 0 ? 'stale' : ''}" title="The card's date is when it is due. Change it in the editor.">${t}</span>`;
-                })() : `<span>${esc(p.post_date || '')}</span>`}
-                ${p.vsc != null ? `<span>${p.vsc}/30</span>` : ''}
-                ${p.views ? `<span>${fmt(p.views)} views</span>` : ''}
-                ${p.video_url || p.has_video_file ? '<span title="Has video">🎬</span>' : ''}
+                <span class="handle-s">${esc(p.handle || '—')}</span>
                 ${(() => {
+                  // at most two chips: what the card needs now, and its due date only when that is worth a look
                   const vid = !!(p.video_url || p.has_video_file);
-                  if (p.scheduled_for && !p.external_post_id && s === 'filmed') return `<span class="tag good" title="Queued to publish (${esc(wsTz())})">📅 ${esc(fmtWhen(p.scheduled_for))}</span>`;
-                  if (s === 'scripted' && !vid) return '<span class="tag warn" title="Upload the filmed video on this card before it can be scheduled">needs video</span>';
-                  if (['scripted', 'filmed'].includes(s) && vid && !p.external_post_id) return '<span class="tag good" title="The video is attached: open the card to schedule it">ready to schedule</span>';
-                  return '';
+                  const chips = [];
+                  if (p.scheduled_for && !p.external_post_id && s === 'filmed') chips.push(`<span class="tag good" title="Queued to publish (${esc(wsTz())})">📅 ${esc(fmtWhen(p.scheduled_for))}</span>`);
+                  else if (s === 'scripted' && !vid) chips.push('<span class="tag warn" title="Add the filmed video before this can be scheduled">needs video</span>');
+                  else if (['scripted', 'filmed'].includes(s) && vid && !p.external_post_id) chips.push('<span class="tag good" title="The video is attached: open the card to schedule it">ready</span>');
+                  else if (['posted', 'analysed'].includes(s) && !p.result && p.views) chips.push(`<span>${fmt(p.views)} views</span>`);
+                  if (['idea', 'scripted', 'filmed'].includes(s) && p.post_date && !(p.scheduled_for && s === 'filmed')) {
+                    const d = Math.round((parseISO(p.post_date) - parseISO(iso(nowLocal()))) / 864e5);
+                    if (d < 0) chips.push(`<span class="stale" title="This card's due date has passed">overdue ${-d}d</span>`);
+                    else if (d <= 1) chips.push(`<span title="Due date">${d === 0 ? 'due today' : 'due tomorrow'}</span>`);
+                  }
+                  if (['idea', 'scripted'].includes(s) && p.created_at && Math.floor((Date.now() - new Date(p.created_at).getTime()) / 864e5) >= 14) chips.push('<span class="stale" title="Waiting two weeks or more: film it or delete it">14d+</span>');
+                  return chips.join('');
                 })()}
-                ${['idea', 'scripted'].includes(s) && p.created_at ? (() => {
-                  const d = Math.floor((Date.now() - new Date(p.created_at).getTime()) / 864e5);
-                  return `<span class="${d >= 14 ? 'stale' : ''}" title="${d >= 14 ? 'Waiting two weeks or more: film it or delete it' : 'Time on the board'}">${d < 1 ? 'today' : d + 'd'}</span>`;
-                })() : ''}
               </div>
               ${p.result ? `<div class="pipe-result" title="Real results from the synced video">📊 ${fmt(p.result.views)} views${p.result.multiple != null ? ` · ${p.result.multiple}× normal` : ''}${p.result.original_multiple != null ? ` <span class="muted">(original ${p.result.original_multiple}×)</span>` : ''}
                   ${(() => {
