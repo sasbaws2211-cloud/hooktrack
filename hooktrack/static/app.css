@@ -443,3 +443,26 @@ input.sv, td.sv input { border-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   #app.page-in { animation: none; } .skel { animation: none; } #loadbar.run { animation-duration: 0s; transform: scaleX(.6); }
 }
+
+/* the post editor: one job per stage, the rest tucked away */
+.post-editor { max-width: min(680px, calc(100vw - 24px)); }
+.pm-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.pm-head h2 { margin: 0; }
+.pm-x { border: 0; background: transparent; color: var(--muted); font-size: 26px; line-height: 1; cursor: pointer; padding: 2px 8px; border-radius: 8px; }
+.pm-x:hover { background: var(--surface-2); color: var(--text); }
+.pm-steps { display: flex; gap: 6px; list-style: none; margin: 4px 0 14px; padding: 0; }
+.pm-steps li { flex: 1; text-align: center; font-size: 12.5px; padding: 6px 4px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-weight: 600; }
+.pm-steps li.done { background: color-mix(in srgb, var(--good, #10b981) 18%, var(--surface-2)); color: var(--text); }
+.pm-steps li.now { background: var(--accent); color: var(--accent-text, #fff); }
+.pm-core { margin-bottom: 4px; }
+.stage-panel { margin: 14px 0 6px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.stage-help { margin: 0 0 4px; font-size: 14px; color: var(--muted); }
+details.pm-more { margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; padding: 0 14px; background: var(--surface); }
+details.pm-more > summary { cursor: pointer; padding: 11px 0; font-weight: 650; font-size: 14.5px; list-style-position: inside; }
+details.pm-more[open] > summary { border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+details.pm-more[open] { padding-bottom: 14px; }
+.pm-menu { position: relative; }
+.pm-menu > summary { list-style: none; cursor: pointer; padding: 8px 14px; font-size: 18px; line-height: 1; }
+.pm-menu > summary::-webkit-details-marker { display: none; }
+.pm-menu-list { position: absolute; bottom: 110%; left: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); z-index: 5; min-width: 140px; }
+@media (max-width: 640px) { .pm-steps li { font-size: 11.5px; } }

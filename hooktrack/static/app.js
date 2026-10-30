@@ -1183,44 +1183,79 @@ function vscDecision(t) {
 
 function postModal(post, defaults, onDone) {
   const p = post || { account_id: '', post_date: iso(nowLocal()), status: 'scripted', ai_prompt: '', hook: '', body: '', caption: '', views: 0, comments: 0, intent: false, v: null, s: null, c: null, ...defaults };
-  const m = openModal(`<h2>${post ? 'Edit post' : 'New post'}</h2><div class="fields">
-    <div><label class="f">Account</label><select id="account">${accountOptions(p.account_id, 'Choose…')}</select></div>
-    <div><label class="f">Date</label><input type="date" id="date" value="${esc(p.post_date)}"></div>
-    <div><label class="f">Status</label><select id="status">${PIPELINE.map(s => `<option value="${s}" ${normStatus(p.status) === s ? 'selected' : ''}>${PIPE_LABEL[s]}</option>`).join('')}</select></div>
-    <div><label class="f">AI prompt / format</label><input id="prompt" value="${esc(p.ai_prompt)}" placeholder="Slideshow 5-pages, urgent tone"></div>
-    <div class="full"><label class="f">Hook (overlay 1)</label><input id="hook" value="${esc(p.hook)}"></div>
-    <div class="full"><label class="f">Body (overlay 2)</label><input id="body" value="${esc(p.body)}"></div>
-    <div class="full"><label class="f">Caption + hashtags</label><textarea id="caption">${esc(p.caption)}</textarea></div>
-    <div><label class="f">Views</label><input id="views" inputmode="numeric" value="${p.views || 0}"></div>
-    <div><label class="f">Comments</label><input id="comments" inputmode="numeric" value="${p.comments || 0}"></div>
+  // ---- the editor shows what this stage needs and tucks the rest away ----
+  const STEPS = [['idea', 'Idea'], ['scripted', 'Scripted'], ['filmed', 'Filmed'], ['posted', 'Posted']];
+  const stepOf = st => (st === 'analysed' ? 3 : Math.max(0, STEPS.findIndex(x => x[0] === st)));
+  const STAGE_HELP = {
+    idea: 'An idea. Write the hook and caption, then mark it as scripted.',
+    scripted: 'Scripted. Film it, then add the video here when you have it.',
+    filmed: 'Filmed and ready. Choose when it goes out.',
+    posted: 'Posted. Paste the video’s link so its real results come back.',
+    analysed: 'Analysed. This is how it did.',
+  };
+  const ctaButtons = (() => {
+    if (!(post && post.id)) return '';
+    if (post.external_id) {
+      return POST_AS[post.decision] && !post.followup
+        ? `<button class="btn primary" id="topost" title="Add this hook to Posts as ${POST_AS[post.decision]}">Post</button>` : '';
+    }
+    const on = !!(state.publish && state.publish.enabled);
+    const media = !!(p.has_video_file || p.video_url || (state.publish && state.publish.config && state.publish.config.default_media_url));
+    const held = !!(state.publish && state.publish.held);
+    const why = held ? state.publish.held_message
+      : !on ? 'Publishing is not set up on this server yet'
+      : !media ? 'Attach a video first: move the card back to Scripted, upload it, then move it to Filmed' : 'Publish to social platforms';
+    return `<button class="btn primary" id="dopub" ${normStatus(p.status) === 'filmed' ? '' : 'hidden'} ${on && media && !held ? '' : 'disabled'} title="${esc(why)}">📤 Publish</button>
+      <button class="btn primary" id="filmsched" hidden ${on && !held ? '' : 'disabled'} title="The video is attached: mark this card Filmed and choose when it goes out">🎬 Mark filmed &amp; schedule</button>`;
+  })();
+  const st0 = normStatus(p.status);
+  const steps = p.external_id ? '' : `<ol class="pm-steps" id="steps" aria-label="Where this post is">${STEPS.map(([k, l], i) =>
+    `<li data-step="${i}" class="${i < stepOf(st0) ? 'done' : i === stepOf(st0) ? 'now' : ''}">${l}</li>`).join('')}</ol>`;
+  const postedOnly = ['posted', 'analysed'].includes(st0) || !!p.external_id;
+  const m = openModal(`<div class="pm-head"><h2>${post ? 'Edit post' : 'New post'}</h2><button class="pm-x" type="button" data-close aria-label="Close">×</button></div>
+    ${steps}
+    <div class="fields pm-core">
+      <div class="full"><label class="f">Hook (first 3 seconds)</label><input id="hook" value="${esc(p.hook)}" placeholder="The line that stops the scroll"></div>
+      <div class="full"><label class="f">Account</label><select id="account">${accountOptions(p.account_id, 'Choose…')}</select></div>
+      <div class="full"><label class="f">Caption + hashtags</label><textarea id="caption">${esc(p.caption)}</textarea></div>
+    </div>
+    <div class="stage-panel" id="stage-panel">
+      ${p.external_id ? '' : `<p class="stage-help" id="stage-help">${esc(STAGE_HELP[st0] || '')}</p>`}
+      ${p.external_id ? '' : '<div class="row" style="gap:8px;margin:6px 0"><button class="btn primary" id="nextstage" type="button" hidden>Mark as scripted</button></div>'}
+      <div id="vidupload" style="margin-top:6px"></div>
+      <div id="vidstatus" class="small" style="margin-top:6px">${p.video_url ? `🎬 <a href="${esc(p.video_url)}" target="_blank" rel="noopener">Video ready</a>` : ''}</div>
+      <div id="pubstatus" class="small" style="margin-top:4px">${p.external_post_id ? `📤 Published · ${esc(p.publish_platforms || '')} · id ${esc(p.external_post_id)}` : (p.scheduled_for ? `📅 Scheduled ${esc(fmtWhen(p.scheduled_for))} (${esc(wsTz())})` : '')}</div>
     ${p.external_id ? '' : `<div class="full" id="linkblock" ${['posted', 'analysed'].includes(normStatus(p.status)) || p.url || p.result_post_id ? '' : 'hidden'}><label for="posturl">Posted video link</label>
       <input id="posturl" type="url" inputmode="url" placeholder="https://www.tiktok.com/@you/video/…" value="${esc(p.url || '')}">
       ${!p.result_post_id && p.id ? '<div style="margin-top:6px"><button class="btn sm" id="findvid" type="button">🔎 Find it in synced videos</button></div>' : ''}
       <div class="small muted" style="margin-top:4px">${p.result_post_id
         ? '✓ Linked to the synced video: its results show on this card.'
         : 'Paste the full address of the video once it is posted. After the next sync this card shows how it really did. (Short vm.tiktok.com links cannot be matched: open the video and copy the address bar.)'}</div></div>`}
-    <div class="full check"><input type="checkbox" id="intent" ${p.intent ? 'checked' : ''}><label for="intent">Intent — comments ask "what's the app?" / "where can I get this?"</label></div>
-    <div class="full"><div class="score-box">
-      <div id="signals" style="margin-top:12px"></div>
+      <div class="row pm-cta" style="gap:8px;margin-top:10px;flex-wrap:wrap">${ctaButtons}</div>
+    </div>
+    <details class="pm-more" id="pm-more"><summary>More details</summary>
+      <div class="fields">
+        <div><label class="f">Status</label><select id="status">${PIPELINE.map(s => `<option value="${s}" ${st0 === s ? 'selected' : ''}>${PIPE_LABEL[s]}</option>`).join('')}</select></div>
+        <div><label class="f">Due date (when you plan to post)</label><input type="date" id="date" value="${esc(p.post_date)}"></div>
+        <div class="full"><label class="f">Video idea / format</label><input id="prompt" value="${esc(p.ai_prompt)}" placeholder="Slideshow 5 pages, urgent tone"></div>
+        <div class="full"><label class="f">Text on screen</label><input id="body" value="${esc(p.body)}"></div>
+        <div id="postedfields" class="full fields" style="padding:0" ${postedOnly ? '' : 'hidden'}>
+          <div><label class="f">Views</label><input id="views" inputmode="numeric" value="${p.views || 0}"></div>
+          <div><label class="f">Comments</label><input id="comments" inputmode="numeric" value="${p.comments || 0}"></div>
+          <div class="full check"><input type="checkbox" id="intent" ${p.intent ? 'checked' : ''}><label for="intent">Intent: comments ask "what's the app?" / "where can I get this?"</label></div>
+        </div>
+      </div>
+    </details>
+    <details class="pm-more" id="pm-insights" ${p.external_id ? 'open' : ''}><summary>Insights</summary>
+      <div id="signals" style="margin-top:10px"></div>
       <div id="baseline" style="margin-top:12px"></div>
-      <div id="vidupload" style="margin-top:10px"></div>
-      <div id="vidstatus" class="small" style="margin-top:8px">${p.video_url ? `🎬 <a href="${esc(p.video_url)}" target="_blank" rel="noopener">Video ready</a>` : ''}</div>
-      <div id="pubstatus" class="small" style="margin-top:4px">${p.external_post_id ? `📤 Published · ${esc(p.publish_platforms || '')} · id ${esc(p.external_post_id)}` : (p.scheduled_for ? `📅 Scheduled ${esc(fmtWhen(p.scheduled_for))} (${esc(wsTz())})` : '')}</div></div></div></div>
-    <div class="actions">${post ? '<button class="btn danger" id="del">Delete</button>' : ''}<span class="spacer"></span>
-      ${post && post.id ? `${post.external_id ? '' : '<button class="btn" id="dup" title="Duplicate as new idea">Duplicate</button>'}
-      ${post.external_id
-        ? (POST_AS[post.decision] && !post.followup ? `<button class="btn primary" id="topost" title="Add this hook to Posts as ${POST_AS[post.decision]}">Post</button>` : '')
-        : (() => {
-            const on = !!(state.publish && state.publish.enabled);
-            const media = !!(p.has_video_file || p.video_url || (state.publish && state.publish.config && state.publish.config.default_media_url));
-            const held = !!(state.publish && state.publish.held);
-            const why = held ? state.publish.held_message
-              : !on ? 'Publishing is not set up on this server yet'
-              : !media ? 'Attach a video first: move the card back to Scripted, upload it, then move it to Filmed' : 'Publish to social platforms';
-            return `<button class="btn primary" id="dopub" ${normStatus(p.status) === 'filmed' ? '' : 'hidden'} ${on && media && !held ? '' : 'disabled'} title="${esc(why)}">📤 Publish</button>
-              <button class="btn primary" id="filmsched" hidden ${on && !held ? '' : 'disabled'} title="The video is attached: mark this card Filmed and choose when it goes out">🎬 Mark filmed &amp; schedule</button>`;
-          })()}` : ''}
-      <button class="btn" data-close>Cancel</button><button class="btn primary" id="save">Save</button></div>`);
+    </details>
+    <div class="actions">
+      ${post ? `<details class="pm-menu"><summary class="btn" aria-label="More actions">⋯</summary><div class="pm-menu-list">
+        ${post.id && !post.external_id ? '<button class="btn" id="dup" type="button" title="Duplicate as new idea">Duplicate</button>' : ''}
+        <button class="btn danger" id="del" type="button">Delete</button></div></details>` : ''}
+      <span class="spacer"></span><button class="btn primary" id="save">Save</button></div>`);
+  m.querySelector('.modal').classList.add('post-editor');
 
   // what the platform and the audience have shown so far: early velocity + what people asked for
   const signals = async (fresh) => {
@@ -1600,6 +1635,24 @@ function postModal(post, defaults, onDone) {
     const r = await api('POST', `/api/posts/${post.id}/followup`);
     toast(r.created ? `Added to Posts as ${PIPE_LABEL[r.status] || r.status}` : 'Already in Posts');
     m.close(); onDone && onDone();
+  });
+  // keep the step row, the one-line help and the stage-only fields in step with the Status choice
+  const refreshStage = () => {
+    const st = $('#status', m) ? $('#status', m).value : normStatus(post && post.status);
+    const si = stepOf(st);
+    $$('#steps li', m).forEach((li, i) => { li.className = i < si ? 'done' : i === si ? 'now' : ''; });
+    const help = $('#stage-help', m); if (help) help.textContent = STAGE_HELP[st] || '';
+    const pf = $('#postedfields', m); if (pf) pf.hidden = !(['posted', 'analysed'].includes(st) || (post && post.external_id));
+    const ns = $('#nextstage', m); if (ns) ns.hidden = !(st === 'idea' && post && post.id);
+  };
+  refreshStage();
+  if ($('#status', m)) $('#status', m).addEventListener('change', refreshStage);
+  if ($('#nextstage', m)) $('#nextstage', m).onclick = guard(async () => {
+    $('#status', m).value = 'scripted';
+    $('#status', m).dispatchEvent(new Event('change'));
+    await save();
+    toast('Marked as scripted');
+    if (onDone) onDone();
   });
   const hasVideo = () => !!(post && (post.has_video_file || post.video_url));
   const refreshFilmSched = () => {

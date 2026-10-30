@@ -1,6 +1,6 @@
 /* HookTrack Guide: floating help button and chat panel */
 #guide-root[hidden] { display: none; }
-#guide-fab { position: fixed; right: 20px; bottom: 20px; z-index: 90; display: flex; align-items: center; gap: 8px; border: 0; cursor: pointer;
+#guide-fab { position: fixed; right: 20px; bottom: 20px; z-index: 45; display: flex; align-items: center; gap: 8px; border: 0; cursor: pointer;
   background: var(--accent); color: var(--accent-text); padding: 0 16px 0 6px; height: 48px; border-radius: 999px; font: inherit; font-weight: 600;
   box-shadow: 0 6px 20px rgba(20, 20, 60, .28); transition: transform .15s, box-shadow .15s; }
 #guide-fab:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(20, 20, 60, .34); }
