@@ -1188,7 +1188,7 @@ function postModal(post, defaults, onDone) {
   const stepOf = st => (st === 'analysed' ? 3 : Math.max(0, STEPS.findIndex(x => x[0] === st)));
   const STAGE_HELP = {
     idea: 'An idea. Write the hook and caption, then mark it as scripted.',
-    scripted: 'Scripted. Film it, then add the video here when you have it.',
+    scripted: 'Scripted. Film it, then drag your video into the box below.',
     filmed: 'Filmed and ready. Choose when it goes out.',
     posted: 'Posted. Paste the video’s link so its real results come back.',
     analysed: 'Analysed. This is how it did.',
@@ -1222,7 +1222,7 @@ function postModal(post, defaults, onDone) {
     <div class="stage-panel" id="stage-panel">
       ${p.external_id ? '' : `<p class="stage-help" id="stage-help">${esc(STAGE_HELP[st0] || '')}</p>`}
       ${p.external_id ? '' : '<div class="row" style="gap:8px;margin:6px 0"><button class="btn primary" id="nextstage" type="button" hidden>Mark as scripted</button></div>'}
-      <div id="vidupload" style="margin-top:6px"></div>
+      <div id="vidupload" style="margin-top:6px">${post ? '' : '<div class="small muted">Create the post first, then drag your video in here.</div>'}</div>
       <div id="vidstatus" class="small" style="margin-top:6px">${p.video_url ? `🎬 <a href="${esc(p.video_url)}" target="_blank" rel="noopener">Video ready</a>` : ''}</div>
       <div id="pubstatus" class="small" style="margin-top:4px">${p.external_post_id ? `📤 Published · ${esc(p.publish_platforms || '')} · id ${esc(p.external_post_id)}` : (p.scheduled_for ? `📅 Scheduled ${esc(fmtWhen(p.scheduled_for))} (${esc(wsTz())})` : '')}</div>
     ${p.external_id ? '' : `<div class="full" id="linkblock" ${['posted', 'analysed'].includes(normStatus(p.status)) || p.url || p.result_post_id ? '' : 'hidden'}><label for="posturl">Posted video link</label>
@@ -1444,7 +1444,7 @@ function postModal(post, defaults, onDone) {
       post.has_video_file = true; post.video_file_name = r.name; post.video_file_size = r.size; post.video_url = '';
       if (m._afterUpload) m._afterUpload();
       const vs = $('#vidstatus', m); if (vs) vs.innerHTML = '';
-      toast('Matching video uploaded');
+      toast(isMatching() ? 'Matching video uploaded' : 'Video uploaded');
       if (onDone) onDone();
     } finally { uploadBlock(); }
   };
@@ -1550,9 +1550,11 @@ function postModal(post, defaults, onDone) {
     }
     const bl = (post && post._bl) || {};
     const matching = isMatching(), winner = isWinningHook();
-    if (!winner && !matching && !has) { el.innerHTML = ''; return; }        // only winning hooks and their matches have this
+    const curStatus = $('#status', m) ? $('#status', m).value : normStatus(post && post.status);
+    const plainCard = !!(post && post.id && !post.external_id && ['idea', 'scripted'].includes(curStatus));   // any card of your own
+    if (!winner && !matching && !has && !plainCard) { el.innerHTML = ''; return; }
 
-    if (winner && !matching) {
+    if (winner && !matching && !plainCard) {
       const clones = bl.clones || [];
       const mult = post.perf && post.perf.multiple;
       el.innerHTML = `<div class="sig-row"><div class="sig-title">Winning Hook Video</div>
@@ -1569,13 +1571,14 @@ function postModal(post, defaults, onDone) {
 
     // a matching post (or an older post that already holds a file): the video belongs to THIS post
     const parent = bl.parent;
-    el.innerHTML = `<div class="sig-row"><div class="sig-title">${matching ? 'Matching video' : 'Video file'}</div>
+    el.innerHTML = `<div class="sig-row"><div class="sig-title">${matching ? 'Matching video' : 'Video'}</div>
       <div class="small" style="margin:0 0 8px">${matching
         ? `${parent ? `Matches the winning hook video “${esc(short(parent.hook || '', 80))}”. ` : ''}Upload your new matching video here.`
-        : 'The video file attached to this post.'}</div>
+        : has ? 'The video attached to this card. It is ready to schedule.'
+          : 'Add the video you filmed for this card. Once it is attached you can mark it Filmed and schedule it.'}</div>
       ${matching && parent ? `<div style="margin:0 0 8px">${embedHtml(parent.embed, parent.source_url)}</div>` : ''}
       ${has ? fileCard() : ''}
-      ${zoneHtml(has ? 'Drop a new video here to replace it, or click to choose' : 'Drag and drop your matching video here, or click to choose a file',
+      ${zoneHtml(has ? 'Drop a new video here to replace it, or click to choose' : (matching ? 'Drag and drop your matching video here, or click to choose a file' : 'Drag and drop your video here, or click to choose a file'),
                  'MP4, MOV or WebM · up to 300 MB · stays private to this workspace', has)}
       <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">
         <button class="btn sm" id="vidpick" type="button">${has ? 'Replace file' : '⬆ Upload a video'}</button>
@@ -1875,9 +1878,17 @@ async function scheduleDialog(post, opts = {}) {
 
 /* ---------------- scheduled publishes ---------------- */
 pages.scheduled = async app => {
-  const [rows, attention] = await Promise.all([
-    api('GET', '/api/publish/scheduled'), api('GET', '/api/publish/attention').catch(() => [])]);
-  app.innerHTML = `${attention.length ? `<div class="card attention"><h3 style="margin-top:0">Needs your attention (${attention.length})</h3>
+  const [rows, attention, failed] = await Promise.all([
+    api('GET', '/api/publish/scheduled'), api('GET', '/api/publish/attention').catch(() => []),
+    api('GET', '/api/publish/failed').catch(() => [])]);
+  app.innerHTML = `${failed.length ? `<div class="card attention"><h3 style="margin-top:0">Didn't go out (${failed.length})</h3>
+    <p class="muted small">These came due and could not be published. Open the card to publish it again, or dismiss it.</p>
+    ${failed.map(f => `<div class="attn-row"><div style="flex:1;min-width:0"><b>${esc(f.handle || '-')}</b>
+        <span class="muted">${esc(short(f.hook || '', 70))}</span>
+        <div class="small">Planned ${esc(fmtWhen(f.scheduled_for))}: <span style="color:var(--bad)">${esc(f.error || 'it did not go out')}</span></div></div>
+      <button class="btn sm primary" data-open-failed="${f.post_id}">Open card</button>
+      <button class="btn sm" data-dismiss-failed="${f.id}">Dismiss</button></div>`).join('')}</div>` : ''}
+  ${attention.length ? `<div class="card attention"><h3 style="margin-top:0">Needs your attention (${attention.length})</h3>
     <p class="muted small">These were sent to your provider when the server stopped, so HookTrack can't tell whether they went live.
       Check the account, then tell it what happened. It will not retry on its own.</p>
     ${attention.map(a => `<div class="attn-row"><div style="flex:1;min-width:0"><b>${esc(a.handle || '-')}</b>
@@ -1903,6 +1914,13 @@ pages.scheduled = async app => {
     if (!await askConfirm(posted ? 'Mark this post as published?' : 'Confirm it was NOT posted? You can then publish it again.', {danger: false, ok: 'Yes'})) return;
     await api('POST', `/api/publish/jobs/${b.dataset.resolve}/resolve`, { action: b.dataset.act });
     toast(posted ? 'Marked as posted' : 'Marked as not posted'); route();
+  }));
+  $$('[data-open-failed]', app).forEach(b => b.onclick = guard(async () => {
+    const p = await api('GET', `/api/posts/${b.dataset.openFailed}`);
+    postModal(p, null, route);
+  }));
+  $$('[data-dismiss-failed]', app).forEach(b => b.onclick = guard(async () => {
+    await api('DELETE', `/api/publish/failed/${b.dataset.dismissFailed}`); toast('Dismissed'); route();
   }));
   $$('[data-move]', app).forEach(b => b.onclick = guard(async () => {
     const row = rows.find(r => r.post_id === +b.dataset.move);
@@ -1978,6 +1996,7 @@ pages.pipeline = async app => {
                   // at most two chips: what the card needs now, and its due date only when that is worth a look
                   const vid = !!(p.video_url || p.has_video_file);
                   const chips = [];
+                  if (p.publish_failed) chips.push(`<span class="tag warn" title="${esc(p.publish_failed)}">didn't post</span>`);
                   if (p.scheduled_for && !p.external_post_id && s === 'filmed') chips.push(`<span class="tag good" title="Queued to publish (${esc(wsTz())})">📅 ${esc(fmtWhen(p.scheduled_for))}</span>`);
                   else if (s === 'scripted' && !vid) chips.push('<span class="tag warn" title="Add the filmed video before this can be scheduled">needs video</span>');
                   else if (['scripted', 'filmed'].includes(s) && vid && !p.external_post_id) chips.push('<span class="tag good" title="The video is attached: open the card to schedule it">ready</span>');

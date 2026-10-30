@@ -1183,6 +1183,11 @@ def pipeline_board(account_id: Optional[int] = None, ctx: Ctx = Depends(current)
             status = "idea"
         columns[status].append(_post_out(r, st))
     results.attach(ws, [c for col in columns.values() for c in col])
+    failed = {f["post_id"]: f["error"] for f in publish.list_failed(ws)}
+    for col in columns.values():
+        for c in col:
+            if c["id"] in failed:
+                c["publish_failed"] = failed[c["id"]] or "The scheduled publish did not go out"
     return {
         "stages": PIPELINE_ORDER,
         "columns": columns,
@@ -1751,6 +1756,20 @@ def post_publish(pid: int, b: PublishIn = PublishIn(), ctx: Ctx = Depends(curren
 class ResolveIn(BaseModel):
     action: str
     external_id: str = ""
+
+
+@app.get("/api/publish/failed")
+def publish_failed(ctx: Ctx = Depends(current)):
+    """Scheduled posts that came due and did not go out, with the reason."""
+    return publish.list_failed(ctx.workspace_id)
+
+
+@app.delete("/api/publish/failed/{jid}")
+def publish_failed_dismiss(jid: int, ctx: Ctx = Depends(current)):
+    try:
+        return publish.dismiss_failed(ctx.workspace_id, jid)
+    except publish.PublishError as e:
+        raise HTTPException(404, str(e))
 
 
 @app.get("/api/publish/attention")

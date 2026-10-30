@@ -203,6 +203,38 @@ def _platform_key(platform: str, provider: str) -> Optional[str]:
     return PLATFORM_MAP.get("tiktok", {}).get(provider, "tiktok" if provider == "mock" else None)
 
 
+def _dispatch_settings(workspace_id: int, cfg: dict) -> tuple:
+    """(provider, secret, conf) to send a publish with, exactly as publish-now builds them.
+
+    A workspace on HookTrack's own publishing connection has no key of its own: it uses the platform's key, its own
+    profile's connected accounts and the platform's base address. The scheduler must use the same thing, or a post
+    that was queued for later is sent with an empty key and the wrong address when it comes due.
+    """
+    provider = cfg["provider"]
+    conf = dict(cfg.get("config") or {})
+    secret = _resolve_secret(workspace_id)
+    if provider == "late" and conf.get("managed"):
+        # HookTrack's own Late account: its key, this workspace's profile, and no account ids from the customer
+        from . import latehub
+        if not latehub.available():
+            raise PublishError("Publishing is not set up on this server yet.")
+        secret = latehub.platform_key()
+        conf.pop("account_ids", None)
+        conf.pop("base_url", None)
+        conf["_base"] = latehub.base_url()
+        try:
+            conf["_managed_accounts"] = latehub.accounts(workspace_id)
+        except latehub.LateHubError as e:
+            raise PublishError(str(e))
+        from . import billing
+        allowed = billing.limit_for(workspace_id, "connected")
+        have = len(conf["_managed_accounts"])
+        if allowed != -1 and have > allowed:
+            raise PublishError(f"Your plan includes {allowed} connected publishing account{'' if allowed == 1 else 's'} "
+                               f"and {have} are connected. Renew the add-on under Billing, or disconnect one.")
+    return provider, secret, conf
+
+
 def publish_post(
     workspace_id: int,
     post_id: int,
@@ -251,28 +283,7 @@ def publish_post(
     if not caption and not post.get("video_url") and not post.get("video_file"):
         raise PublishError("Post needs a caption or a video before publishing")
 
-    provider = cfg["provider"]
-    conf = dict(cfg.get("config") or {})
-    secret = _resolve_secret(workspace_id)
-    if provider == "late" and conf.get("managed"):
-        # HookTrack's own Late account: its key, this workspace's profile, and no account ids from the customer
-        from . import latehub
-        if not latehub.available():
-            raise PublishError("Publishing is not set up on this server yet.")
-        secret = latehub.platform_key()
-        conf.pop("account_ids", None)
-        conf.pop("base_url", None)
-        conf["_base"] = latehub.base_url()
-        try:
-            conf["_managed_accounts"] = latehub.accounts(workspace_id)
-        except latehub.LateHubError as e:
-            raise PublishError(str(e))
-        from . import billing
-        allowed = billing.limit_for(workspace_id, "connected")
-        have = len(conf["_managed_accounts"])
-        if allowed != -1 and have > allowed:
-            raise PublishError(f"Your plan includes {allowed} connected publishing account{'' if allowed == 1 else 's'} "
-                               f"and {have} are connected. Renew the add-on under Billing, or disconnect one.")
+    provider, secret, conf = _dispatch_settings(workspace_id, cfg)
 
     # Default platforms from account or config default list
     if not platforms:
@@ -383,6 +394,14 @@ def _fail_job(job_id: int, workspace_id: int, error: str):
            WHERE id=%s AND workspace_id=%s""",
         (error[:500], job_id, workspace_id),
     )
+    _clear_schedule_of(job_id, workspace_id)
+
+
+def _clear_schedule_of(job_id: int, workspace_id: int) -> None:
+    """The post of this (now failed) job is no longer waiting to go out: its card must not say it is."""
+    db.execute("UPDATE posts SET scheduled_for=NULL WHERE workspace_id=%s AND external_post_id='' "
+               "AND id=(SELECT post_id FROM publish_jobs WHERE id=%s AND workspace_id=%s)",
+               (workspace_id, job_id, workspace_id))
 
 
 _PLATFORM_HOSTS = ("tiktok.com", "instagram.com", "youtube.com", "youtu.be")
@@ -456,6 +475,7 @@ def _apply_result(job_id: int, workspace_id: int, post_id: int, result: dict, pl
                updated_at=now() WHERE id=%s AND workspace_id=%s""",
             (external_id, (error or "Publish failed")[:500], db.Json(raw), job_id, workspace_id),
         )
+        _clear_schedule_of(job_id, workspace_id)
 
     return get_job(workspace_id, job_id)
 
@@ -858,6 +878,45 @@ def recover_stuck_jobs(stale_minutes: Optional[float] = None) -> dict:
     return {"unconfirmed": len(unconfirmed), "requeued": len(requeued), "failed": len(failed)}
 
 
+def list_failed(workspace_id: int, days: int = 14, limit: int = 50) -> list:
+    """Scheduled posts that came due and did not go out, newest first, one per post (the latest try)."""
+    rows = db.query(
+        """SELECT DISTINCT ON (j.post_id) j.id, j.post_id, j.scheduled_for, j.error, j.updated_at, j.request_json,
+                  p.hook, a.handle, p.account_id
+           FROM publish_jobs j JOIN posts p ON p.id = j.post_id
+           LEFT JOIN accounts a ON a.id = p.account_id
+           WHERE j.workspace_id=%s AND j.status='failed' AND j.scheduled_for IS NOT NULL
+             AND COALESCE(j.error,'') NOT IN ('cancelled','Confirmed not posted')
+             AND p.external_post_id = '' AND j.updated_at > now() - (%s || ' days')::interval
+           ORDER BY j.post_id, j.updated_at DESC""", (workspace_id, str(days)))
+    rows = sorted(rows, key=lambda r: r["updated_at"], reverse=True)[:limit]
+    out = []
+    for r in rows:
+        o = dict(r)
+        req = o.pop("request_json", None)
+        if isinstance(req, str):
+            try:
+                req = json.loads(req)
+            except ValueError:
+                req = {}
+        o["platforms"] = (req or {}).get("platforms") or []
+        for k in ("scheduled_for", "updated_at"):
+            if o.get(k) and hasattr(o[k], "isoformat"):
+                o[k] = o[k].isoformat()
+        out.append(o)
+    return out
+
+
+def dismiss_failed(workspace_id: int, job_id: int) -> dict:
+    row = db.one("DELETE FROM publish_jobs WHERE id=%s AND workspace_id=%s AND status='failed' RETURNING id",
+                 (job_id, workspace_id))
+    if not row:
+        raise PublishError("That failed publish was not found")
+    from . import cache
+    cache.bump(workspace_id)
+    return {"dismissed": True}
+
+
 def list_attention(workspace_id: int, limit: int = 50) -> list:
     rows = db.query(
         """SELECT j.*, p.hook, p.caption, a.handle
@@ -954,9 +1013,7 @@ def process_due_schedules(limit: int = 20) -> int:
                     "SELECT * FROM accounts WHERE id=%s AND workspace_id=%s",
                     (post["account_id"], r["workspace_id"]),
                 )
-            secret = _resolve_secret(r["workspace_id"])
-            conf = cfg.get("config") or {}
-            provider = r["provider"] or cfg["provider"]
+            provider, secret, conf = _dispatch_settings(r["workspace_id"], cfg)
             payload = {
                 "post_id": r["post_id"],
                 "caption": req.get("caption") or post.get("caption") or post.get("hook") or "",
