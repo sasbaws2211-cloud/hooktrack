@@ -472,3 +472,6 @@ details.pm-more[open] { padding-bottom: 14px; }
 .pipe-card .meta .handle-s { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .save-state { font-size: 12.5px; color: var(--muted); margin-right: 10px; }
 .save-state.bad { color: var(--bad, #ef4444); }
+
+.logo { background: none !important; color: inherit; font-size: 0; padding: 0; overflow: hidden; }
+.logo img { width: 100%; height: 100%; display: block; }

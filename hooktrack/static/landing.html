@@ -16,8 +16,8 @@ if (location.hash.indexOf('#/') === 0) location.replace('/app' + location.search
 <meta property="og:title" content="HookTrack: Short-Form Video Analytics &amp; Winning Hook Finder">
 <meta property="og:description" content="Short-form video analytics for TikTok, Reels and Shorts: see which hooks beat each account's normal and make more of them.">
 <meta property="og:image" content="__SITE__/og.jpg">
-<meta property="og:image:width" content="800">
-<meta property="og:image:height" content="420">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="HookTrack: which hooks beat each account's normal, with Scale, Tweak and Hold decisions">
 <meta property="og:locale" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
@@ -25,7 +25,9 @@ if (location.hash.indexOf('#/') === 0) location.replace('/app' + location.search
 <meta name="twitter:description" content="Short-form video analytics for TikTok, Reels and Shorts: see which hooks beat each account's normal and make more of them.">
 <meta name="twitter:image" content="__SITE__/og.jpg">
 <!--JSONLD-->
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Cpath d='M8 21l5-6 4 4 7-9' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
 :root{
   --bg:#0b0f19;--surface:#121826;--surface-2:#1a2234;--text:#e8edf7;--muted:#9aa6bf;--border:#2a3548;
@@ -59,6 +61,7 @@ header .row{display:flex;align-items:center;gap:20px;height:64px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;color:var(--text)}
 .brand:hover{text-decoration:none}
 .logo{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--accent-strong);color:#fff;font-size:15px}
+.logo{background:none!important;font-size:0;padding:0;overflow:hidden}.logo img{width:100%;height:100%;display:block}
 header nav{display:flex;gap:4px;margin-left:12px}
 header nav a{color:var(--muted);padding:8px 12px;border-radius:9px;font-weight:600;font-size:15px}
 header nav a:hover{color:var(--text);background:var(--surface-2);text-decoration:none}
@@ -156,7 +159,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
 
 <header class="top">
   <div class="wrap row">
-    <a class="brand" href="/"><span class="logo">▲</span> HookTrack</a>
+    <a class="brand" href="/"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span> HookTrack</a>
     <nav aria-label="Sections">
       <a href="#features">Features</a>
       <a href="#how">How it works</a>
@@ -291,7 +294,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
 
 <footer>
   <div class="wrap row">
-    <div class="brand"><span class="logo">▲</span> HookTrack</div>
+    <div class="brand"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span> HookTrack</div>
     <nav aria-label="Footer"><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/compare">Compare</a><a href="/alternatives/postiz">Postiz alternatives</a><a href="/blog">Blog</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="#" data-cookie-notice>Cookie notice</a><a href="/app#/login">Sign in</a></nav>
   </div>
 </footer>

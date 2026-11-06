@@ -35,3 +35,6 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute
 footer{border-top:1px solid var(--border);padding:26px 20px;color:var(--muted);font-size:14px}
 footer .row{max-width:880px;margin:0 auto;display:flex;gap:18px;flex-wrap:wrap;justify-content:space-between}
 [hidden]{display:none!important}
+
+.logo { background: none !important; color: inherit; font-size: 0; padding: 0; overflow: hidden; }
+.logo img { width: 100%; height: 100%; display: block; }

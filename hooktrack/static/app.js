@@ -530,7 +530,7 @@ async function renderDigestOff(token, kind) {
   let ok = true, err = '';
   try { await api('POST', kind === 'hot' ? '/api/hot/unsubscribe' : '/api/digest/unsubscribe', { token }); } catch (e) { ok = false; err = e.message; }
   state.me = null;
-  $('#app').innerHTML = `<div class="auth card"><div class="brand" style="margin-bottom:6px"><span class="logo">▲</span> HookTrack</div>
+  $('#app').innerHTML = `<div class="auth card"><div class="brand" style="margin-bottom:6px"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span> HookTrack</div>
     ${ok ? `<h1>${kind === 'hot' ? 'Breakout alerts' : 'Weekly email'} switched off</h1><p class="muted">You will not get ${kind === 'hot' ? 'breakout alerts' : 'the weekly summary'} any more. You can turn it back on under Settings, Your account.</p>`
          : `<h1>Link not valid</h1><p class="muted">${esc(err)}</p>`}
     <a class="btn primary" href="#/dashboard">Go to HookTrack</a></div>`;
@@ -541,7 +541,7 @@ async function renderVerify(token) {
   let done = null, err = '';
   try { done = await api('POST', '/api/auth/verify', { token }); } catch (e) { err = e.message; }
   state.me = null;
-  $('#app').innerHTML = `<div class="auth card"><div class="brand" style="margin-bottom:6px"><span class="logo">▲</span> HookTrack</div>
+  $('#app').innerHTML = `<div class="auth card"><div class="brand" style="margin-bottom:6px"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span> HookTrack</div>
     ${done ? `<h1>Email confirmed</h1><p class="muted">${esc(done.email)} is confirmed. You can add accounts and sync now.</p>`
            : `<h1>Link not valid</h1><p class="muted">${esc(err)}</p>`}
     <a class="btn primary" href="#/dashboard">Go to HookTrack</a></div>`;
@@ -660,7 +660,7 @@ $('#logout').addEventListener('click', guard(async () => {
 function renderAuth(mode = 'login', note = '') {
   document.body.classList.add('anon');
   note = note || state.authNote || '';
-  $('#app').innerHTML = `<div class="auth card"><div class="brand" style="margin-bottom:6px"><span class="logo">▲</span> HookTrack</div>
+  $('#app').innerHTML = `<div class="auth card"><div class="brand" style="margin-bottom:6px"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span> HookTrack</div>
     <h1>${mode === 'login' ? 'Sign in' : 'Create your workspace'}</h1>
     <p class="muted">${mode === 'login' ? 'Welcome back.' : 'Each workspace is private: its accounts, views, posts and AI settings are never shared with another workspace.'}</p>
     ${note ? `<div class="notice">${esc(note)}</div>` : ''}
@@ -689,7 +689,7 @@ function renderAuth(mode = 'login', note = '') {
 
 function renderForgot() {
   document.body.classList.add('anon');
-  $('#app').innerHTML = `<div class="auth card"><div class="brand" style="margin-bottom:6px"><span class="logo">▲</span> HookTrack</div>
+  $('#app').innerHTML = `<div class="auth card"><div class="brand" style="margin-bottom:6px"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span> HookTrack</div>
     <h1>Reset your password</h1><p class="muted">Enter your account email and we'll send a link to choose a new password.</p>
     <form id="fg-form" class="fields" style="grid-template-columns:1fr">
       <div><label class="f">Email</label><input name="email" type="email" autocomplete="email" required></div>
@@ -718,7 +718,7 @@ async function renderReset(token) {
       <a class="btn" href="#/forgot">Send a new link</a></div>`;
     return;
   }
-  $('#app').innerHTML = `<div class="auth card"><div class="brand" style="margin-bottom:6px"><span class="logo">▲</span> HookTrack</div>
+  $('#app').innerHTML = `<div class="auth card"><div class="brand" style="margin-bottom:6px"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span> HookTrack</div>
     <h1>Choose a new password</h1><p class="muted">For <b>${esc(info.email)}</b>. You'll be signed out everywhere else.</p>
     <form id="rs-form" class="fields" style="grid-template-columns:1fr">
       <div><label class="f">New password (8+ characters)</label><input name="password" type="password" minlength="8" autocomplete="new-password" required></div>
@@ -745,7 +745,7 @@ async function renderInvite(token) {
   document.body.classList.add('anon');
   const signedInAsInvitee = state.me && state.me.user.email === inv.email;
   const needsLogin = inv.account_exists && !signedInAsInvitee;
-  $('#app').innerHTML = `<div class="auth card"><div class="brand" style="margin-bottom:6px"><span class="logo">▲</span> HookTrack</div>
+  $('#app').innerHTML = `<div class="auth card"><div class="brand" style="margin-bottom:6px"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span> HookTrack</div>
     <h1>Join ${esc(inv.workspace_name)}</h1><p class="muted">You've been invited as <b>${esc(inv.role)}</b> using <b>${esc(inv.email)}</b>.</p>
     <form id="inv-form" class="fields" style="grid-template-columns:1fr">
       ${inv.account_exists ? (needsLogin ? `<div><label class="f">Password for ${esc(inv.email)}</label><input name="password" type="password" required></div>` : '')
