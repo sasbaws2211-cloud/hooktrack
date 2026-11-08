@@ -59,6 +59,16 @@ services:
         sync: false
       - key: HOOKTRACK_EMAIL_FROM
         sync: false
+      - key: APPSUMO_API_KEY
+        sync: false
+      - key: APPSUMO_CLIENT_ID
+        sync: false
+      - key: APPSUMO_CLIENT_SECRET
+        sync: false
+      - key: APPSUMO_REDIRECT_URL
+        sync: false
+      - key: APPSUMO_BUY_URL
+        sync: false
 
   - type: web
     name: hooktrack-admin

@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import activation, auth, backup, billing, db, digest, emailguard, legal, mailer, sociavault, vaultwatch
+from app import activation, appsumo, auth, backup, billing, lifetime, db, digest, emailguard, legal, mailer, sociavault, vaultwatch
 
 log = logging.getLogger("hooktrack.admin")
 STATIC = Path(__file__).parent / "static"
@@ -282,6 +282,8 @@ def workspace_subscription(wid: int, b: SubscriptionIn, _a: Admin = Depends(requ
     if b.status not in ("active", "comp"):
         raise HTTPException(400, "status must be active or comp")
     plan = billing.get_plan(b.plan_code)
+    if plan is not None and plan["interval"] == "lifetime":
+        raise HTTPException(400, "Lifetime tiers come only from AppSumo licences; they cannot be assigned by hand")
     if plan is None or b.plan_code == billing.FREE:
         raise HTTPException(400, f"Unknown plan '{b.plan_code}'. There is no free plan: pick a paid plan, or extend the trial.")
     end = None
@@ -559,6 +561,8 @@ def settings(_a: Admin = Depends(require_admin)):
         "trial": {**billing.trial_config(), "plans": [p["code"] for p in billing.list_plans()]},
         "billing": {"enabled": billing.enabled(), "paystack": billing.paystack_status(),
                     "webhook_path": "/api/billing/webhook/paystack"},
+        "lifetime": {"mode": lifetime.mode(), "spots": lifetime.spots(), "appsumo": appsumo.status(), "licenses": lifetime.recent(50),
+                     "webhook_path": "/api/appsumo/webhook", "callback_path": "/appsumo/callback"},
         "late": __import__("app.latehub", fromlist=["x"]).key_status(),
         "ai": __import__("app.ai", fromlist=["x"]).platform_status(),
         "signup_protection": _signup_protection(),
@@ -583,6 +587,20 @@ def settings_billing(b: BillingSettingsIn, _a: Admin = Depends(require_admin)):
     if b.enabled and billing.paystack_status()["configured"]:
         out["currency_check"] = billing.check_charge_currency()      # say now if customers will be unable to pay
     return out
+
+
+class LifetimeModeIn(BaseModel):
+    mode: Optional[str] = None
+    cap: Optional[int] = None
+
+
+@app.put("/api/settings/lifetime")
+def settings_lifetime(b: LifetimeModeIn, _a: Admin = Depends(require_admin)):
+    if b.cap is not None:
+        lifetime.set_cap(b.cap)
+    if b.mode is not None:
+        lifetime.set_mode(b.mode)
+    return {"mode": lifetime.mode(), **lifetime.spots()}
 
 
 @app.post("/api/settings/paystack/test")

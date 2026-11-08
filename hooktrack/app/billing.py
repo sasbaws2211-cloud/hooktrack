@@ -73,9 +73,9 @@ EXPIRED_PLAN = {"code": "expired", "name": "No active plan", "description": "", 
                 "interval": "month", "max_accounts": 0, "max_members": 0, "max_ai_calls": 0, "max_connected": 0,
                 "max_credits": 0, "max_reports": 0, "active": False,
                 "position": 0}
-TRIAL_ENDED_MSG = "Your free trial has ended. Choose a plan under Billing to keep working."
+TRIAL_ENDED_MSG = "Your free trial has ended. Open Billing to keep working."
 TRIAL_USED_MSG = ("This email has already used its free trial on another workspace. "
-                  "Choose a plan under Billing to start using this one.")
+                  "Open Billing to start using this one.")
 
 
 def normalize_email(email: str) -> str:
@@ -106,6 +106,8 @@ def trial_config() -> dict:
         days = int(_pget("trial_days", TRIAL_DAYS))
     except (TypeError, ValueError):
         days = TRIAL_DAYS
+    if _pget("billing_mode", "subscriptions") == "lifetime":
+        days = 0                                  # lifetime mode has no free trial: AppSumo's refund window is the trial
     return {"days": max(0, min(days, 365)), "plan": str(_pget("trial_plan", "") or "")}
 
 
@@ -125,6 +127,8 @@ def _trial_plan() -> dict:
     """The limits a trial gets: the configured plan, else the first (cheapest) plan on sale."""
     code = trial_config()["plan"]
     plan = get_plan(code) if code and code != FREE else None
+    if plan is None and _pget("billing_mode", "subscriptions") == "lifetime":
+        plan = get_plan("ltd_1")                  # lifetime mode: the trial feels like the entry tier
     if plan is None:
         paid = [p for p in list_plans(only_active=True)]
         plan = paid[0] if paid else None
@@ -265,7 +269,10 @@ def workspace_state(ws: int) -> dict:
         return {"state": "comp" if sub["status"] == "comp" else "paid", "trial_ends_at": None, "sub": sub}
     if has_paid_history and sub["lapsed"]:
         return {"state": "expired", "trial_ends_at": None, "sub": sub, "reason": "paid_period_ended"}
-    # never paid: the trial window
+    # never paid
+    if _pget("billing_mode", "subscriptions") == "lifetime":
+        return {"state": "expired", "trial_ends_at": None, "sub": sub, "reason": "no_licence"}
+    # the trial window
     override = sub.get("trial_ends_at") if sub["has_row"] else None
     if override is not None:
         ends = override
@@ -290,6 +297,8 @@ def workspace_state(ws: int) -> dict:
 
 def blocked_message(ws: int) -> str:
     st = workspace_state(ws)
+    if st.get("reason") == "no_licence":
+        return "Redeem your AppSumo lifetime licence under Billing to start using this workspace."
     return TRIAL_USED_MSG if st.get("reason") == "trial_used" else TRIAL_ENDED_MSG
 
 
@@ -1042,6 +1051,11 @@ def billing_status(ctx: Ctx = Depends(current)):
             p["charge_minor"], p["charge_currency"] = p["price_minor"], p["currency"]
     out["paywalled"] = out["state"] == "expired"
     out["can_manage"] = ctx.role in ("owner", "admin")
+    from . import lifetime
+    out["mode"] = lifetime.mode()
+    if out["mode"] == "lifetime":
+        out["plans"] = []                              # nothing to subscribe to: licences come from AppSumo
+        out["lifetime"] = lifetime.workspace_view(ctx.workspace_id)
     out["fx_usd"] = usd_rates()          # {"GHS": 15.5} means 1 USD = 15.5 GHS (display only)
     pays = db.query("SELECT plan_code, amount_minor, currency, status, created_at, paid_at, reference "
                     "FROM payments WHERE workspace_id=%s ORDER BY created_at DESC LIMIT 20", (ctx.workspace_id,))
@@ -1062,6 +1076,9 @@ def public_pricing() -> dict:
     """What the public landing page may show: plans, prices and the trial length. Nothing about any workspace."""
     on = enabled()
     plans = []
+    from . import lifetime
+    if on and lifetime.is_lifetime_mode():
+        return lifetime.public_view(trial_config()["days"])
     if on:
         for p in list_plans(only_active=True):
             try:
@@ -1096,11 +1113,18 @@ def delete_card(ctx: Ctx = Depends(auth.admin)):
 PENDING_WINDOW = "1 hour"
 
 
+def _no_card_in_lifetime_mode() -> None:
+    from . import lifetime
+    if lifetime.is_lifetime_mode():
+        raise HTTPException(400, "Plans are sold as lifetime deals on AppSumo. Redeem your licence key on the Billing page.")
+
+
 @router.post("/checkout")
 def checkout(b: CheckoutIn, ctx: Ctx = Depends(auth.admin)):
     """Start a payment. Returns the Paystack access_code for the in-app popup and our own reference to poll."""
     if not enabled():
         raise HTTPException(400, "Billing is not turned on for this platform")
+    _no_card_in_lifetime_mode()
     plan = get_plan(b.plan_code)
     if plan is None or not plan["active"]:
         raise HTTPException(404, "That plan is not available")
@@ -1157,6 +1181,7 @@ def _switch_with_credit(ctx: Ctx, plan: dict, quote: dict, ws_name: str) -> dict
 @router.get("/quote")
 def quote(plan_code: str, ctx: Ctx = Depends(auth.admin)):
     """What it would cost to switch to this plan right now (credit for unused time included). Changes nothing."""
+    _no_card_in_lifetime_mode()
     plan = get_plan(plan_code)
     if plan is None or not plan["active"] or plan["price_minor"] <= 0:
         raise HTTPException(404, "That plan is not available")
@@ -1199,6 +1224,7 @@ def addon_checkout(b: AddonCheckoutIn, ctx: Ctx = Depends(auth.admin)):
     """Start a payment for an add-on. Same Paystack popup and polling as a plan."""
     if not enabled():
         raise HTTPException(400, "Billing is not turned on for this platform")
+    _no_card_in_lifetime_mode()
     spec = ADDONS.get(b.kind)
     if spec is None:
         raise HTTPException(404, "Unknown add-on")

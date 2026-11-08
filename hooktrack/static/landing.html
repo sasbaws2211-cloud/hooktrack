@@ -323,6 +323,40 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
       $('#faq-trial').textContent = 'You get ' + p.trial_days + ' days free with no card needed. When the trial ends your workspace becomes view-only until you pick a plan. Nothing is deleted. One free trial per person.';
       $('#pricing-sub').textContent = 'Start with a ' + p.trial_days + '-day free trial. Pick a plan when you are ready.';
     }
+    if (p.mode === 'lifetime') {
+      var sp = p.spots || {}, left = sp.cap ? sp.left + ' of ' + sp.cap + ' founding spots left' : '';
+      var soldOut = !!(sp.cap && sp.left <= 0);
+      var buyHref = p.buy_url || '/app#/signup';
+      $('#pricing-sub').textContent = 'Pay once, use it forever. ' + (soldOut ? 'The founding lifetime deal has sold out.' : 'Limited to our first ' + (sp.cap || 100) + ' customers, sold on AppSumo.');
+      $('#interval').hidden = true;
+      $('#hero-fine').textContent = (left ? left + '. ' : '') + 'Pay once on AppSumo, with a 60-day money-back guarantee.';
+      document.querySelectorAll('[data-cta]').forEach(function (a) {
+        if (a.id === 'hero-cta' || a.classList.contains('big')) { a.textContent = soldOut ? 'Founding deal sold out' : 'Get the lifetime deal'; a.href = buyHref; }
+        else { a.textContent = 'Sign in to redeem'; a.href = '/app#/login'; }
+      });
+      $('#faq-trial').parentNode.querySelector('summary').textContent = 'Is there a free trial?';
+      $('#faq-trial').textContent = 'There is no free trial. Instead the lifetime deal comes with AppSumo\u2019s 60-day money-back guarantee, so you can try HookTrack with your own accounts and get a full refund if it is not for you. Already bought? Create an account and redeem your code under Billing.';
+      host.innerHTML = plans.map(function (pl, i) {
+        var pop = plans.length >= 3 && i === 1;
+        var buy = p.buy_url || '/app#/signup';
+        return '<div class="card plan' + (pop ? ' pop' : '') + '">' +
+          '<h3>' + esc(pl.name) + (pop ? '<span class="badge">Most popular</span>' : '') + '</h3>' +
+          '<p>' + esc(pl.description) + '</p>' +
+          '<div class="price">' + money(pl.price_minor, pl.currency) + '<small> one-time</small></div>' +
+          '<div class="charged">Lifetime access · sold on AppSumo' + (left ? ' · ' + left : '') + '</div>' +
+          '<ul>' +
+          '<li><span class="check">✓</span>' + esc(lim(pl.max_accounts, 'tracked account', 'tracked accounts')) + '</li>' +
+          '<li><span class="check">✓</span>' + esc(lim(pl.max_members, 'team member', 'team members')) + '</li>' +
+          '<li><span class="check">✓</span>' + esc(lim(pl.max_ai_calls, 'AI request', 'AI requests')) + ' a month</li>' +
+          '<li><span class="check">✓</span>' + esc(lim(pl.max_connected, 'connected publishing account', 'connected publishing accounts')) + '</li>' +
+          '<li><span class="check">✓</span>' + esc(lim(pl.max_credits, 'data credit', 'data credits')) + ' a month</li>' +
+          '<li><span class="check">✓</span>Winner detection, decisions and calendar</li>' +
+          '</ul>' +
+          '<a class="btn ' + (pop ? 'primary' : '') + '" href="' + esc(buy) + '"' + (p.buy_url ? ' rel="noopener"' : '') + '>' + (soldOut ? 'Sold out' : 'Get lifetime deal') + '</a></div>';
+      }).join('') + '<p class="charged" style="grid-column:1/-1;text-align:center">Prices shown are indicative; the final price is set on AppSumo. Already bought? <a href="/app#/signup">Create your account</a> and redeem your code.</p>';
+      $('#price-note').textContent = 'One licence per workspace. Limits are monthly allowances. Refunds follow AppSumo’s 60-day policy.';
+      return;
+    }
     // monthly and yearly are one plan billed two ways: one card per tier for the chosen period
     var tierKey = function (pl) { return String(pl.code).replace(/[_-](year|yearly|annual|annually)$/i, ''); };
     var order = [], tiers = {};

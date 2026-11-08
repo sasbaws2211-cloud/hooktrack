@@ -1,0 +1,47 @@
+import os, sys, json, time, hmac, hashlib
+os.environ.setdefault("DATABASE_URL", "postgresql://hooktrack:ht_dev_pw@127.0.0.1:55434/hooktrack")
+os.environ["APPSUMO_API_KEY"] = "testkey"
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from fastapi.testclient import TestClient
+from app import db, billing, lifetime, appsumo
+from app.main import app
+db.init_schema()
+c = TestClient(app)
+def hook(ev, key, tier=1, prev=None, test=False, bad=False):
+    body = json.dumps({"event": ev, "license_key": key, "tier": tier, "prev_license_key": prev, "test": test}).encode()
+    ts = str(int(time.time()))
+    sig = "0"*64 if bad else appsumo.sign("testkey", ts, body)
+    return c.post("/api/appsumo/webhook", content=body, headers={"X-Appsumo-Timestamp": ts, "X-Appsumo-Signature": sig})
+ok = lambda n, cond: print(("PASS " if cond else "FAIL ") + n) or (cond or sys.exit(1))
+sfx = str(int(time.time()))
+email = f"ltd{sfx}@example.com"
+r = c.post("/api/auth/signup", json={"email": email, "password": "Passw0rd!long1", "name": "L", "workspace_name": "LTD "+sfx})
+print(r.status_code, r.text[:200])
+ws = db.one("SELECT workspace_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE u.email=%s", (email,))["workspace_id"]
+billing.set_enabled(True); lifetime.set_mode("lifetime")
+try:
+    ok("no trial: new workspace read-only", billing.workspace_state(ws)["state"] == "expired" and billing.workspace_state(ws)["reason"] == "no_licence")
+    ok("trial days forced 0", billing.trial_config()["days"] == 0)
+    s0 = lifetime.spots(); ok("spots default cap 100", s0["cap"] == 100)
+    ok("bad signature -> 401", hook("purchase", "K1"+sfx, bad=True).status_code == 401)
+    ok("test ping acks, no row", hook("purchase", "T"+sfx, test=True).json()["success"] and not lifetime.get("T"+sfx))
+    ok("purchase", hook("purchase", "K1"+sfx, 1).json()["success"] and lifetime.get("K1"+sfx)["status"] == "inactive")
+    ok("duplicate purchase idempotent", hook("purchase", "K1"+sfx, 1).status_code == 200)
+    ok("redeem unknown 404", c.post("/api/billing/lifetime/redeem", json={"license_key": "nope"}).status_code == 404)
+    ok("redeem ok", c.post("/api/billing/lifetime/redeem", json={"license_key": "K1"+sfx}).status_code == 200)
+    ok("state paid, plan ltd_1", billing.workspace_state(ws)["state"] == "paid" and billing.effective_plan(ws)["code"] == "ltd_1")
+    ok("redeem again idempotent", c.post("/api/billing/lifetime/redeem", json={"license_key": "K1"+sfx}).status_code == 200)
+    ok("checkout blocked", c.post("/api/billing/checkout", json={"plan_code": "ltd_2"}).status_code == 400)
+    b = c.get("/api/billing").json(); ok("billing status lifetime", b["mode"] == "lifetime" and b["lifetime"]["license"]["tier"] == 1)
+    ok("public pricing has 3 tiers", len(c.get("/api/public/pricing").json()["plans"]) == 3)
+    ok("upgrade moves workspace", hook("upgrade", "K2"+sfx, 2, "K1"+sfx).status_code == 200 and billing.effective_plan(ws)["code"] == "ltd_2")
+    ok("old key superseded", lifetime.get("K1"+sfx)["status"] == "superseded")
+    ok("deactivate old key keeps access", hook("deactivate", "K1"+sfx).status_code == 200 and billing.workspace_state(ws)["state"] == "paid")
+    ok("spots count excludes superseded", lifetime.sold() == s0["sold"] + 1)
+    ok("refund ends access", hook("deactivate", "K2"+sfx).status_code == 200 and billing.workspace_state(ws)["state"] == "expired")
+    ok("redeem refunded 400", c.post("/api/billing/lifetime/redeem", json={"license_key": "K2"+sfx}).status_code == 400)
+    ok("callback no code 200", c.get("/appsumo/callback").status_code == 200)
+    ok("events logged", db.one("SELECT COUNT(*) n FROM appsumo_events WHERE license_key LIKE %s", ("%"+sfx,))["n"] >= 5)
+finally:
+    lifetime.set_mode("subscriptions"); billing.set_enabled(False)
+print("ALL OK")

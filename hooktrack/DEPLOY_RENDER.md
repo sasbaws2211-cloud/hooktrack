@@ -65,6 +65,10 @@ sync/digest/backup/publish loops that run inside the app process. Do not use fre
 | `HOOKTRACK_LATE_API_KEY` | hooktrack | publishing via Late/Zernio (optional) |
 | `RESEND_API_KEY` | hooktrack | Resend API key (`re_...`). **Setting it turns on mandatory email verification**, digests and alerts |
 | `HOOKTRACK_EMAIL_FROM` | hooktrack | e.g. `HookTrack <hello@yourdomain.com>`; the domain must be verified in Resend (DNS records), otherwise it only delivers to your own Resend account email |
+| `APPSUMO_API_KEY` | hooktrack | AppSumo lifetime deals: signs webhooks (from the AppSumo partner portal) |
+| `APPSUMO_CLIENT_ID` / `APPSUMO_CLIENT_SECRET` | hooktrack | AppSumo OAuth, to turn the buyer's activation code into a licence key |
+| `APPSUMO_REDIRECT_URL` | hooktrack | `https://hooktrack.site/appsumo/callback` (give the same URL to AppSumo) |
+| `APPSUMO_BUY_URL` | hooktrack | your product page on AppSumo (the landing page's "Get lifetime deal" button) |
 | `HOOKTRACK_BACKUP_DIR` | hooktrack | `/var/data/backups` (on the persistent disk) |
 | `HOOKTRACK_BACKUP_COPY_TO` | hooktrack | optional off-machine copy path |
 
@@ -108,3 +112,8 @@ minute, and clears a workspace's cache the moment anything in it changes.
 - **Check it:** the startup log says `cache backend: redis` (or `memory`).
 - **Why it helps most:** the dashboard makes about 26 database queries. Cached, it is one Redis read. If pages are still slow after
   this, the app and the database are probably in different regions: put them in the same one.
+
+
+## Lifetime deals (AppSumo)
+
+In the admin console go to Settings → Lifetime deals and choose "Free trial + AppSumo lifetime deals only" (and keep "Enforce plan limits" on). Give AppSumo the webhook `https://hooktrack.site/api/appsumo/webhook` and the redirect `https://hooktrack.site/appsumo/callback`. Licences are created, upgraded and refunded only by AppSumo's webhooks. Try the flow locally with `python tools/appsumo_sim.py`.
