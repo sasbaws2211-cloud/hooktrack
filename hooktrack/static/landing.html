@@ -317,12 +317,6 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
       $('#pricing').hidden = true; $('#nav-pricing').hidden = true;
       return;
     }
-    if (p.trial_days > 0) {
-      $('#hero-fine').textContent = p.trial_days + '-day free trial. No card needed to start.';
-      document.querySelectorAll('[data-cta]').forEach(function (a) { if (a.id === 'hero-cta' || a.classList.contains('big')) a.textContent = 'Start your ' + p.trial_days + '-day free trial'; });
-      $('#faq-trial').textContent = 'You get ' + p.trial_days + ' days free with no card needed. When the trial ends your workspace becomes view-only until you pick a plan. Nothing is deleted. One free trial per person.';
-      $('#pricing-sub').textContent = 'Start with a ' + p.trial_days + '-day free trial. Pick a plan when you are ready.';
-    }
     if (p.mode === 'lifetime') {
       var sp = p.spots || {}, left = sp.cap ? sp.left + ' of ' + sp.cap + ' founding spots left' : '';
       var soldOut = !!(sp.cap && sp.left <= 0);
