@@ -1224,10 +1224,13 @@ def addon_checkout(b: AddonCheckoutIn, ctx: Ctx = Depends(auth.admin)):
     """Start a payment for an add-on. Same Paystack popup and polling as a plan."""
     if not enabled():
         raise HTTPException(400, "Billing is not turned on for this platform")
-    _no_card_in_lifetime_mode()
     spec = ADDONS.get(b.kind)
     if spec is None:
         raise HTTPException(404, "Unknown add-on")
+    from . import lifetime
+    if lifetime.is_lifetime_mode() and b.kind != "connected":
+        # lifetime licences carry fixed monthly allowances; only extra publishing accounts (a real monthly cost to us) are sold
+        raise HTTPException(400, "Only extra publishing accounts can be bought on a lifetime licence")
     require_active(ctx.workspace_id)
     total = addon_price_minor(b.kind) * b.qty
     amount, currency = charge_for({"price_minor": total, "currency": "USD"})

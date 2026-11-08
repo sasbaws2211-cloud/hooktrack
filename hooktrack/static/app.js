@@ -2795,20 +2795,36 @@ pages.billing = async app => {
     return;
   }
   const sub = b.subscription;
+  let ltdHtml = null;
   if (b.mode === 'lifetime') {
-    app.innerHTML = `<div class="page-head"><div><h1>Billing</h1><div class="sub">${esc(state.me.workspace.name)}</div></div></div>
+    const ltdAddons = (b.state === 'paid' && b.addons) ? (() => {
+      const a = b.addons.find(x => x.kind === 'connected');
+      if (!a) return '';
+      return `<h2 style="margin:20px 0 8px">Extra publishing accounts</h2>
+        <p class="muted small" style="margin:0 0 8px">Your licence includes ${lim(b.limits.connected)} connected publishing account${b.limits.connected === 1 ? '' : 's'}. Need more? Add them month by month.</p>
+        <div class="card" style="max-width:360px"><h3 style="margin:0">${esc(a.label)}</h3>
+          <div style="font-size:20px;font-weight:700;margin:6px 0">${esc(new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(a.price_minor / 100))}<span class="muted small" style="font-weight:400"> each · ${esc(a.lasts)}</span></div>
+          <div class="muted small">${esc(a.what)}</div>
+          ${b.can_manage ? `<div class="row" style="gap:8px;margin-top:10px"><select id="aq-connected" style="width:auto">${[1, 2, 3, 5].map(n => `<option value="${n}">${n}</option>`).join('')}</select>
+            <button class="btn" data-addon="connected" ${b.payments_ready ? '' : 'disabled'}>Buy</button></div>` : '<div class="muted small" style="margin-top:8px">Only workspace admins can buy add-ons.</div>'}</div>
+        ${(b.addon_purchases || []).filter(p => p.kind === 'connected').length ? `<ul class="list" style="margin-top:10px">${b.addon_purchases.filter(p => p.kind === 'connected').map(p => `<li>
+          <span style="flex:1;min-width:0"><b>${fmt(p.units)} × ${esc(a.label)}</b>
+            <div class="small muted">${p.renew_state === 'renewed' ? 'Renewed: continues after' : p.auto_renew ? 'Renews automatically on' : 'Ends on'} ${new Date(p.expires_at).toLocaleDateString()}${p.renew_state === 'failed' ? ' · the last renewal was declined' : ''}</div></span>
+          ${b.can_manage && p.renew_state !== 'renewed' ? `<button class="btn sm" data-renew="${p.id}" data-on="${p.auto_renew ? 0 : 1}" type="button">${p.auto_renew ? 'Turn off auto-renew' : 'Renew automatically'}</button>` : ''}</li>`).join('')}</ul>` : ''}`;
+    })() : '';
+    ltdHtml = `<div class="page-head"><div><h1>Billing</h1><div class="sub">${esc(state.me.workspace.name)}</div></div></div>
+      <div id="paybanner" class="notice" style="margin-bottom:12px;display:none" hidden></div>
       ${b.state === 'expired' ? `<div class="notice" style="margin-bottom:12px;border-color:var(--bad)"><b>${sub.lapsed ? 'Your lifetime licence is no longer active.' : 'Redeem your licence to get started.'}</b> You can still look around, but nothing can be changed until you redeem a lifetime deal. Your data is safe.</div>` : ''}
       <div class="card"><h2 style="margin:0">${b.state === 'expired' ? 'No licence yet' : 'Lifetime access: ' + esc(b.plan.name)}</h2>
         ${meter('Tracked accounts', b.usage.accounts, b.limits.accounts)}${meter('Team members', b.usage.members, b.limits.members)}${meter('AI requests this month', b.usage.ai_calls, b.limits.ai_calls)}${meter('Data credits this month', b.usage.credits, b.limits.credits)}</div>
+      ${ltdAddons}
       <h2 style="margin:20px 0 8px">Lifetime deals${b.lifetime && b.lifetime.spots && b.lifetime.spots.cap ? ` <span class="muted small" style="font-weight:400">· ${b.lifetime.spots.left} of ${b.lifetime.spots.cap} founding spots left</span>` : ''}</h2><div id="ltdp">${lifetimeHtml(b)}</div>`;
-    bindLifetime(app, () => route());
-    return;
   }
   const hasYear = b.plans.some(p => p.interval === 'year'), hasMonth = b.plans.some(p => p.interval !== 'year');
   const iv = hasYear && hasMonth ? (state.billingInterval || (b.plan && b.plan.interval === 'year' ? 'year' : 'month')) : (hasYear ? 'year' : 'month');
   const shown = planTiers(b.plans, iv);
   const bestSave = Math.max(0, ...shown.map(t => t.save || 0));
-  app.innerHTML = `<div class="page-head"><div><h1>Billing</h1><div class="sub">${esc(state.me.workspace.name)}</div></div></div>
+  app.innerHTML = ltdHtml !== null ? ltdHtml : `<div class="page-head"><div><h1>Billing</h1><div class="sub">${esc(state.me.workspace.name)}</div></div></div>
     <div id="paybanner" class="notice" style="margin-bottom:12px;display:none" hidden></div>
     ${b.state === 'expired' ? `<div class="notice" style="margin-bottom:12px;border-color:var(--bad)"><b>${sub.lapsed ? 'Your paid period has ended.' : b.trial.reason === 'trial_used' ? 'This email has already used its free trial on another workspace.' : 'Your free trial has ended.'}</b> You can still look around, but nothing can be changed until you choose a plan below. Your data is safe.</div>` : ''}
     <div class="card"><h2 style="margin:0">${b.state === 'trial' ? `Free trial: ${b.trial.days_left} day${b.trial.days_left === 1 ? '' : 's'} left` : b.state === 'expired' ? 'No active plan' : 'Current plan: ' + esc(b.plan.name)} ${sub.status === 'comp' ? '<span class="badge">complimentary</span>' : ''}</h2>
@@ -2912,6 +2928,7 @@ pages.billing = async app => {
     });
     finish(await pollP);
   })));
+  if (ltdHtml !== null) bindLifetime(app, () => route());
   // a payment started earlier (page reloaded, tab closed): check it once, quietly
   if (b.pending) poll(b.pending.reference, { maxMs: 0 }).then(o => { if (o === 'success') finish(o); });
 };
