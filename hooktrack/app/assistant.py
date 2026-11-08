@@ -11,9 +11,6 @@ confusing from the trail and the screen, and answers that first.
 from __future__ import annotations
 
 import re
-import threading
-import time
-from collections import defaultdict, deque
 from pathlib import Path
 from typing import Optional
 
@@ -26,9 +23,6 @@ MAX_TURNS = 12              # earlier turns are dropped: the guide only needs th
 MAX_MESSAGE_CHARS = 1500
 MAX_SCREEN_CHARS = 2500
 MAX_TRAIL = 8
-DAILY_LIMIT = 60            # messages per person per rolling 24 hours (a guard against runaway cost, not a product limit)
-_hits: dict = defaultdict(deque)
-_lock = threading.Lock()
 
 
 def knowledge() -> str:
@@ -36,19 +30,6 @@ def knowledge() -> str:
     if _kb_cache is None:
         _kb_cache = KB_PATH.read_text(encoding="utf-8")
     return _kb_cache
-
-
-def allow(user_id: int) -> bool:
-    """True if this person may send another message now."""
-    now = time.time()
-    with _lock:
-        q = _hits[user_id]
-        while q and now - q[0] > 86400:
-            q.popleft()
-        if len(q) >= DAILY_LIMIT:
-            return False
-        q.append(now)
-        return True
 
 
 def workspace_facts(ws: int, user_id: int) -> dict:

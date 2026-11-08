@@ -1597,11 +1597,8 @@ class AssistantIn(BaseModel):
 
 @app.post("/api/assistant/chat")
 def assistant_chat(b: AssistantIn, ctx: Ctx = Depends(current)):
-    """The floating guide. Not counted against the workspace's AI allowance (help should never be rationed away),
-    but each person is capped per day so a loop can't run up the platform's bill."""
+    """The floating guide. Not counted against the workspace's AI allowance, and not rationed per day."""
     from . import assistant
-    if not assistant.allow(ctx.user_id):
-        raise HTTPException(429, "You have asked a lot of questions today. Please try again tomorrow, or contact support.")
     try:
         text = _ai_guard(assistant.reply, ai.resolve(ctx.workspace_id), ctx.workspace_id, ctx.user_id, b.messages, b.page)
     except ValueError as e:
