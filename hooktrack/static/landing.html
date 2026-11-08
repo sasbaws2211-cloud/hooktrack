@@ -329,6 +329,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
       var buyHref = p.buy_url || '/app#/signup';
       $('#pricing-sub').textContent = 'Pay once, use it forever. ' + (soldOut ? 'The founding lifetime deal has sold out.' : 'Limited to our first ' + (sp.cap || 100) + ' customers, sold on AppSumo.');
       $('#interval').hidden = true;
+      host.style.maxWidth = '1040px';
       $('#hero-fine').textContent = (left ? left + '. ' : '') + 'Pay once on AppSumo, with a 60-day money-back guarantee.';
       document.querySelectorAll('[data-cta]').forEach(function (a) {
         if (a.id === 'hero-cta' || a.classList.contains('big')) { a.textContent = soldOut ? 'Founding deal sold out' : 'Get the lifetime deal'; a.href = buyHref; }
