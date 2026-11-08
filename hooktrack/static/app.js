@@ -2697,13 +2697,13 @@ function lifetimeHtml(b) {
   const money = (minor, cur) => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(minor / 100); } catch { return `${minor / 100} ${cur}`; } };
   const has = L.license && L.license.status !== 'deactivated';
   return `<div id="ltd-banner" class="notice" style="margin-bottom:10px" hidden></div>
-    ${has ? `<div class="notice" style="margin-bottom:10px"><b>HookTrack Lifetime</b> is active on this workspace (licence ${esc(L.license.key_hint)}). Thank you for backing us early.</div>` : ''}
-    <div class="grid" style="grid-template-columns:minmax(220px,360px);gap:12px">
+    ${has ? `<div class="notice" style="margin-bottom:10px"><b>${esc((L.tiers.find(x => x.tier === L.license.tier) || {}).name || 'HookTrack Lifetime')}</b> is active on this workspace (licence ${esc(L.license.key_hint)}).${L.license.tier < L.tiers.length ? ' Need more room? Buy a second code, then paste it below to stack it.' : ' Thank you for backing us early.'}</div>` : ''}
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
     ${L.tiers.map(t => `<div class="card" style="margin:0;${has && L.license.tier === t.tier ? 'border-color:var(--accent)' : ''}">
       <h3 style="margin:0">${esc(t.name)}</h3><div class="muted small">${esc(t.description)}</div>
-      <div style="font-size:20px;font-weight:700;margin:6px 0">${money(t.price_minor, t.currency)}<span class="muted small" style="font-weight:400"> one-time</span></div>
+      <div style="font-size:20px;font-weight:700;margin:6px 0">${money(t.price_minor, t.currency)}<span class="muted small" style="font-weight:400"> one-time${t.tier === 2 ? ' · 2 codes' : ''}</span></div>
       <ul style="padding-left:18px;margin:8px 0;font-size:13px"><li>${lim(t.max_accounts)} tracked accounts</li><li>${lim(t.max_members)} team member${t.max_members === 1 ? '' : 's'}</li><li>${lim(t.max_ai_calls)} AI requests / month</li><li>${lim(t.max_connected)} connected publishing</li><li>${lim(t.max_credits)} data credits / month</li></ul>
-      ${L.buy_url && !has ? `<a class="btn primary" style="width:100%" href="${esc(L.buy_url)}" target="_blank" rel="noopener">Get lifetime deal</a>` : ''}
+      ${L.buy_url && !(has && L.license.tier >= t.tier) ? `<a class="btn ${t.tier === 1 ? 'primary' : ''}" style="width:100%" href="${esc(L.buy_url)}" target="_blank" rel="noopener">${t.tier === 1 ? 'Get lifetime deal' : (has ? 'Buy a second code' : 'Get 2 codes')}</a>` : ''}
     </div>`).join('')}</div>
     ${b.can_manage ? `<h3 style="margin:16px 0 6px">Redeem your licence code</h3>
       <div class="row" style="gap:8px"><input id="ltd-key" placeholder="Paste your licence key" autocomplete="off" style="flex:1"><button type="button" class="btn primary" id="ltd-redeem">Redeem</button></div>

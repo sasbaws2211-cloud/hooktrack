@@ -329,21 +329,21 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
       var buyHref = p.buy_url || '/app#/signup';
       $('#pricing-sub').textContent = 'Pay once, use it forever. ' + (soldOut ? 'The founding lifetime deal has sold out.' : 'Limited to our first ' + (sp.cap || 100) + ' customers.');
       $('#interval').hidden = true;
-      host.style.maxWidth = '420px';
+      host.style.maxWidth = '780px';
       $('#hero-fine').textContent = (left ? left + '. ' : '') + 'Pay once, with a 60-day money-back guarantee.';
       document.querySelectorAll('[data-cta]').forEach(function (a) {
         if (a.id === 'hero-cta' || a.classList.contains('big')) { a.textContent = soldOut ? 'Founding deal sold out' : 'Get the lifetime deal'; a.href = buyHref; }
         else { a.textContent = 'Sign in to redeem'; a.href = '/app#/login'; }
       });
       $('#faq-trial').parentNode.querySelector('summary').textContent = 'Is there a free trial?';
-      $('#faq-trial').textContent = 'There is no free trial. Instead the lifetime deal comes with a 60-day money-back guarantee, so you can try HookTrack with your own accounts and get a full refund if it is not for you. Already bought? Create an account and redeem your code under Billing.';
+      $('#faq-trial').textContent = 'There is no free trial. Instead the lifetime deal comes with a 60-day money-back guarantee, so you can try HookTrack with your own accounts and get a full refund if it is not for you. Want more room? Buy a second code and stack it on the same account. Already bought? Create an account and redeem your code under Billing.';
       host.innerHTML = plans.map(function (pl, i) {
-        var pop = plans.length === 1;
+        var pop = plans.length > 1 && i === 1;
         var buy = p.buy_url || '/app#/signup';
         return '<div class="card plan' + (pop ? ' pop' : '') + '">' +
-          '<h3>' + esc(pl.name) + (pop ? '<span class="badge">Founding deal</span>' : '') + '</h3>' +
+          '<h3>' + esc(pl.name) + (pop ? '<span class="badge">Best value</span>' : '') + '</h3>' +
           '<p>' + esc(pl.description) + '</p>' +
-          '<div class="price">' + money(pl.price_minor, pl.currency) + '<small> one-time</small></div>' +
+          '<div class="price">' + money(pl.price_minor, pl.currency) + '<small> one-time' + (pl.tier === 2 ? ' · 2 codes' : '') + '</small></div>' +
           '<div class="charged">Lifetime access' + (left ? ' · ' + left : '') + '</div>' +
           '<ul>' +
           '<li><span class="check">✓</span>' + esc(lim(pl.max_accounts, 'tracked account', 'tracked accounts')) + '</li>' +
