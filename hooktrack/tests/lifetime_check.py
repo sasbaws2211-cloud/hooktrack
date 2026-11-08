@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 from app import db, billing, lifetime, appsumo
 from app.main import app
 db.init_schema()
+from app import auth as _auth
+billing._pset(_auth.SETTING_SIGNUP_IP_DAILY, 1000)
 c = TestClient(app)
 def hook(ev, key, tier=1, prev=None, test=False, bad=False):
     body = json.dumps({"event": ev, "license_key": key, "tier": tier, "prev_license_key": prev, "test": test}).encode()
@@ -31,10 +33,10 @@ try:
     ok("redeem ok", c.post("/api/billing/lifetime/redeem", json={"license_key": "K1"+sfx}).status_code == 200)
     ok("state paid, plan ltd_1", billing.workspace_state(ws)["state"] == "paid" and billing.effective_plan(ws)["code"] == "ltd_1")
     ok("redeem again idempotent", c.post("/api/billing/lifetime/redeem", json={"license_key": "K1"+sfx}).status_code == 200)
-    ok("checkout blocked", c.post("/api/billing/checkout", json={"plan_code": "ltd_2"}).status_code == 400)
+    ok("checkout blocked", c.post("/api/billing/checkout", json={"plan_code": "ltd_1"}).status_code == 400)
     b = c.get("/api/billing").json(); ok("billing status lifetime", b["mode"] == "lifetime" and b["lifetime"]["license"]["tier"] == 1)
-    ok("public pricing has 3 tiers", len(c.get("/api/public/pricing").json()["plans"]) == 3)
-    ok("upgrade moves workspace", hook("upgrade", "K2"+sfx, 2, "K1"+sfx).status_code == 200 and billing.effective_plan(ws)["code"] == "ltd_2")
+    pp = c.get("/api/public/pricing").json()["plans"]; ok("one plan at $48.80", len(pp) == 1 and pp[0]["price_minor"] == 4880)
+    ok("upgrade moves workspace", hook("upgrade", "K2"+sfx, 2, "K1"+sfx).status_code == 200 and billing.effective_plan(ws)["code"] == "ltd_1")
     ok("old key superseded", lifetime.get("K1"+sfx)["status"] == "superseded")
     ok("deactivate old key keeps access", hook("deactivate", "K1"+sfx).status_code == 200 and billing.workspace_state(ws)["state"] == "paid")
     ok("spots count excludes superseded", lifetime.sold() == s0["sold"] + 1)

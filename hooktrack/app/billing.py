@@ -298,7 +298,7 @@ def workspace_state(ws: int) -> dict:
 def blocked_message(ws: int) -> str:
     st = workspace_state(ws)
     if st.get("reason") == "no_licence":
-        return "Redeem your AppSumo lifetime licence under Billing to start using this workspace."
+        return "Redeem your lifetime licence under Billing to start using this workspace."
     return TRIAL_USED_MSG if st.get("reason") == "trial_used" else TRIAL_ENDED_MSG
 
 
@@ -1116,7 +1116,7 @@ PENDING_WINDOW = "1 hour"
 def _no_card_in_lifetime_mode() -> None:
     from . import lifetime
     if lifetime.is_lifetime_mode():
-        raise HTTPException(400, "Plans are sold as lifetime deals on AppSumo. Redeem your licence key on the Billing page.")
+        raise HTTPException(400, "Plans are sold as a one-time lifetime deal. Redeem your licence key on the Billing page.")
 
 
 @router.post("/checkout")

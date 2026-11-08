@@ -509,7 +509,7 @@ async function refreshTrialBar(force) {
   if (ltd && !ended) { bar.hidden = true; return; }
   bar.innerHTML = ltd
     ? (ended
-      ? `<span><b>${b.subscription.lapsed ? 'Your lifetime licence is no longer active.' : b.trial.reason === 'no_licence' ? 'Redeem your AppSumo licence to get started.' : 'Your lifetime licence is no longer active.'}</b> You can view everything, but changes are paused until you redeem a lifetime deal.</span> <button type="button" class="btn sm primary" data-plans>Redeem licence</button>`
+      ? `<span><b>${b.subscription.lapsed ? 'Your lifetime licence is no longer active.' : b.trial.reason === 'no_licence' ? 'Redeem your licence to get started.' : 'Your lifetime licence is no longer active.'}</b> You can view everything, but changes are paused until you redeem a lifetime deal.</span> <button type="button" class="btn sm primary" data-plans>Redeem licence</button>`
       : '')
     : ended
     ? `<span><b>${b.subscription.lapsed ? 'Your plan has ended.' : b.trial.reason === 'trial_used' ? 'You have already used your free trial.' : 'Your free trial has ended.'}</b> You can view everything, but changes are paused until you choose a plan.</span> <button type="button" class="btn sm primary" data-plans>Choose a plan</button>`
@@ -2697,17 +2697,17 @@ function lifetimeHtml(b) {
   const money = (minor, cur) => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(minor / 100); } catch { return `${minor / 100} ${cur}`; } };
   const has = L.license && L.license.status !== 'deactivated';
   return `<div id="ltd-banner" class="notice" style="margin-bottom:10px" hidden></div>
-    ${has ? `<div class="notice" style="margin-bottom:10px"><b>Lifetime Tier ${L.license.tier}</b> is active on this workspace (licence ${esc(L.license.key_hint)}). Need more? Upgrade on AppSumo, then redeem the new key here.</div>` : ''}
-    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+    ${has ? `<div class="notice" style="margin-bottom:10px"><b>HookTrack Lifetime</b> is active on this workspace (licence ${esc(L.license.key_hint)}). Thank you for backing us early.</div>` : ''}
+    <div class="grid" style="grid-template-columns:minmax(220px,360px);gap:12px">
     ${L.tiers.map(t => `<div class="card" style="margin:0;${has && L.license.tier === t.tier ? 'border-color:var(--accent)' : ''}">
       <h3 style="margin:0">${esc(t.name)}</h3><div class="muted small">${esc(t.description)}</div>
       <div style="font-size:20px;font-weight:700;margin:6px 0">${money(t.price_minor, t.currency)}<span class="muted small" style="font-weight:400"> one-time</span></div>
       <ul style="padding-left:18px;margin:8px 0;font-size:13px"><li>${lim(t.max_accounts)} tracked accounts</li><li>${lim(t.max_members)} team member${t.max_members === 1 ? '' : 's'}</li><li>${lim(t.max_ai_calls)} AI requests / month</li><li>${lim(t.max_connected)} connected publishing</li><li>${lim(t.max_credits)} data credits / month</li></ul>
-      ${L.buy_url && !(has && L.license.tier >= t.tier) ? `<a class="btn" style="width:100%" href="${esc(L.buy_url)}" target="_blank" rel="noopener">${has ? 'Upgrade on AppSumo' : 'Get on AppSumo'}</a>` : ''}
+      ${L.buy_url && !has ? `<a class="btn primary" style="width:100%" href="${esc(L.buy_url)}" target="_blank" rel="noopener">Get lifetime deal</a>` : ''}
     </div>`).join('')}</div>
-    ${b.can_manage ? `<h3 style="margin:16px 0 6px">Redeem your AppSumo code</h3>
+    ${b.can_manage ? `<h3 style="margin:16px 0 6px">Redeem your licence code</h3>
       <div class="row" style="gap:8px"><input id="ltd-key" placeholder="Paste your licence key" autocomplete="off" style="flex:1"><button type="button" class="btn primary" id="ltd-redeem">Redeem</button></div>
-      <div class="muted small" style="margin-top:4px">Came from AppSumo's "Activate" button? Leave it blank and press Redeem.</div>` : '<div class="muted small" style="margin-top:10px">Only a workspace owner or admin can redeem a licence.</div>'}`;
+      <div class="muted small" style="margin-top:4px">Used an "Activate" button? Leave it blank and press Redeem.</div>` : '<div class="muted small" style="margin-top:10px">Only a workspace owner or admin can redeem a licence.</div>'}`;
 }
 function bindLifetime(root, onDone) {
   const btn = $('#ltd-redeem', root);
@@ -2717,7 +2717,7 @@ function bindLifetime(root, onDone) {
     busy(btn, true, 'Checking…');
     try {
       const r = await api('POST', '/api/billing/lifetime/redeem', { license_key: ($('#ltd-key', root).value || '').trim() || null });
-      toast(`Lifetime Tier ${r.tier} unlocked. Thank you!`); refreshTrialBar(true); onDone();
+      toast('Lifetime access unlocked. Thank you!'); refreshTrialBar(true); onDone();
     } catch (e) { if (ban) { ban.hidden = false; ban.textContent = e.message; } else toast(e.message, true); }
     finally { if (btn.isConnected) busy(btn, false); }
   });
@@ -2730,7 +2730,7 @@ async function openPlanPicker(opts = {}) {
   const b = await api('GET', '/api/billing');
   if (!b.enabled) return;
   if (b.mode === 'lifetime') {
-    const lm = openModal(`<h2 style="margin-top:0">Lifetime deals</h2><p class="muted" style="margin:0 0 12px">${esc(opts.reason || (b.state === 'expired' ? 'Redeem your AppSumo lifetime licence to start working.' : 'Pay once on AppSumo and keep it for good.'))}</p><div id="ltdp">${lifetimeHtml(b)}</div><div class="actions"><button class="btn" data-close>Not now</button></div>`, true);
+    const lm = openModal(`<h2 style="margin-top:0">Lifetime deals</h2><p class="muted" style="margin:0 0 12px">${esc(opts.reason || (b.state === 'expired' ? 'Redeem your lifetime licence to start working.' : 'Pay once and keep it for good.'))}</p><div id="ltdp">${lifetimeHtml(b)}</div><div class="actions"><button class="btn" data-close>Not now</button></div>`, true);
     planPickerEl = lm;
     $$('[data-close]', lm).forEach(x => x.addEventListener('click', lm.close));
     bindLifetime(lm, () => { lm.close(); route(); });
@@ -2797,7 +2797,7 @@ pages.billing = async app => {
   const sub = b.subscription;
   if (b.mode === 'lifetime') {
     app.innerHTML = `<div class="page-head"><div><h1>Billing</h1><div class="sub">${esc(state.me.workspace.name)}</div></div></div>
-      ${b.state === 'expired' ? `<div class="notice" style="margin-bottom:12px;border-color:var(--bad)"><b>${sub.lapsed ? 'Your lifetime licence is no longer active.' : 'Redeem your AppSumo licence to get started.'}</b> You can still look around, but nothing can be changed until you redeem a lifetime deal. Your data is safe.</div>` : ''}
+      ${b.state === 'expired' ? `<div class="notice" style="margin-bottom:12px;border-color:var(--bad)"><b>${sub.lapsed ? 'Your lifetime licence is no longer active.' : 'Redeem your licence to get started.'}</b> You can still look around, but nothing can be changed until you redeem a lifetime deal. Your data is safe.</div>` : ''}
       <div class="card"><h2 style="margin:0">${b.state === 'expired' ? 'No licence yet' : 'Lifetime access: ' + esc(b.plan.name)}</h2>
         ${meter('Tracked accounts', b.usage.accounts, b.limits.accounts)}${meter('Team members', b.usage.members, b.limits.members)}${meter('AI requests this month', b.usage.ai_calls, b.limits.ai_calls)}${meter('Data credits this month', b.usage.credits, b.limits.credits)}</div>
       <h2 style="margin:20px 0 8px">Lifetime deals${b.lifetime && b.lifetime.spots && b.lifetime.spots.cap ? ` <span class="muted small" style="font-weight:400">· ${b.lifetime.spots.left} of ${b.lifetime.spots.cap} founding spots left</span>` : ''}</h2><div id="ltdp">${lifetimeHtml(b)}</div>`;

@@ -21,7 +21,7 @@ from . import cache, db
 
 log = logging.getLogger("hooktrack.lifetime")
 MODES = ("subscriptions", "lifetime")
-MAX_TIER = 3
+MAX_TIER = 1                 # one lifetime plan, one code, no stacking
 
 
 def mode() -> str:
@@ -71,7 +71,7 @@ def spots() -> dict:
 
 
 def plans() -> list[dict]:
-    return db.query("SELECT * FROM plans WHERE interval='lifetime' ORDER BY position, code")
+    return db.query("SELECT * FROM plans WHERE interval='lifetime' AND code='ltd_1'")
 
 
 def plan_code_for_tier(tier: int) -> str:
@@ -244,7 +244,7 @@ def buy_url() -> str:
 
 
 def _plan_card(p: dict) -> dict:
-    return {"code": p["code"], "name": p["name"], "description": p["description"], "tier": int(p["code"][-1]),
+    return {"code": p["code"], "name": p["name"], "description": p["description"], "tier": 1,
             "price_minor": p["price_minor"], "currency": p["currency"], "interval": "lifetime",
             "max_accounts": p["max_accounts"], "max_members": p["max_members"], "max_ai_calls": p["max_ai_calls"],
             "max_connected": p["max_connected"], "max_credits": p["max_credits"], "max_reports": p["max_reports"]}
