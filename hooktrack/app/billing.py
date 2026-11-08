@@ -92,6 +92,8 @@ def normalize_email(email: str) -> str:
 def claim_trial(email: str, ws: int) -> bool:
     """Called once when a workspace is created. True if this person had not had a trial yet (it is now theirs);
     False records that the workspace starts without one."""
+    if _pget("billing_mode", "subscriptions") == "lifetime":
+        return False                              # no free trial is offered, so nothing about the email is recorded
     row = db.one(
         """INSERT INTO trial_claims(email, workspace_id) VALUES (%s, %s)
            ON CONFLICT (email) DO NOTHING RETURNING email""", (normalize_email(email), ws))
