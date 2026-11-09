@@ -71,7 +71,7 @@ try:
     sold0 = lifetime.sold()
     codes = lifetime.generate_codes(3)
     ok("codes look like HT-XXXX-XXXX-XXXX and are unique", all(_re.fullmatch(r"HT-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}", x) for x in codes) and len(set(codes)) == 3)
-    csv_text = lifetime.codes_csv(); ok("csv has a code header and our codes", csv_text.splitlines()[0] == "code" and all(x in csv_text for x in codes))
+    csv_text = lifetime.codes_csv(); ok("csv has no header, one column, our codes", not csv_text.lower().startswith("code") and "," not in csv_text and all(x in csv_text.splitlines() for x in codes))
     ok("unused codes do not count as sold", lifetime.sold() == sold0)
     c3 = TestClient(app); e3 = f"codes{sfx}@example.com"
     c3.post("/api/auth/signup", json={"email": e3, "password": "Passw0rd!long1", "name": "C", "workspace_name": "CODES "+sfx})

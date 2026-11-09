@@ -140,7 +140,7 @@ def _new_code() -> str:
 
 def generate_codes(n: int, tier: int = 1) -> list[str]:
     """Make n new unused codes (one workspace redeems each; two can be stacked on one workspace)."""
-    n = max(1, min(int(n), 5000))
+    n = max(1, min(int(n), 10000))
     tier = max(1, min(MAX_TIER, int(tier)))
     made: list[str] = []
     while len(made) < n:
@@ -154,12 +154,11 @@ def generate_codes(n: int, tier: int = 1) -> list[str]:
 
 
 def codes_csv(only_unclaimed: bool = True) -> str:
-    """One code per row under a 'code' header, the format AppSumo asks for."""
+    """The file AppSumo asks for: plain text, one code per line, one column, no header."""
     rows = db.query("SELECT license_key FROM lifetime_licenses WHERE source='code' AND status='inactive'"
                     + (" AND workspace_id IS NULL" if only_unclaimed else "") + " ORDER BY created_at, license_key")
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\n")
-    w.writerow(["code"])
     for r in rows:
         w.writerow([r["license_key"]])
     return buf.getvalue()

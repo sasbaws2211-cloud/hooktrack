@@ -605,7 +605,7 @@ def settings_lifetime(b: LifetimeModeIn, _a: Admin = Depends(require_admin)):
 
 
 class CodesIn(BaseModel):
-    count: int = Field(100, ge=1, le=5000)
+    count: int = Field(1000, ge=1, le=10000)
 
 
 @app.post("/api/lifetime/codes")
