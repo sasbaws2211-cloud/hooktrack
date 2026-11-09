@@ -1051,8 +1051,10 @@ def run_addon_renewals(limit: int = 100) -> dict:
 # ---------- routes ----------
 
 @router.get("")
-def billing_status(ctx: Ctx = Depends(current)):
+def billing_status(request: Request, ctx: Ctx = Depends(current)):
     out = status(ctx.workspace_id)
+    from . import appsumo
+    out["pending_licence"] = bool(appsumo._pending(request))
     out["plans"] = list_plans(only_active=True)
     for p in out["plans"]:
         try:

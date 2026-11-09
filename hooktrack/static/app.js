@@ -2690,6 +2690,17 @@ async function payForPlan(planCode, { saveCard = false, banner = () => {}, alive
 
 let planPickerEl = null;
 
+// A code that arrived through the redeem link (before the buyer had an account) is applied as soon as they open Billing.
+async function autoRedeemPending(b) {
+  if (!b || !b.pending_licence || !b.can_manage) return b;
+  try {
+    const r = await api('POST', '/api/billing/lifetime/redeem', {});
+    toast(`Code redeemed: HookTrack Lifetime${r.tier > 1 ? ' Plus' : ''} unlocked. Thank you!`);
+    refreshTrialBar(true);
+    return await api('GET', '/api/billing');
+  } catch (e) { toast(e.message, true); return b; }
+}
+
 // Lifetime-deal mode (AppSumo): no card checkout, a licence key unlocks a tier for good.
 function lifetimeHtml(b) {
   const L = b.lifetime || { tiers: [], license: null, buy_url: '' };
@@ -2727,7 +2738,8 @@ function bindLifetime(root, onDone) {
 // straight to paying instead of to another page.
 async function openPlanPicker(opts = {}) {
   if (planPickerEl && planPickerEl.isConnected) return;
-  const b = await api('GET', '/api/billing');
+  let b = await api('GET', '/api/billing');
+  b = await autoRedeemPending(b);
   if (!b.enabled) return;
   if (b.mode === 'lifetime' || (b.mode === 'both' && b.has_licence)) {
     const lm = openModal(`<h2 style="margin-top:0">Lifetime deals</h2><p class="muted" style="margin:0 0 12px">${esc(opts.reason || (b.state === 'expired' ? 'Redeem your lifetime licence to start working.' : 'Pay once and keep it for good.'))}</p><div id="ltdp">${lifetimeHtml(b)}</div><div class="actions"><button class="btn" data-close>Not now</button></div>`, true);
@@ -2784,7 +2796,8 @@ async function openPlanPicker(opts = {}) {
 }
 
 pages.billing = async app => {
-  const b = await api('GET', '/api/billing');
+  let b = await api('GET', '/api/billing');
+  b = await autoRedeemPending(b);
   const money = (minor, cur) => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(minor / 100); } catch { return `${minor / 100} ${cur}`; } };
   const lim = n => (n === -1 ? 'Unlimited' : Number(n).toLocaleString());
   const meter = (label, used, limit) => `<div style="margin-top:12px"><div class="row" style="justify-content:space-between"><span>${label}</span>

@@ -561,7 +561,8 @@ def settings(_a: Admin = Depends(require_admin)):
         "trial": {**billing.trial_config(), "plans": [p["code"] for p in billing.list_plans()]},
         "billing": {"enabled": billing.enabled(), "paystack": billing.paystack_status(),
                     "webhook_path": "/api/billing/webhook/paystack"},
-        "lifetime": {"mode": lifetime.mode(), "spots": lifetime.spots(), "appsumo": appsumo.status(), "licenses": lifetime.recent(50),
+        "lifetime": {"mode": lifetime.mode(), "spots": lifetime.spots(), "codes": lifetime.codes_summary(),
+                     "redeem_path": "/redeem", "appsumo": appsumo.status(), "licenses": lifetime.recent(50),
                      "webhook_path": "/api/appsumo/webhook", "callback_path": "/appsumo/callback"},
         "late": __import__("app.latehub", fromlist=["x"]).key_status(),
         "ai": __import__("app.ai", fromlist=["x"]).platform_status(),
@@ -601,6 +602,34 @@ def settings_lifetime(b: LifetimeModeIn, _a: Admin = Depends(require_admin)):
     if b.mode is not None:
         lifetime.set_mode(b.mode)
     return {"mode": lifetime.mode(), **lifetime.spots()}
+
+
+class CodesIn(BaseModel):
+    count: int = Field(100, ge=1, le=5000)
+
+
+@app.post("/api/lifetime/codes")
+def lifetime_codes_make(b: CodesIn, _a: Admin = Depends(require_admin)):
+    """Make new unused codes for the CSV given to AppSumo. They are redeemable straight away at /redeem."""
+    made = lifetime.generate_codes(b.count)
+    return {"made": len(made), "codes": lifetime.codes_summary()}
+
+
+@app.get("/api/lifetime/codes.csv")
+def lifetime_codes_csv(all: bool = False, _a: Admin = Depends(require_admin)):
+    """The CSV AppSumo asks for: one code per row under a 'code' header. By default only unused codes."""
+    return Response(content=lifetime.codes_csv(only_unclaimed=not all), media_type="text/csv",
+                    headers={"Content-Disposition": 'attachment; filename="hooktrack-codes.csv"'})
+
+
+class CodeRefundIn(BaseModel):
+    code: str
+
+
+@app.post("/api/lifetime/codes/refund")
+def lifetime_code_refund(b: CodeRefundIn, _a: Admin = Depends(require_admin)):
+    """AppSumo refunded this code: it stops counting, and the workspace using it drops a level or becomes read-only."""
+    return {"result": lifetime.deactivate(b.code, "admin refund"), "codes": lifetime.codes_summary()}
 
 
 @app.post("/api/settings/paystack/test")

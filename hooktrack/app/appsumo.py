@@ -11,11 +11,13 @@ import json
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from . import auth, crypto, db, lifetime
@@ -123,8 +125,40 @@ def callback(request: Request, code: str = ""):
         except HTTPException:
             pass                                          # fall through: keep it for the Billing page
     resp = RedirectResponse("/app#/signup" if ctx is None else "/app#/billing", status_code=303)
-    resp.set_cookie(PENDING_COOKIE, crypto.encrypt(json.dumps({"k": lic, "exp": time.time() + 3600})),
+    _remember(resp, request, lic)
+    return resp
+
+
+STATIC = Path(__file__).parent.parent / "static"
+
+
+def _remember(resp, request: Request, key: str) -> None:
+    resp.set_cookie(PENDING_COOKIE, crypto.encrypt(json.dumps({"k": key, "exp": time.time() + 3600})),
                     max_age=3600, httponly=True, samesite="lax", secure=request.url.scheme == "https", path="/")
+
+
+@router.get("/redeem")
+def redeem_page(request: Request, code: str = "", err: str = ""):
+    """The redeem address given to AppSumo. With ?code=... (from AppSumo or this page) it redeems straight away for a signed-in
+    admin, otherwise it remembers the code for an hour and sends the buyer to create an account; the Billing page then
+    finishes the job. With no code it shows the form."""
+    if not code:
+        return FileResponse(STATIC / "redeem.html", headers={"X-Robots-Tag": "noindex, nofollow", "Cache-Control": "no-store"})
+    row = lifetime.find(code)
+    ctx = auth.session_ctx(request)
+    can = ctx is not None and ctx.workspace_id and ctx.role in ("owner", "admin")
+    if row is None:
+        return RedirectResponse("/redeem?err=" + quote("We don't recognise that code. Check it for typos."), status_code=303)
+    if can:
+        try:
+            lifetime.claim(ctx.workspace_id, row["license_key"])
+            return RedirectResponse("/app#/billing", status_code=303)
+        except HTTPException as e:
+            return RedirectResponse("/redeem?err=" + quote(str(e.detail)), status_code=303)
+    if row["status"] in ("deactivated", "superseded"):
+        return RedirectResponse("/redeem?err=" + quote("That code is no longer active."), status_code=303)
+    resp = RedirectResponse("/app#/billing" if ctx is not None else "/app#/signup", status_code=303)
+    _remember(resp, request, row["license_key"])
     return resp
 
 

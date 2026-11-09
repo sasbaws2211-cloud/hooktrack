@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Redeem your code · HookTrack</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#4f46e5">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/content.css">
+<style>
+.redeem{max-width:520px;margin:48px auto 70px}
+.redeem h1{font-size:clamp(26px,5vw,36px);margin:0 0 .3em}
+.redeem p{color:var(--muted)}
+.redeem form{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0 10px}
+.redeem input{flex:1 1 240px;padding:13px 14px;border-radius:11px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;letter-spacing:.04em}
+.redeem button{padding:13px 22px;border-radius:11px;border:1px solid var(--accent-strong);background:var(--accent-strong);color:#fff;font:inherit;font-weight:650;cursor:pointer}
+.redeem button[disabled]{opacity:.6;cursor:wait}
+.msg{padding:12px 14px;border-radius:11px;border:1px solid var(--border);background:var(--surface);margin-top:14px;font-size:15px}
+.msg.bad{border-color:var(--bad)}.msg.good{border-color:var(--good)}
+.steps{margin:26px 0 0;padding-left:20px;color:var(--muted);font-size:15px}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap row">
+  <a class="brand" href="/"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span> HookTrack</a>
+  <nav aria-label="Main"></nav>
+  <div class="actions"><a class="btn sm" href="/app#/login">Sign in</a></div>
+</div></header>
+<main class="wrap">
+  <section class="redeem">
+    <h1>Redeem your code</h1>
+    <p>Bought the HookTrack lifetime deal on AppSumo? Enter your code to unlock it on your workspace.</p>
+    <form id="f" autocomplete="off">
+      <input id="code" name="code" placeholder="HT-XXXX-XXXX-XXXX" aria-label="Your code" spellcheck="false" autocapitalize="characters" required>
+      <button id="go" type="submit">Redeem</button>
+    </form>
+    <div id="msg" class="msg" hidden></div>
+    <ol class="steps">
+      <li>Create a HookTrack account (or sign in).</li>
+      <li>Enter your code here, or paste it under <b>Billing</b> in the app.</li>
+      <li>Have a second code? Redeem it the same way on the same workspace to stack it.</li>
+    </ol>
+  </section>
+</main>
+<script>
+(function () {
+  var $ = function (s) { return document.querySelector(s); };
+  var q = new URLSearchParams(location.search);
+  var msg = $('#msg');
+  function show(text, cls) { msg.hidden = !text; msg.className = 'msg ' + (cls || ''); msg.textContent = text || ''; }
+  if (q.get('code')) $('#code').value = q.get('code');
+  if (q.get('err')) show(q.get('err'), 'bad');
+  $('#f').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var code = $('#code').value.trim();
+    if (!code) return;
+    var go = $('#go'); go.disabled = true; show('Checking your code…');
+    fetch('/api/billing/lifetime/redeem', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ license_key: code }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, d: d }; }); })
+      .then(function (res) {
+        if (res.status === 401) { location.href = '/redeem?code=' + encodeURIComponent(code); return; }   // keep the code while they sign up
+        if (res.status >= 200 && res.status < 300) { show('Done. Your lifetime plan is unlocked. Taking you to Billing…', 'good'); setTimeout(function () { location.href = '/app#/billing'; }, 1400); return; }
+        show((res.d && res.d.detail) || 'That did not work. Please check the code and try again.', 'bad'); go.disabled = false;
+      })
+      .catch(function () { show('Could not reach the server. Please try again.', 'bad'); go.disabled = false; });
+  });
+})();
+</script>
+</body>
+</html>

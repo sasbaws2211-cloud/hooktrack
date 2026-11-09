@@ -321,6 +321,11 @@ pages.settings = async app => {
       <p class="small" style="margin:8px 0 0">Webhook key ${a.api_key ? '<span class="badge good">set</span>' : '<span class="badge warn">APPSUMO_API_KEY missing</span>'} &nbsp; OAuth ${a.oauth ? '<span class="badge good">set</span>' : '<span class="badge warn">client id/secret missing</span>'} &nbsp; Buy link ${a.buy_url ? '<span class="badge good">set</span>' : '<span class="badge warn">APPSUMO_BUY_URL missing</span>'}</p>
       <p class="small muted" style="margin:6px 0 0">Give AppSumo: webhook <code>https://YOUR-APP-DOMAIN${esc(L.webhook_path)}</code> and redirect <code>https://YOUR-APP-DOMAIN${esc(L.callback_path)}</code></p>
       <div class="actions"><button class="btn primary" id="savelmode">Save</button></div>
+      <h3 style="margin:16px 0 4px">Codes for AppSumo</h3>
+      <p class="small muted" style="margin:0 0 6px">${L.codes.total} made · ${L.codes.unused} unused · ${L.codes.redeemed} redeemed · ${L.codes.refunded} refunded. Redeem address to give AppSumo: <code>https://YOUR-APP-DOMAIN${esc(L.redeem_path)}</code></p>
+      <div class="actions" style="align-items:center"><input id="ncodes" type="number" min="1" max="5000" value="100" style="max-width:110px"><button class="btn" id="mkcodes">Make codes</button>
+        <a class="btn" href="/api/lifetime/codes.csv">Download unused codes (CSV)</a><a class="btn" href="/api/lifetime/codes.csv?all=true">Download all (CSV)</a></div>
+      <div class="actions" style="align-items:center"><input id="refcode" placeholder="HT-XXXX-XXXX-XXXX" style="max-width:240px"><button class="btn danger" id="refundcode">Mark code refunded</button></div>
       ${L.licenses.length ? `<div class="table-wrap" style="margin-top:10px"><table><thead><tr><th>Licence</th><th>Tier</th><th>Status</th><th>Workspace</th><th>Last event</th></tr></thead><tbody>${L.licenses.map(x => `<tr><td><code>${esc(x.license_key_short)}</code></td><td>${x.tier}</td><td>${esc(x.status)}</td><td>${esc(x.workspace_name || (x.workspace_id ? '#' + x.workspace_id : 'not claimed'))}</td><td>${esc(x.last_event)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small muted">No licences yet.</p>'}</div>`; })()}
     <div class="card" style="margin-top:12px"><h2>AI</h2>
       <p class="small muted" style="margin:0 0 6px">One AI connection for every workspace: screenshot reading, hook ideas, weekly plans, "ask your data" and video structure. Customers do not enter keys. ${s.ai.available ? '<span class="badge good">on</span>' : '<span class="badge warn">off</span>'}</p>
@@ -435,6 +440,8 @@ pages.settings = async app => {
     if (r.currency_check && !r.currency_check.ok) { toast('Saved, but customers cannot pay yet: ' + r.currency_check.message, true); return route(); }
     toast('Billing settings saved'); route();
   });
+  $('#mkcodes').onclick = guard(async () => { const r = await api('POST', '/lifetime/codes', { count: Number($('#ncodes').value) || 100 }); toast(r.made + ' codes made. Download the CSV below.'); route(); });
+  $('#refundcode').onclick = guard(async () => { const c = $('#refcode').value.trim(); if (!c) return; const r = await api('POST', '/lifetime/codes/refund', { code: c }); toast('Result: ' + r.result); route(); });
   $('#savelmode').onclick = guard(async () => { await api('PUT', '/settings/lifetime', { mode: $('#lmode').value, cap: Number($('#lcap').value) }); toast('Saved'); route(); });
   if ($('#psclear')) $('#psclear').onclick = guard(async () => { await api('PUT', '/settings/billing', { clear_paystack_key: true }); toast('Key removed'); route(); });
   $('#pstest').onclick = guard(async () => { const r = await api('POST', '/settings/paystack/test'); toast(r.message, !r.ok); });

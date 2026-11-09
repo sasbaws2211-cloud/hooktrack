@@ -11,7 +11,11 @@ Rules:
 """
 from __future__ import annotations
 
+import csv
+import io
 import logging
+import re
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -72,7 +76,8 @@ def set_cap(n: int) -> int:
 
 def sold() -> int:
     """Licences in use: bought and not refunded, and not replaced by an upgrade (an upgrade is one customer, not two)."""
-    return int(db.one("SELECT COUNT(*) AS n FROM lifetime_licenses WHERE status IN ('inactive','active')")["n"])
+    return int(db.one("SELECT COUNT(*) AS n FROM lifetime_licenses WHERE status IN ('inactive','active') "
+                      "AND (source <> 'code' OR workspace_id IS NOT NULL)")["n"])
 
 
 def spots() -> dict:
@@ -123,30 +128,119 @@ def _revoke(ws: int) -> None:
     cache.bump(ws)
 
 
+# ---------------- codes we generate (the CSV we give AppSumo) ----------------
+
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"        # no 0/O/1/I: easy to read out and retype
+
+
+def _new_code() -> str:
+    body = "".join(secrets.choice(CODE_ALPHABET) for _ in range(12))
+    return f"HT-{body[:4]}-{body[4:8]}-{body[8:]}"
+
+
+def generate_codes(n: int, tier: int = 1) -> list[str]:
+    """Make n new unused codes (one workspace redeems each; two can be stacked on one workspace)."""
+    n = max(1, min(int(n), 5000))
+    tier = max(1, min(MAX_TIER, int(tier)))
+    made: list[str] = []
+    while len(made) < n:
+        code = _new_code()
+        row = db.one("""INSERT INTO lifetime_licenses(license_key, tier, plan_code, status, last_event, source)
+                        VALUES (%s,%s,%s,'inactive','generated','code') ON CONFLICT (license_key) DO NOTHING
+                        RETURNING license_key""", (code, tier, plan_code_for_tier(tier)))
+        if row:
+            made.append(code)
+    return made
+
+
+def codes_csv(only_unclaimed: bool = True) -> str:
+    """One code per row under a 'code' header, the format AppSumo asks for."""
+    rows = db.query("SELECT license_key FROM lifetime_licenses WHERE source='code' AND status='inactive'"
+                    + (" AND workspace_id IS NULL" if only_unclaimed else "") + " ORDER BY created_at, license_key")
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(["code"])
+    for r in rows:
+        w.writerow([r["license_key"]])
+    return buf.getvalue()
+
+
+def codes_summary() -> dict:
+    r = db.one("""SELECT COUNT(*) FILTER (WHERE source='code') AS total,
+                         COUNT(*) FILTER (WHERE source='code' AND status='inactive' AND workspace_id IS NULL) AS unused,
+                         COUNT(*) FILTER (WHERE source='code' AND workspace_id IS NOT NULL AND status IN ('inactive','active')) AS redeemed,
+                         COUNT(*) FILTER (WHERE source='code' AND status='deactivated') AS refunded
+                  FROM lifetime_licenses""")
+    return {k: int(r[k] or 0) for k in ("total", "unused", "redeemed", "refunded")}
+
+
+def normalise_code(raw: str) -> str:
+    """Accept a code typed with spaces, lower case or without dashes."""
+    flat = re.sub(r"[^A-Za-z0-9]", "", raw or "").upper()
+    if flat.startswith("HT") and len(flat) == 14:
+        return f"HT-{flat[2:6]}-{flat[6:10]}-{flat[10:14]}"
+    return (raw or "").strip()
+
+
+def find(key: str) -> Optional[dict]:
+    k = (key or "").strip()
+    return get(k) or get(normalise_code(k))
+
+
 # ---------------- a customer claims a licence ----------------
 
+def workspace_total(ws: int) -> int:
+    """How many codes' worth this workspace holds (an AppSumo tier-2 licence counts as 2)."""
+    r = db.one("SELECT COALESCE(SUM(tier), 0) AS n FROM lifetime_licenses WHERE workspace_id=%s AND status IN ('inactive','active')", (ws,))
+    return int(r["n"] or 0)
+
+
+def apply_total(ws: int) -> int:
+    """Set the workspace's plan from the licences it holds: 1 code = tier 1, 2 stacked codes = tier 2, none = ended."""
+    total = workspace_total(ws)
+    if total > 0:
+        _grant(ws, plan_code_for_tier(min(total, MAX_TIER)))
+    else:
+        sub = db.one("SELECT plan_code FROM workspace_subscriptions WHERE workspace_id=%s", (ws,))
+        if sub and str(sub["plan_code"]).startswith("ltd_"):      # never end a plan that was bought another way
+            _revoke(ws)
+    return total
+
+
 def claim(ws: int, license_key: str) -> dict:
-    """Tie a licence to a workspace and unlock its tier. Idempotent for the same workspace."""
-    key = (license_key or "").strip()
-    row = get(key)
+    """Tie a licence to a workspace and unlock its tier. Idempotent for the same workspace; a second code stacks."""
+    row = find(license_key)
     if not row:
-        raise HTTPException(404, "We don't recognise that licence key yet. If you just bought it, wait a minute and try "
-                                 "again; otherwise check it on your AppSumo account.")
+        raise HTTPException(404, "We don't recognise that code. Check it for typos, or find it on your AppSumo account. "
+                                 "If you only just bought it, wait a minute and try again.")
     if row["status"] in ("deactivated", "superseded"):
-        raise HTTPException(400, "That licence is no longer active (it was refunded or replaced by an upgrade).")
+        raise HTTPException(400, "That code is no longer active (it was refunded or replaced).")
     if row["workspace_id"] and row["workspace_id"] != ws:
-        raise HTTPException(409, "That licence is already used by another workspace.")
-    current = for_workspace(ws)
-    if current and current["license_key"] != key and current["tier"] >= row["tier"]:
-        raise HTTPException(409, f"This workspace already has a Tier {current['tier']} lifetime licence. "
-                                 "Use the new one on another workspace, or upgrade on AppSumo.")
-    db.execute("UPDATE lifetime_licenses SET workspace_id=%s, claimed_at=COALESCE(claimed_at, now()), updated_at=now() "
-               "WHERE license_key=%s", (ws, key))
-    if current and current["license_key"] != key:         # a higher tier replaces the lower one on this workspace
-        db.execute("UPDATE lifetime_licenses SET status='superseded', updated_at=now() WHERE license_key=%s",
-                   (current["license_key"],))
-    _grant(ws, row["plan_code"])
-    return {"license_key": key, "tier": row["tier"], "plan_code": row["plan_code"]}
+        raise HTTPException(409, "That code is already used by another workspace.")
+    if row["workspace_id"] != ws:
+        if workspace_total(ws) >= MAX_TIER:
+            raise HTTPException(409, f"This workspace already has the most you can stack ({MAX_TIER} codes). "
+                                     "Use this code on another workspace.")
+        db.execute("UPDATE lifetime_licenses SET workspace_id=%s, claimed_at=COALESCE(claimed_at, now()), updated_at=now() "
+                   "WHERE license_key=%s", (ws, row["license_key"]))
+    total = apply_total(ws)
+    plan = plan_code_for_tier(min(total, MAX_TIER))
+    return {"license_key": row["license_key"], "tier": min(total, MAX_TIER), "plan_code": plan, "codes": total}
+
+
+def deactivate(key: str, event: str = "deactivate") -> str:
+    """A licence was refunded: it stops counting. The workspace drops a level, or ends if it was its only one."""
+    row = find(key)
+    if not row:
+        return "unknown"
+    if row["status"] == "superseded":
+        return "superseded: nothing to end"
+    db.execute("UPDATE lifetime_licenses SET status='deactivated', last_event=%s, deactivated_at=now(), updated_at=now() "
+               "WHERE license_key=%s", (event, row["license_key"]))
+    ws = row["workspace_id"]
+    if ws:
+        apply_total(ws)
+    return "deactivated" + (" (workspace updated)" if ws else "")
 
 
 # ---------------- AppSumo webhooks ----------------
@@ -207,19 +301,12 @@ def handle_event(payload: dict) -> str:
             db.execute("UPDATE lifetime_licenses SET status='superseded', last_event=%s, updated_at=now() WHERE license_key=%s",
                        (ev, prev))
         if ws:
-            _grant(ws, plan)                          # the customer keeps working on the new tier straight away
+            apply_total(ws)                           # the customer keeps working on the new tier straight away
         out = f"{ev}: {prev[:8] or '?'} -> {key[:8]}" + (" (workspace moved)" if ws else " (not yet claimed)")
 
     elif ev == "deactivate":
-        row = get(key)
-        if row:
-            db.execute("UPDATE lifetime_licenses SET status = CASE WHEN status='superseded' THEN status ELSE 'deactivated' END, "
-                       "last_event='deactivate', deactivated_at=now(), updated_at=now() WHERE license_key=%s", (key,))
-            ws = row["workspace_id"]
-            # only end access if this licence is still what the workspace runs on (an upgrade may have replaced it)
-            if ws and row["status"] != "superseded" and not for_workspace(ws):
-                _revoke(ws)
-            out = "deactivated" + (" (workspace access ended)" if ws and row["status"] != "superseded" else "")
+        if get(key):
+            out = deactivate(key)
         else:
             db.execute("INSERT INTO lifetime_licenses(license_key, tier, plan_code, status, last_event, deactivated_at) "
                        "VALUES (%s,%s,%s,'deactivated','deactivate', now()) ON CONFLICT DO NOTHING", (key, tier, plan))
@@ -232,13 +319,14 @@ def handle_event(payload: dict) -> str:
 
 def recent(limit: int = 100) -> list[dict]:
     rows = db.query("""SELECT l.license_key, l.tier, l.status, l.workspace_id, w.name AS workspace_name, l.last_event,
-                              l.created_at, l.claimed_at, l.deactivated_at
+                              l.created_at, l.claimed_at, l.deactivated_at, l.source
                        FROM lifetime_licenses l LEFT JOIN workspaces w ON w.id = l.workspace_id
+                       WHERE NOT (l.source = 'code' AND l.workspace_id IS NULL AND l.status = 'inactive')
                        ORDER BY l.updated_at DESC LIMIT %s""", (limit,))
     out = []
     for r in rows:
         o = dict(r)
-        o["license_key_short"] = o["license_key"][:8] + "…" + o["license_key"][-4:]
+        o["license_key_short"] = o["license_key"] if o["source"] == "code" else o["license_key"][:8] + "…" + o["license_key"][-4:]
         for k in ("created_at", "claimed_at", "deactivated_at"):
             if o.get(k) and hasattr(o[k], "isoformat"):
                 o[k] = o[k].isoformat()
@@ -269,5 +357,6 @@ def public_view(trial_days: int) -> dict:
 def workspace_view(ws: int) -> dict:
     lic = for_workspace(ws)
     return {"tiers": [_plan_card(p) for p in plans()], "buy_url": buy_url(), "spots": spots(),
-            "license": ({"tier": lic["tier"], "status": lic["status"], "key_hint": lic["license_key"][:8] + "…"}
+            "license": ({"tier": min(workspace_total(ws), MAX_TIER) or lic["tier"], "status": lic["status"],
+                         "key_hint": lic["license_key"][:8] + "…"}
                         if lic else None)}

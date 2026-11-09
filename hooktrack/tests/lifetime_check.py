@@ -66,6 +66,30 @@ try:
     r = c2.post("/api/billing/addons/checkout", json={"kind": "credits", "qty": 1}); ok("both: licence holder cannot buy credits", r.status_code == 400)
     os.environ.pop("APPSUMO_BUY_URL", None)
     ok("both: no offer until the buy link is set", c2.get("/api/public/pricing").json()["lifetime_offer"] is None)
+    # ---- codes: the CSV given to AppSumo, redeemed at /redeem, stacked up to 2 ----
+    import re as _re
+    sold0 = lifetime.sold()
+    codes = lifetime.generate_codes(3)
+    ok("codes look like HT-XXXX-XXXX-XXXX and are unique", all(_re.fullmatch(r"HT-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}", x) for x in codes) and len(set(codes)) == 3)
+    csv_text = lifetime.codes_csv(); ok("csv has a code header and our codes", csv_text.splitlines()[0] == "code" and all(x in csv_text for x in codes))
+    ok("unused codes do not count as sold", lifetime.sold() == sold0)
+    c3 = TestClient(app); e3 = f"codes{sfx}@example.com"
+    c3.post("/api/auth/signup", json={"email": e3, "password": "Passw0rd!long1", "name": "C", "workspace_name": "CODES "+sfx})
+    ws3 = db.one("SELECT workspace_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE u.email=%s", (e3,))["workspace_id"]
+    typed = codes[0].replace("-", "").lower()
+    r = c3.post("/api/billing/lifetime/redeem", json={"license_key": "  " + typed + " "}); ok("redeem a code typed without dashes in lower case", r.status_code == 200 and r.json()["tier"] == 1)
+    ok("one code = HookTrack Lifetime", billing.effective_plan(ws3)["code"] == "ltd_1" and lifetime.sold() == sold0 + 1)
+    r = c3.post("/api/billing/lifetime/redeem", json={"license_key": codes[1]}); ok("second code stacks to tier 2", r.status_code == 200 and r.json()["tier"] == 2 and billing.effective_plan(ws3)["code"] == "ltd_2")
+    r = c3.post("/api/billing/lifetime/redeem", json={"license_key": codes[2]}); ok("third code refused (max 2 stacked)", r.status_code == 409)
+    ok("same code twice is harmless", c3.post("/api/billing/lifetime/redeem", json={"license_key": codes[0]}).status_code == 200 and billing.effective_plan(ws3)["code"] == "ltd_2")
+    ok("unknown code 404", c3.post("/api/billing/lifetime/redeem", json={"license_key": "HT-AAAA-AAAA-AAAA"}).status_code == 404)
+    anon = TestClient(app)
+    r = anon.get("/redeem", follow_redirects=False); ok("/redeem shows the form", r.status_code == 200 and "Redeem" in r.text)
+    r = anon.get("/redeem?code=" + codes[2], follow_redirects=False)
+    ok("/redeem?code= remembers it and sends the buyer to sign up", r.status_code == 303 and r.headers["location"].endswith("#/signup") and "ht_appsumo_license" in r.headers.get("set-cookie", ""))
+    r = c3.get("/redeem?code=" + codes[2], follow_redirects=False); ok("/redeem?code= for a full workspace explains why", r.status_code == 303 and "err=" in r.headers["location"])
+    lifetime.deactivate(codes[1], "admin refund"); ok("refunding one stacked code drops to tier 1", billing.effective_plan(ws3)["code"] == "ltd_1" and billing.workspace_state(ws3)["state"] == "paid")
+    lifetime.deactivate(codes[0], "admin refund"); ok("refunding the last code ends access", billing.workspace_state(ws3)["state"] != "paid")
 finally:
     lifetime.set_mode("subscriptions"); billing.set_enabled(False)
 print("ALL OK")
