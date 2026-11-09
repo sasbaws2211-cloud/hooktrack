@@ -26,8 +26,7 @@ MAX_TIER = 2                 # 1 code = tier 1, 2 stacked codes = tier 2
 
 def mode() -> str:
     from . import billing
-    m = str(billing._pget("billing_mode", "subscriptions") or "subscriptions")
-    return m if m in MODES else "subscriptions"
+    return billing.billing_mode()
 
 
 def set_mode(value: str) -> str:

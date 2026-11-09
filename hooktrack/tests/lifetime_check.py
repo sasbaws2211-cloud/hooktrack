@@ -22,6 +22,7 @@ print(r.status_code, r.text[:200])
 ws = db.one("SELECT workspace_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE u.email=%s", (email,))["workspace_id"]
 billing.set_enabled(True); lifetime.set_mode("lifetime")
 try:
+    db.execute("DELETE FROM platform_settings WHERE key='billing_mode'"); ok("default mode is lifetime", lifetime.mode() == "lifetime")
     ok("no trial: new workspace read-only", billing.workspace_state(ws)["state"] == "expired" and billing.workspace_state(ws)["reason"] == "no_licence")
     ok("trial days forced 0", billing.trial_config()["days"] == 0)
     s0 = lifetime.spots(); ok("spots default cap 100", s0["cap"] == 100)

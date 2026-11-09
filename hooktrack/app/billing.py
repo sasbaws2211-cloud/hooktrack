@@ -51,6 +51,14 @@ def _pget(key: str, default=None):
     return default if row is None else row.get("value", default)
 
 
+DEFAULT_BILLING_MODE = "lifetime"        # until an operator picks otherwise in the admin console: free of trials and card plans
+
+
+def billing_mode() -> str:
+    m = str(_pget("billing_mode", DEFAULT_BILLING_MODE) or DEFAULT_BILLING_MODE)
+    return m if m in ("subscriptions", "lifetime") else DEFAULT_BILLING_MODE
+
+
 def _pset(key: str, value) -> None:
     db.execute(
         """INSERT INTO platform_settings(key, value, updated_at) VALUES (%s, %s, now())
@@ -92,7 +100,7 @@ def normalize_email(email: str) -> str:
 def claim_trial(email: str, ws: int) -> bool:
     """Called once when a workspace is created. True if this person had not had a trial yet (it is now theirs);
     False records that the workspace starts without one."""
-    if _pget("billing_mode", "subscriptions") == "lifetime":
+    if billing_mode() == "lifetime":
         return False                              # no free trial is offered, so nothing about the email is recorded
     row = db.one(
         """INSERT INTO trial_claims(email, workspace_id) VALUES (%s, %s)
@@ -108,7 +116,7 @@ def trial_config() -> dict:
         days = int(_pget("trial_days", TRIAL_DAYS))
     except (TypeError, ValueError):
         days = TRIAL_DAYS
-    if _pget("billing_mode", "subscriptions") == "lifetime":
+    if billing_mode() == "lifetime":
         days = 0                                  # lifetime mode has no free trial: AppSumo's refund window is the trial
     return {"days": max(0, min(days, 365)), "plan": str(_pget("trial_plan", "") or "")}
 
@@ -129,7 +137,7 @@ def _trial_plan() -> dict:
     """The limits a trial gets: the configured plan, else the first (cheapest) plan on sale."""
     code = trial_config()["plan"]
     plan = get_plan(code) if code and code != FREE else None
-    if plan is None and _pget("billing_mode", "subscriptions") == "lifetime":
+    if plan is None and billing_mode() == "lifetime":
         plan = get_plan("ltd_1")                  # lifetime mode: the trial feels like the entry tier
     if plan is None:
         paid = [p for p in list_plans(only_active=True)]
@@ -272,7 +280,7 @@ def workspace_state(ws: int) -> dict:
     if has_paid_history and sub["lapsed"]:
         return {"state": "expired", "trial_ends_at": None, "sub": sub, "reason": "paid_period_ended"}
     # never paid
-    if _pget("billing_mode", "subscriptions") == "lifetime":
+    if billing_mode() == "lifetime":
         return {"state": "expired", "trial_ends_at": None, "sub": sub, "reason": "no_licence"}
     # the trial window
     override = sub.get("trial_ends_at") if sub["has_row"] else None
