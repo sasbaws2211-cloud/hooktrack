@@ -143,13 +143,13 @@ def generate_codes(n: int, tier: int = 1) -> list[str]:
     n = max(1, min(int(n), 10000))
     tier = max(1, min(MAX_TIER, int(tier)))
     made: list[str] = []
+    plan = plan_code_for_tier(tier)
     while len(made) < n:
-        code = _new_code()
-        row = db.one("""INSERT INTO lifetime_licenses(license_key, tier, plan_code, status, last_event, source)
-                        VALUES (%s,%s,%s,'inactive','generated','code') ON CONFLICT (license_key) DO NOTHING
-                        RETURNING license_key""", (code, tier, plan_code_for_tier(tier)))
-        if row:
-            made.append(code)
+        batch = list({_new_code() for _ in range(min(250, n - len(made)))})      # a few hundred at a time: one round trip each
+        rows = db.query("""INSERT INTO lifetime_licenses(license_key, tier, plan_code, status, last_event, source)
+                           SELECT k, %s, %s, 'inactive', 'generated', 'code' FROM unnest(%s::text[]) AS k
+                           ON CONFLICT (license_key) DO NOTHING RETURNING license_key""", (tier, plan, batch))
+        made.extend(r["license_key"] for r in rows)
     return made
 
 
