@@ -20,7 +20,7 @@ from fastapi import HTTPException
 from . import cache, db
 
 log = logging.getLogger("hooktrack.lifetime")
-MODES = ("subscriptions", "lifetime")
+MODES = ("subscriptions", "lifetime", "both")
 MAX_TIER = 2                 # 1 code = tier 1, 2 stacked codes = tier 2
 
 
@@ -32,13 +32,24 @@ def mode() -> str:
 def set_mode(value: str) -> str:
     from . import billing
     if value not in MODES:
-        raise HTTPException(400, "Billing mode must be 'subscriptions' or 'lifetime'")
+        raise HTTPException(400, "Billing mode must be 'subscriptions', 'lifetime' or 'both'")
     billing._pset("billing_mode", value)
     return value
 
 
 def is_lifetime_mode() -> bool:
+    """Lifetime ONLY: no card plans, no trial. In 'both' mode this is False (card plans and a trial exist as well)."""
     return mode() == "lifetime"
+
+
+def offer() -> Optional[dict]:
+    """What the pricing page shows next to the normal plans: the lifetime deal on AppSumo. None until the buy link is set."""
+    url = buy_url()
+    if not url:
+        return None
+    p = db.one("SELECT price_minor, currency FROM plans WHERE code='ltd_1'") or {}
+    return {"buy_url": url, "price_minor": p.get("price_minor", 4880), "currency": p.get("currency", "USD"),
+            "spots": spots()}
 
 
 DEFAULT_CAP = 100

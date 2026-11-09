@@ -6,7 +6,7 @@
 <script>/* an app link (an invite, a reset or a confirm email) opened at the site root arrives with a #/ route: hand it to the app */
 if (location.hash.indexOf('#/') === 0) location.replace('/app' + location.search + location.hash);</script>
 <title>HookTrack: Short-Form Video Analytics &amp; Winning Hook Finder</title>
-<meta name="description" content="Track every TikTok, Instagram Reels and YouTube Shorts account in one dashboard. See which hooks beat each account's normal, then scale the winners. Pay once, use it forever.">
+<meta name="description" content="Track every TikTok, Instagram Reels and YouTube Shorts account in one dashboard. See which hooks beat each account's normal, then scale the winners. Free trial.">
 <link rel="canonical" href="__SITE__/">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta name="theme-color" content="#4f46e5">
@@ -136,6 +136,7 @@ section.alt .card{background:var(--bg)}
 .plan.pop{border-color:var(--accent-strong);box-shadow:0 0 0 1px var(--accent-strong)}
 .badge{display:inline-block;margin-left:8px;padding:2px 10px;border-radius:99px;background:var(--accent-strong);color:#fff;font-size:12px;font-weight:700;vertical-align:middle}
 .price-note{text-align:center;color:var(--muted);margin-top:22px;font-size:14px}
+.ltd-offer{max-width:820px;margin:26px auto 0;padding:16px 20px;border:1px dashed var(--border);border-radius:14px;background:var(--surface);display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between}.ltd-offer b{font-size:16px}.ltd-offer small{display:block;color:var(--muted);font-size:13px;margin-top:2px}
 
 /* faq */
 .faq{max-width:760px;margin:0 auto;display:grid;gap:12px}
@@ -168,7 +169,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
     </nav>
     <div class="actions">
       <a class="btn sm" href="/app#/login">Sign in</a>
-      <a class="btn sm primary" href="/app#/signup" data-cta>Get started</a>
+      <a class="btn sm primary" href="/app#/signup" data-cta>Start free</a>
     </div>
   </div>
 </header>
@@ -181,10 +182,10 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
     <h1>Find the hooks that <span class="hl">actually sell</span></h1>
     <p class="lead">HookTrack follows every post across all your TikTok, Instagram and YouTube accounts, compares each one with <b>its own account's normal</b>, and shows you which hooks really worked, so you can make more of them.</p>
     <div class="cta">
-      <a class="btn primary big" href="/app#/signup" data-cta id="hero-cta">Get the lifetime deal</a>
+      <a class="btn primary big" href="/app#/signup" data-cta id="hero-cta">Start your free trial</a>
       <a class="btn big" href="#how">See how it works</a>
     </div>
-    <p class="fine"><span id="hero-fine">Pay once, use it forever. 60-day money-back guarantee.</span> By signing up you agree to the <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+    <p class="fine"><span id="hero-fine">Free for a limited time. No card needed to start.</span> By signing up you agree to the <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
 
     <div class="shots" role="group" aria-label="The Hooks page and the Posts board, shown with sample data">
       <figure class="shot shot-hooks">
@@ -257,9 +258,10 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
 <!-- pricing -->
 <section id="pricing">
   <div class="wrap">
-    <div class="head"><h2>Simple pricing</h2><p id="pricing-sub">Pay once, use it forever. Limited to our first 100 customers.</p></div>
+    <div class="head"><h2>Simple pricing</h2><p id="pricing-sub">Start with a free trial. Pick a plan when you are ready.</p></div>
     <div class="interval" id="interval" role="group" aria-label="Billing period" hidden></div>
     <div class="plans" id="plans" aria-live="polite"><div class="card muted" style="grid-column:1/-1;text-align:center">Loading prices…</div></div>
+    <div class="ltd-offer" id="ltd-offer" hidden></div>
     <p class="price-note" id="price-note"></p>
   </div>
 </section>
@@ -272,7 +274,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
       <details><summary>What counts as a "winner"?</summary><p>A post that beats the median of its own account's recent mature posts by a set multiple (2× by default). Shorts and long-form YouTube are compared separately, and a post younger than two days is "too early" instead of being judged on a half-finished number.</p></details>
       <details><summary>Do I have to connect my TikTok, Instagram or YouTube login?</summary><p>No. HookTrack reads the public numbers for the handles you add. To publish, you connect your own publishing provider; HookTrack never asks for your social passwords.</p></details>
       <details><summary>Do I need AI to use it?</summary><p>No. Tracking, winner detection and decisions work without it. AI is included with your licence and there is nothing to set up: it reads screenshots, writes hook ideas, plans the week and answers questions about your data.</p></details>
-      <details><summary>Is there a free trial?</summary><p id="faq-trial">There is no free trial. Instead, the lifetime deal comes with a 60-day money-back guarantee, so you can try HookTrack with your own accounts and get a full refund if it is not for you. Nothing is deleted if you leave.</p></details>
+      <details><summary>How does the free trial work?</summary><p id="faq-trial">You get a free trial with no card needed. When it ends, your workspace becomes view-only until you pick a plan. Nothing is deleted.</p></details>
       <details><summary>Can I cancel or change plan?</summary><p>Yes. Each payment covers one period, and you can turn automatic renewal off at any time. If you let a plan lapse, your data stays and the workspace becomes view-only until you pay again.</p></details>
       <details><summary>Is my data shared with other customers?</summary><p>No. Every workspace is isolated: its accounts, posts, views and settings are never visible to another workspace.</p></details>
       <details><summary>Can I bring my existing spreadsheet?</summary><p>Yes. Import a tracker workbook (.xlsx) and your accounts, daily views and hook log come with it. Importing again does not create duplicates.</p></details>
@@ -286,7 +288,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
     <div class="card">
       <h2>Stop guessing which hooks work</h2>
       <p class="muted" style="margin:14px auto 26px;max-width:560px;font-size:18px">Add your accounts and see your real winners in minutes.</p>
-      <a class="btn primary big" href="/app#/signup" data-cta>Get the lifetime deal</a>
+      <a class="btn primary big" href="/app#/signup" data-cta>Start your free trial</a>
     </div>
   </div>
 </section>
@@ -316,6 +318,12 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
       // billing not switched on (e.g. a private install): no prices to show
       $('#pricing').hidden = true; $('#nav-pricing').hidden = true;
       return;
+    }
+    if (p.mode !== 'lifetime' && p.trial_days > 0) {
+      $('#hero-fine').textContent = p.trial_days + '-day free trial. No card needed to start.';
+      document.querySelectorAll('[data-cta]').forEach(function (a) { if (a.id === 'hero-cta' || a.classList.contains('big')) a.textContent = 'Start your ' + p.trial_days + '-day free trial'; });
+      $('#faq-trial').textContent = 'You get ' + p.trial_days + ' days free with no card needed. When the trial ends your workspace becomes view-only until you pick a plan. Nothing is deleted. One free trial per person. Bought the lifetime deal on AppSumo? Create an account and redeem your code under Billing.';
+      $('#pricing-sub').textContent = 'Start with a ' + p.trial_days + '-day free trial. Pick a plan when you are ready.';
     }
     if (p.mode === 'lifetime') {
       var sp = p.spots || {}, left = sp.cap ? sp.left + ' of ' + sp.cap + ' founding spots left' : '';
@@ -406,10 +414,18 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
           '<li><span class="check">✓</span>' + esc(lim(pl.max_credits, 'data credit', 'data credits')) + ' a month</li>' +
           '<li><span class="check">✓</span>Winner detection, decisions and calendar</li>' +
           '</ul>' +
-          '<a class="btn ' + (i === popular ? 'primary' : '') + '" href="/app#/signup">Get started</a></div>';
+          '<a class="btn ' + (i === popular ? 'primary' : '') + '" href="/app#/signup">' + (p.trial_days > 0 ? 'Start free trial' : 'Get started') + '</a></div>';
       }).join('');
     }
+    if (order.length >= 3) host.style.maxWidth = '1040px';
     draw();
+    var off = p.lifetime_offer, offEl = $('#ltd-offer');
+    if (off && off.buy_url && !(off.spots && off.spots.cap && off.spots.left <= 0)) {
+      var offLeft = off.spots && off.spots.cap ? off.spots.left + ' of ' + off.spots.cap + ' founding spots left' : '';
+      offEl.hidden = false;
+      offEl.innerHTML = '<div><b>Prefer to pay once? Lifetime deal on AppSumo</b><small>' + money(off.price_minor, off.currency) + ' one-time' + (offLeft ? ' · ' + esc(offLeft) : '') + ' · 60-day money-back guarantee</small></div>' +
+        '<a class="btn" href="' + esc(off.buy_url) + '" rel="noopener">See the deal on AppSumo</a>';
+    }
     $('#price-note').textContent = 'Prices are per workspace. Pay by card or mobile money; save a card to renew automatically, or turn it off any time.';
   }
 

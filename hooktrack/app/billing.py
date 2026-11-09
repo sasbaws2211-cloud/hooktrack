@@ -51,12 +51,12 @@ def _pget(key: str, default=None):
     return default if row is None else row.get("value", default)
 
 
-DEFAULT_BILLING_MODE = "lifetime"        # until an operator picks otherwise in the admin console: free of trials and card plans
+DEFAULT_BILLING_MODE = "both"            # card plans + a trial for direct customers, and AppSumo codes redeemable
 
 
 def billing_mode() -> str:
     m = str(_pget("billing_mode", DEFAULT_BILLING_MODE) or DEFAULT_BILLING_MODE)
-    return m if m in ("subscriptions", "lifetime") else DEFAULT_BILLING_MODE
+    return m if m in ("subscriptions", "lifetime", "both") else DEFAULT_BILLING_MODE
 
 
 def _pset(key: str, value) -> None:
@@ -1065,7 +1065,9 @@ def billing_status(ctx: Ctx = Depends(current)):
     out["mode"] = lifetime.mode()
     if out["mode"] == "lifetime":
         out["plans"] = []                              # nothing to subscribe to: licences come from AppSumo
+    if out["mode"] in ("lifetime", "both"):
         out["lifetime"] = lifetime.workspace_view(ctx.workspace_id)
+    out["has_licence"] = lifetime.for_workspace(ctx.workspace_id) is not None
     out["fx_usd"] = usd_rates()          # {"GHS": 15.5} means 1 USD = 15.5 GHS (display only)
     pays = db.query("SELECT plan_code, amount_minor, currency, status, created_at, paid_at, reference "
                     "FROM payments WHERE workspace_id=%s ORDER BY created_at DESC LIMIT 20", (ctx.workspace_id,))
@@ -1102,7 +1104,10 @@ def public_pricing() -> dict:
                 "max_connected": p.get("max_connected", -1), "max_credits": p.get("max_credits", -1),
                 "max_reports": p.get("max_reports", -1),
                 "charge_minor": charge_minor, "charge_currency": charge_cur})
-    return {"billing_enabled": on, "trial_days": trial_config()["days"] if on else 0, "plans": plans}
+    out = {"billing_enabled": on, "mode": lifetime.mode(), "trial_days": trial_config()["days"] if on else 0, "plans": plans}
+    if on and lifetime.mode() == "both":
+        out["lifetime_offer"] = lifetime.offer()      # None until APPSUMO_BUY_URL is set, so nothing shows before the deal is live
+    return out
 
 
 class AutoRenewIn(BaseModel):
@@ -1123,10 +1128,13 @@ def delete_card(ctx: Ctx = Depends(auth.admin)):
 PENDING_WINDOW = "1 hour"
 
 
-def _no_card_in_lifetime_mode() -> None:
+def _no_card_in_lifetime_mode(ws: Optional[int] = None) -> None:
     from . import lifetime
     if lifetime.is_lifetime_mode():
         raise HTTPException(400, "Plans are sold as a one-time lifetime deal. Redeem your licence key on the Billing page.")
+    if ws is not None and lifetime.for_workspace(ws):
+        raise HTTPException(400, "This workspace already has a lifetime licence, so there is no plan to buy. "
+                                 "To add more room, redeem a second code or buy an add-on.")
 
 
 @router.post("/checkout")
@@ -1134,7 +1142,7 @@ def checkout(b: CheckoutIn, ctx: Ctx = Depends(auth.admin)):
     """Start a payment. Returns the Paystack access_code for the in-app popup and our own reference to poll."""
     if not enabled():
         raise HTTPException(400, "Billing is not turned on for this platform")
-    _no_card_in_lifetime_mode()
+    _no_card_in_lifetime_mode(ctx.workspace_id)
     plan = get_plan(b.plan_code)
     if plan is None or not plan["active"]:
         raise HTTPException(404, "That plan is not available")
@@ -1191,7 +1199,7 @@ def _switch_with_credit(ctx: Ctx, plan: dict, quote: dict, ws_name: str) -> dict
 @router.get("/quote")
 def quote(plan_code: str, ctx: Ctx = Depends(auth.admin)):
     """What it would cost to switch to this plan right now (credit for unused time included). Changes nothing."""
-    _no_card_in_lifetime_mode()
+    _no_card_in_lifetime_mode(ctx.workspace_id)
     plan = get_plan(plan_code)
     if plan is None or not plan["active"] or plan["price_minor"] <= 0:
         raise HTTPException(404, "That plan is not available")
@@ -1238,7 +1246,7 @@ def addon_checkout(b: AddonCheckoutIn, ctx: Ctx = Depends(auth.admin)):
     if spec is None:
         raise HTTPException(404, "Unknown add-on")
     from . import lifetime
-    if lifetime.is_lifetime_mode() and b.kind != "connected":
+    if (lifetime.is_lifetime_mode() or lifetime.for_workspace(ctx.workspace_id)) and b.kind != "connected":
         # lifetime licences carry fixed monthly allowances; only extra publishing accounts (a real monthly cost to us) are sold
         raise HTTPException(400, "Only extra publishing accounts can be bought on a lifetime licence")
     require_active(ctx.workspace_id)

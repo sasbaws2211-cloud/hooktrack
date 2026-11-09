@@ -19,7 +19,7 @@ from fastapi import Request
 STATIC = Path(__file__).parent.parent / "static"
 OG_IMAGE = "/og.jpg"
 DESCRIPTION = ("Track every TikTok, Instagram Reels and YouTube Shorts account in one dashboard. See which hooks beat each "
-               "account's normal, then scale the winners. Pay once, use it forever.")
+               "account's normal, then scale the winners. Free trial.")
 
 # What a crawler should never fetch: the app itself, the API, private report links and uploaded files.
 DISALLOW = ["/api/", "/app$", "/r/", "/uploads/", "/media/"]

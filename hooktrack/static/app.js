@@ -2729,7 +2729,7 @@ async function openPlanPicker(opts = {}) {
   if (planPickerEl && planPickerEl.isConnected) return;
   const b = await api('GET', '/api/billing');
   if (!b.enabled) return;
-  if (b.mode === 'lifetime') {
+  if (b.mode === 'lifetime' || (b.mode === 'both' && b.has_licence)) {
     const lm = openModal(`<h2 style="margin-top:0">Lifetime deals</h2><p class="muted" style="margin:0 0 12px">${esc(opts.reason || (b.state === 'expired' ? 'Redeem your lifetime licence to start working.' : 'Pay once and keep it for good.'))}</p><div id="ltdp">${lifetimeHtml(b)}</div><div class="actions"><button class="btn" data-close>Not now</button></div>`, true);
     planPickerEl = lm;
     $$('[data-close]', lm).forEach(x => x.addEventListener('click', lm.close));
@@ -2796,7 +2796,7 @@ pages.billing = async app => {
   }
   const sub = b.subscription;
   let ltdHtml = null;
-  if (b.mode === 'lifetime') {
+  if (b.mode === 'lifetime' || (b.mode === 'both' && b.has_licence)) {
     const ltdAddons = (b.state === 'paid' && b.addons) ? (() => {
       const a = b.addons.find(x => x.kind === 'connected');
       if (!a) return '';
@@ -2862,6 +2862,10 @@ pages.billing = async app => {
       ${p.code === b.plan.code && b.state !== 'trial' ? (p.price_minor && b.can_manage ? `<button class="btn" data-buy="${esc(p.code)}" ${b.payments_ready ? '' : 'disabled'}>Renew</button>` : '<span class="badge">Current</span>')
         : (p.price_minor ? `<button class="btn primary" data-buy="${esc(p.code)}" ${b.can_manage && b.payments_ready ? '' : 'disabled'} title="${b.can_manage ? (b.payments_ready ? '' : 'Payments are not set up yet') : 'Only workspace admins can change the plan'}">Choose ${esc(p.name)}</button>` : '')}
     </div>`; }).join('')}</div>
+    ${b.mode === 'both' && b.can_manage ? `<h2 style="margin:20px 0 8px">Have an AppSumo code?</h2>
+      <div id="ltd-banner" class="notice" style="margin-bottom:10px" hidden></div>
+      <div class="row" style="gap:8px"><input id="ltd-key" placeholder="Paste your licence key" autocomplete="off" style="flex:1"><button type="button" class="btn primary" id="ltd-redeem">Redeem</button></div>
+      <div class="muted small" style="margin-top:4px">Bought the lifetime deal? Paste your code to unlock it. Used an "Activate" button? Leave it blank and press Redeem.</div>` : ''}
     ${b.payments.length ? `<h2 style="margin:20px 0 8px">Payment history</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Plan</th><th class="num">Amount</th><th>Status</th></tr></thead><tbody>
       ${b.payments.map(p => `<tr><td>${new Date(p.created_at).toLocaleDateString()}</td><td>${esc(p.plan_code)}</td><td class="num">${money(p.amount_minor, p.currency)}</td><td>${esc(p.status)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
   const rerender = () => route();
@@ -2928,7 +2932,7 @@ pages.billing = async app => {
     });
     finish(await pollP);
   })));
-  if (ltdHtml !== null) bindLifetime(app, () => route());
+  bindLifetime(app, () => route());
   // a payment started earlier (page reloaded, tab closed): check it once, quietly
   if (b.pending) poll(b.pending.reference, { maxMs: 0 }).then(o => { if (o === 'success') finish(o); });
 };
