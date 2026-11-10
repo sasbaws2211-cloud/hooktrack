@@ -91,3 +91,19 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 20px;margin-bottom:10px}footer a{
 .heat td.none{color:var(--muted)}
 .slots{padding-left:22px;margin:8px 0 18px}.slots li{margin:4px 0;max-width:none}
 .tool h3{margin:20px 0 6px;font-size:18px}
+
+/* repurposing checklist */
+.rp-pick label{font-weight:600;margin:0}
+.rp-pick select{min-width:150px}
+#rp-list h3{margin:22px 0 8px;font-size:17px}
+.tool label.chk{display:flex;gap:12px;align-items:flex-start;padding:11px 12px;border:1px solid var(--border);border-radius:11px;margin:8px 0;background:var(--bg);cursor:pointer;font-weight:400}
+.tool label.chk.crit{border-left:4px solid var(--warn)}
+.chk input{margin-top:5px;width:18px;height:18px;flex:none}
+.chk b{font-weight:600}.chk small{display:block;color:var(--muted);font-size:13.5px;margin-top:3px}
+.tag{font-style:normal;font-size:12px;font-weight:700;color:var(--warn);border:1px solid var(--warn);border-radius:99px;padding:0 7px;margin-left:4px;white-space:nowrap}
+.rp-card{margin-top:22px;padding:16px 18px;border:1px solid var(--border);border-radius:14px;background:var(--bg);border-left:6px solid var(--warn)}
+.rp-card.ready{border-left-color:var(--good)}.rp-card.fix{border-left-color:var(--bad)}
+.rp-top{display:flex;justify-content:space-between;gap:10px;font-size:18px}.rp-top span{color:var(--muted);font-size:15px}
+.rp-bar{height:10px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin:10px 0}.rp-bar span{display:block;height:100%;background:var(--good)}
+.rp-card.fix .rp-bar span{background:var(--bad)}.rp-card.almost .rp-bar span{background:var(--warn)}
+.fixlist{margin:6px 0 4px;padding-left:20px}.fixlist li{margin:4px 0;max-width:none}

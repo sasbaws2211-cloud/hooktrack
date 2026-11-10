@@ -53,7 +53,14 @@ BESTTIME_BOX = (
     '<button type="button" class="btn" id="bt-clear">Clear</button></div>'
     '<div class="tool-out" id="bt-out" aria-live="polite" hidden></div></div>'
     '<script src="/tool-besttime.js" defer></script>')
-TOOL_RE = re.compile(r"\{\{(tool|besttime):([A-Za-z ]+)\}\}")
+REPURPOSE_BOX = (
+    '<div class="tool" id="repurpose" data-from="__F__" data-to="__T__">'
+    '<div class="tool-row rp-pick"><label for="rp-from">Video is from</label><select id="rp-from"></select>'
+    '<label for="rp-to">Posting it on</label><select id="rp-to"></select>'
+    '<button type="button" class="btn" id="rp-reset">Start over</button></div>'
+    '<div id="rp-list"></div><div id="rp-result" aria-live="polite"></div></div>'
+    '<script src="/tool-repurpose.js" defer></script>')
+TOOL_RE = re.compile(r"\{\{(tool|besttime|repurpose):([A-Za-z -]+)\}\}")
 
 
 def _load(path: Path) -> Optional[tuple[dict, str]]:
@@ -102,7 +109,14 @@ def _wrap(meta: dict, body: str, path: str, request: Request, trail: list[tuple[
     site = seo.site_url(request)
     for k, v in _tokens(site).items():
         body = body.replace(k, v)
-    body = TOOL_RE.sub(lambda m: (TOOL_BOX if m.group(1) == "tool" else BESTTIME_BOX).replace("__P__", m.group(2)), body)
+    def _box(m):
+        kind, arg = m.group(1), m.group(2)
+        if kind == "repurpose":
+            f, _, t = arg.partition("-")
+            return REPURPOSE_BOX.replace("__F__", f).replace("__T__", t)
+        return (TOOL_BOX if kind == "tool" else BESTTIME_BOX).replace("__P__", arg)
+
+    body = TOOL_RE.sub(_box, body)
     title, desc = meta["title"], meta["description"]
     graph = [_crumbs(site, trail)]
     if meta.get("kind") == "post":
