@@ -314,10 +314,10 @@ pages.settings = async app => {
         ${b.paystack.source === 'platform' ? '<button class="btn danger" id="psclear">Remove key</button>' : ''}<button class="btn primary" id="savebill">Save billing</button></div></div>
     ${(() => { const L = s.lifetime, a = L.appsumo; return `<div class="card" style="margin-top:12px"><h2>Lifetime deals (AppSumo)</h2>
       <label class="f">Sell plans as</label>
-      <select id="lmode"><option value="both" ${L.mode === 'both' ? 'selected' : ''}>Subscriptions + trial, and AppSumo codes redeemable (recommended)</option><option value="subscriptions" ${L.mode === 'subscriptions' ? 'selected' : ''}>Subscriptions + trial only</option><option value="lifetime" ${L.mode === 'lifetime' ? 'selected' : ''}>AppSumo lifetime deals only (no free trial)</option></select>
+      <select id="lmode"><option value="both" ${L.mode === 'both' ? 'selected' : ''}>Subscriptions, and AppSumo codes redeemable (recommended)</option><option value="subscriptions" ${L.mode === 'subscriptions' ? 'selected' : ''}>Subscriptions only</option><option value="lifetime" ${L.mode === 'lifetime' ? 'selected' : ''}>AppSumo lifetime deals only (no free trial)</option></select>
       <label class="f">Founding licences to sell (set the same limit on AppSumo) &nbsp; <b>${L.spots.sold} sold, ${L.spots.left} left</b> ${L.spots.cap && L.spots.sold >= Math.min(90, L.spots.cap) ? '<span class="badge warn">nearly sold out: end the AppSumo deal at ' + L.spots.cap + '</span>' : ''}</label>
       <input id="lcap" type="number" min="0" value="${L.spots.cap}" style="max-width:140px">
-      <p class="small muted" style="margin:6px 0 0">In the first two modes people can try the app free and pay by plan; "lifetime only" has no trial and a new workspace is read-only until a licence is redeemed. Lifetime only needs "Enforce plan limits" above to be on. Licences are created, upgraded and refunded only by AppSumo webhooks; they can't be edited here.</p>
+      <p class="small muted" style="margin:6px 0 0">There is no free trial in any mode: a new workspace is read-only until a plan is bought or a code is redeemed. Lifetime only needs "Enforce plan limits" above to be on. Licences are created, upgraded and refunded only by AppSumo webhooks; they can't be edited here.</p>
       <p class="small" style="margin:8px 0 0">Webhook key ${a.api_key ? '<span class="badge good">set</span>' : '<span class="badge warn">APPSUMO_API_KEY missing</span>'} &nbsp; OAuth ${a.oauth ? '<span class="badge good">set</span>' : '<span class="badge warn">client id/secret missing</span>'} &nbsp; Buy link ${a.buy_url ? '<span class="badge good">set</span>' : '<span class="badge warn">APPSUMO_BUY_URL missing</span>'}</p>
       <p class="small muted" style="margin:6px 0 0">Give AppSumo: webhook <code>https://YOUR-APP-DOMAIN${esc(L.webhook_path)}</code> and redirect <code>https://YOUR-APP-DOMAIN${esc(L.callback_path)}</code></p>
       <div class="actions"><button class="btn primary" id="savelmode">Save</button></div>
@@ -344,11 +344,6 @@ pages.settings = async app => {
       <input id="latek" type="password" autocomplete="off" placeholder="paste the key (leave blank to keep)">
       <div class="actions"><button class="btn" id="latetest" ${s.late.configured ? '' : 'disabled'}>Test key</button>
         ${s.late.source === 'platform' ? '<button class="btn danger" id="lateclear">Remove key</button>' : ''}<button class="btn primary" id="latesave">Save</button></div></div>
-    <div class="card" style="margin-top:12px"><h2>Free trial</h2>
-      <p class="small muted" style="margin:0 0 6px">There is no free plan. A new workspace gets this trial, then can only view until it subscribes. The clock starts when the workspace is created, or when billing is first switched on, whichever is later.</p>
-      <div class="fields"><div><label class="f">Trial length (days)</label><input id="trd" type="number" min="0" max="365" value="${esc(s.trial.days)}"></div>
-        <div><label class="f">Limits during the trial</label><select id="trp"><option value="">Cheapest plan (default)</option>${s.trial.plans.map(c => `<option value="${esc(c)}" ${s.trial.plan === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div></div>
-      <div class="actions"><button class="btn primary" id="savetrial">Save trial</button></div></div>
     <div class="card" style="margin-top:12px"><h2>Legal details (Terms and Privacy pages)</h2>
       <p class="small muted" style="margin:0 0 6px">Shown on your public /terms and /privacy pages. Fill these in before you take real payments. The pages are a plain-language template: have a lawyer review them for your business and country.</p>
       <div class="fields">
@@ -466,9 +461,6 @@ pages.settings = async app => {
   });
   if ($('#savechcur')) $('#savechcur').onclick = guard(async () => {
     await api('PUT', '/settings/charge-currency', { currency: $('#chcur').value }); toast('Charge currency saved'); route();
-  });
-  $('#savetrial').onclick = guard(async () => {
-    await api('PUT', '/settings/trial', { days: +$('#trd').value, plan: $('#trp').value }); toast('Trial saved'); route();
   });
   if ($('#savefx')) $('#savefx').onclick = guard(async () => {
     const rates = {}; $$('[data-fx]').forEach(i => (rates[i.dataset.fx] = i.value));

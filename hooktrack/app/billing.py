@@ -76,14 +76,12 @@ def set_enabled(on: bool) -> None:
         _pset("billing_enabled_at", datetime.now(timezone.utc).isoformat())
 
 
-TRIAL_DAYS = 7
+TRIAL_DAYS = 0          # there is no free trial
 EXPIRED_PLAN = {"code": "expired", "name": "No active plan", "description": "", "price_minor": 0, "currency": "USD",
                 "interval": "month", "max_accounts": 0, "max_members": 0, "max_ai_calls": 0, "max_connected": 0,
                 "max_credits": 0, "max_reports": 0, "active": False,
                 "position": 0}
-TRIAL_ENDED_MSG = "Your free trial has ended. Open Billing to keep working."
-TRIAL_USED_MSG = ("This email has already used its free trial on another workspace. "
-                  "Open Billing to start using this one.")
+NO_PLAN_MSG = "Choose a plan, or redeem your lifetime code, under Billing to start using this workspace."
 
 
 def normalize_email(email: str) -> str:
@@ -100,6 +98,7 @@ def normalize_email(email: str) -> str:
 def claim_trial(email: str, ws: int) -> bool:
     """Called once when a workspace is created. True if this person had not had a trial yet (it is now theirs);
     False records that the workspace starts without one."""
+    return False                                   # no free trial exists, so nothing about the email is recorded
     if billing_mode() == "lifetime":
         return False                              # no free trial is offered, so nothing about the email is recorded
     row = db.one(
@@ -112,13 +111,8 @@ def claim_trial(email: str, ws: int) -> bool:
 
 
 def trial_config() -> dict:
-    try:
-        days = int(_pget("trial_days", TRIAL_DAYS))
-    except (TypeError, ValueError):
-        days = TRIAL_DAYS
-    if billing_mode() == "lifetime":
-        days = 0                                  # lifetime mode has no free trial: AppSumo's refund window is the trial
-    return {"days": max(0, min(days, 365)), "plan": str(_pget("trial_plan", "") or "")}
+    """There is no free trial, so the length is always 0. (An operator can still extend one workspace by hand.)"""
+    return {"days": 0, "plan": str(_pget("trial_plan", "") or "")}
 
 
 def save_trial_config(days: Optional[int], plan: Optional[str]) -> dict:
@@ -279,37 +273,19 @@ def workspace_state(ws: int) -> dict:
         return {"state": "comp" if sub["status"] == "comp" else "paid", "trial_ends_at": None, "sub": sub}
     if has_paid_history and sub["lapsed"]:
         return {"state": "expired", "trial_ends_at": None, "sub": sub, "reason": "paid_period_ended"}
-    # never paid
-    if billing_mode() == "lifetime":
-        return {"state": "expired", "trial_ends_at": None, "sub": sub, "reason": "no_licence"}
-    # the trial window
+    # never paid: no free trial, so nothing to use until a plan is bought or a code is redeemed
     override = sub.get("trial_ends_at") if sub["has_row"] else None
-    if override is not None:
-        ends = override
-    else:
-        w = db.one("SELECT created_at FROM workspaces WHERE id=%s", (ws,))
-        started = w["created_at"] if w else now
-        at = _pget("billing_enabled_at")
-        if at:
-            try:
-                started = max(started, datetime.fromisoformat(at))
-            except ValueError:
-                pass
-        ends = started + timedelta(days=trial_config()["days"])
-    if override is None:
-        w = db.one("SELECT trial_eligible FROM workspaces WHERE id=%s", (ws,))
-        if w is not None and not w["trial_eligible"]:
-            return {"state": "expired", "trial_ends_at": None, "sub": sub, "reason": "trial_used"}
-    if ends > now:
-        return {"state": "trial", "trial_ends_at": ends, "sub": sub}
-    return {"state": "expired", "trial_ends_at": ends, "sub": sub, "reason": "trial_ended"}
+    if override is not None and override > now:                      # a window an operator granted by hand
+        return {"state": "trial", "trial_ends_at": override, "sub": sub}
+    reason = "no_licence" if billing_mode() == "lifetime" else "no_plan"
+    return {"state": "expired", "trial_ends_at": None, "sub": sub, "reason": reason}
 
 
 def blocked_message(ws: int) -> str:
     st = workspace_state(ws)
     if st.get("reason") == "no_licence":
         return "Redeem your lifetime licence under Billing to start using this workspace."
-    return TRIAL_USED_MSG if st.get("reason") == "trial_used" else TRIAL_ENDED_MSG
+    return NO_PLAN_MSG
 
 
 def access_blocked(ws: int) -> bool:

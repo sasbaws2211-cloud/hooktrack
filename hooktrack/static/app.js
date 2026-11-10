@@ -512,7 +512,7 @@ async function refreshTrialBar(force) {
       ? `<span><b>${b.subscription.lapsed ? 'Your lifetime licence is no longer active.' : b.trial.reason === 'no_licence' ? 'Redeem your licence to get started.' : 'Your lifetime licence is no longer active.'}</b> You can view everything, but changes are paused until you redeem a lifetime deal.</span> <button type="button" class="btn sm primary" data-plans>Redeem licence</button>`
       : '')
     : ended
-    ? `<span><b>${b.subscription.lapsed ? 'Your plan has ended.' : b.trial.reason === 'trial_used' ? 'You have already used your free trial.' : 'Your free trial has ended.'}</b> You can view everything, but changes are paused until you choose a plan.</span> <button type="button" class="btn sm primary" data-plans>Choose a plan</button>`
+    ? `<span><b>${b.subscription.lapsed ? 'Your plan has ended.' : 'Choose a plan or redeem a code to get started.'}</b> You can view everything, but changes are paused until you do.</span> <button type="button" class="btn sm primary" data-plans>Choose a plan</button>`
     : `<span><b>Free trial:</b> ${left} day${left === 1 ? '' : 's'} left.</span> <button type="button" class="btn sm" data-plans>Choose a plan</button>`;
   bar.onclick = e => { if (e.target.closest('[data-plans]')) openPlanPicker().catch(err => toast(err.message, true)); };
 }
@@ -2753,7 +2753,7 @@ async function openPlanPicker(opts = {}) {
   let saveCard = b.card.auto_renew || !b.card.has_card;
   const lim = n => (n === -1 ? 'Unlimited' : Number(n).toLocaleString());
   const why = opts.reason || (b.state === 'expired'
-    ? (b.subscription.lapsed ? 'Your plan has ended.' : b.trial.reason === 'trial_used' ? 'This email has already used its free trial.' : 'Your free trial has ended.') + ' Choose a plan to keep working.'
+    ? (b.subscription.lapsed ? 'Your plan has ended.' : 'Choose a plan to get started.')
     : b.state === 'trial' ? `You have ${b.trial.days_left} day${b.trial.days_left === 1 ? '' : 's'} left on your free trial. You can pick a plan any time and keep everything.` : 'Pick the plan that fits.');
   const m = openModal('<div id="pp"></div>', true);
   planPickerEl = m;
@@ -2839,7 +2839,7 @@ pages.billing = async app => {
   const bestSave = Math.max(0, ...shown.map(t => t.save || 0));
   app.innerHTML = ltdHtml !== null ? ltdHtml : `<div class="page-head"><div><h1>Billing</h1><div class="sub">${esc(state.me.workspace.name)}</div></div></div>
     <div id="paybanner" class="notice" style="margin-bottom:12px;display:none" hidden></div>
-    ${b.state === 'expired' ? `<div class="notice" style="margin-bottom:12px;border-color:var(--bad)"><b>${sub.lapsed ? 'Your paid period has ended.' : b.trial.reason === 'trial_used' ? 'This email has already used its free trial on another workspace.' : 'Your free trial has ended.'}</b> You can still look around, but nothing can be changed until you choose a plan below. Your data is safe.</div>` : ''}
+    ${b.state === 'expired' ? `<div class="notice" style="margin-bottom:12px;border-color:var(--bad)"><b>${sub.lapsed ? 'Your paid period has ended.' : 'Choose a plan to get started.'}</b> You can still look around, but nothing can be changed until you choose a plan below or redeem a code. Your data is safe.</div>` : ''}
     <div class="card"><h2 style="margin:0">${b.state === 'trial' ? `Free trial: ${b.trial.days_left} day${b.trial.days_left === 1 ? '' : 's'} left` : b.state === 'expired' ? 'No active plan' : 'Current plan: ' + esc(b.plan.name)} ${sub.status === 'comp' ? '<span class="badge">complimentary</span>' : ''}</h2>
       ${b.state === 'trial' ? `<div class="muted small">Ends ${new Date(b.trial.ends_at).toLocaleDateString()}. Pick a plan any time: you keep everything you have set up.</div>` : ''}
       <div class="muted small">${b.state === 'trial' || b.state === 'expired' ? '' : (sub.status === 'comp' ? (sub.current_period_end ? `Complimentary until ${new Date(sub.current_period_end).toLocaleDateString()}.` : 'Complimentary plan, no end date.') : sub.current_period_end && b.plan.price_minor ? `Paid until ${new Date(sub.current_period_end).toLocaleDateString()}. ${b.card && b.card.auto_renew ? 'It renews automatically with your saved card.' : 'Automatic renewal is off: renew before it ends to keep your plan.'}` : (sub.current_period_end ? `Until ${new Date(sub.current_period_end).toLocaleDateString()}` : ''))}</div>
