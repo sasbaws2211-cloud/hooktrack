@@ -109,6 +109,36 @@ def posts() -> list[dict]:
     return sorted(out, key=lambda m: m.get("date", ""), reverse=True)
 
 
+TOOL_META = {   # slug -> (platform class, platform label, kind)
+    "tiktok-analytics": ("tiktok", "TikTok", "Checker"),
+    "instagram-analytics": ("instagram", "Instagram", "Checker"),
+    "youtube-analytics": ("youtube", "YouTube", "Checker"),
+    "best-time-to-post-on-tiktok": ("tiktok", "TikTok", "Analyzer"),
+    "best-time-to-post-on-instagram": ("instagram", "Instagram", "Analyzer"),
+    "best-time-to-post-on-youtube": ("youtube", "YouTube", "Analyzer"),
+    "best-time-to-post-youtube-shorts": ("youtube", "YouTube Shorts", "Analyzer"),
+    "best-video-length-for-tiktok": ("tiktok", "TikTok", "Analyzer"),
+    "best-video-length-for-instagram-reels": ("instagram", "Instagram Reels", "Analyzer"),
+    "best-video-length-for-youtube-shorts": ("youtube", "YouTube Shorts", "Analyzer"),
+    "tiktok-to-youtube-shorts-checklist": ("all", "TikTok, Reels, Shorts", "Checklist"),
+    "short-form-video-length-and-specs": ("all", "All platforms", "Spec checker"),
+}
+TOOL_BAR = ('<div class="tool-bar"><b>Free tool</b>'
+            '<span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>No sign-up</span>'
+            '<span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Private: runs in your browser</span></div>'
+            '<div class="tool-body">')
+
+
+def _tool_chips(path: str) -> str:
+    slug = path.rsplit("/", 1)[-1]
+    meta = TOOL_META.get(slug)
+    if not meta:
+        return ""
+    plat, label, kind = meta
+    return (f'<div class="chips"><span class="chip plat plat-{plat}"><i></i>{html.escape(label)}</span>'
+            f'<span class="chip kind">{html.escape(kind)}</span><span class="chip ok">Free</span></div>')
+
+
 def _tokens(site: str) -> dict:
     low, trial = "$19", 7
     try:
@@ -159,7 +189,16 @@ def _wrap(meta: dict, body: str, path: str, request: Request, trail: list[tuple[
             return REPURPOSE_BOX.replace("__F__", f).replace("__T__", t)
         return (TOOL_BOX if kind == "tool" else BESTTIME_BOX).replace("__P__", arg)
 
-    body = TOOL_RE.sub(_box, body)
+    def _decorate(box: str) -> str:
+        head = box.index(">") + 1                              # after the opening <div class="tool" ...>
+        box = box[:head] + TOOL_BAR + box[head:]
+        return box.replace("</div><script", "</div></div><script", 1)  # close the tool-body that the bar opened
+
+    body = TOOL_RE.sub(lambda m: _decorate(_box(m)), body)
+    is_tool = path.startswith("/tools/")
+    if is_tool and "</h1>" in body:
+        body = body.replace("</h1>", "</h1>" + _tool_chips(path), 1)
+    art_class = "tool-page" if is_tool else ("tools-hub" if path == "/tools" else "")
     title, desc = meta["title"], meta["description"]
     graph = [_crumbs(site, trail)]
     if meta.get("kind") == "post":
@@ -184,7 +223,7 @@ def _wrap(meta: dict, body: str, path: str, request: Request, trail: list[tuple[
     subs = {"__TITLE__": html.escape(title), "__DESC__": html.escape(desc, quote=True), "__CANON__": site + path,
             "__SITE__": site, "__OGTYPE__": "article" if meta.get("kind") == "post" else "website",
             "__JSONLD__": ld, "__CRUMBS__": crumbs, "__BODY__": body,
-            "__UPDATED__": html.escape(meta.get("updated", meta["date"])),
+            "__ARTCLASS__": art_class, "__UPDATED__": html.escape(meta.get("updated", meta["date"])),
             "__REF__": re.sub(r"[^a-z0-9-]", "", path.strip("/").replace("/", "-").lower()) or "home"}
     for k, v in subs.items():
         page = page.replace(k, v)
