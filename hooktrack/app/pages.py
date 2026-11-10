@@ -60,7 +60,20 @@ REPURPOSE_BOX = (
     '<button type="button" class="btn" id="rp-reset">Start over</button></div>'
     '<div id="rp-list"></div><div id="rp-result" aria-live="polite"></div></div>'
     '<script src="/tool-repurpose.js" defer></script>')
-TOOL_RE = re.compile(r"\{\{(tool|besttime|repurpose):([A-Za-z -]+)\}\}")
+SPECS_BOX = (
+    '<div class="tool" id="specs">'
+    '<p class="hint">Enter the length, the size, or both. Length like 45 or 1:30. Pick a common size or type your own.</p>'
+    '<div class="tool-row sp-inputs"><label for="sp-dur">Length</label><input id="sp-dur" inputmode="text" placeholder="e.g. 45 or 1:30" autocomplete="off">'
+    '<label for="sp-preset">Size</label><select id="sp-preset"><option value="">Pick a size (optional)</option>'
+    '<option value="1080x1920">1080 \u00d7 1920 (9:16 vertical)</option><option value="1080x1350">1080 \u00d7 1350 (4:5)</option>'
+    '<option value="1080x1080">1080 \u00d7 1080 (square)</option><option value="1920x1080">1920 \u00d7 1080 (horizontal)</option></select>'
+    '<label for="sp-w">Width</label><input id="sp-w" type="number" min="1" inputmode="numeric" placeholder="1080">'
+    '<label for="sp-h">Height</label><input id="sp-h" type="number" min="1" inputmode="numeric" placeholder="1920"></div>'
+    '<div class="tool-row"><button type="button" class="btn primary" id="sp-go">Check my video</button>'
+    '<button type="button" class="btn" id="sp-clear">Clear</button></div>'
+    '<div class="tool-out" id="sp-out" aria-live="polite" hidden></div></div>'
+    '<script src="/tool-specs.js" defer></script>')
+TOOL_RE = re.compile(r"\{\{(tool|besttime|repurpose|specs):([A-Za-z -]+)\}\}")
 
 
 def _load(path: Path) -> Optional[tuple[dict, str]]:
@@ -111,6 +124,8 @@ def _wrap(meta: dict, body: str, path: str, request: Request, trail: list[tuple[
         body = body.replace(k, v)
     def _box(m):
         kind, arg = m.group(1), m.group(2)
+        if kind == "specs":
+            return SPECS_BOX
         if kind == "repurpose":
             f, _, t = arg.partition("-")
             return REPURPOSE_BOX.replace("__F__", f).replace("__T__", t)

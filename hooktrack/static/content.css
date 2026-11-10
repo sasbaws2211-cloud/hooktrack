@@ -107,3 +107,15 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 20px;margin-bottom:10px}footer a{
 .rp-bar{height:10px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin:10px 0}.rp-bar span{display:block;height:100%;background:var(--good)}
 .rp-card.fix .rp-bar span{background:var(--bad)}.rp-card.almost .rp-bar span{background:var(--warn)}
 .fixlist{margin:6px 0 4px;padding-left:20px}.fixlist li{margin:4px 0;max-width:none}
+
+/* video spec checker */
+.sp-inputs label{margin:0;font-weight:600}
+.sp-inputs input{padding:9px 10px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;width:130px}
+.sp-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));margin-top:18px}
+.sp-card{border:1px solid var(--border);border-left:6px solid var(--warn);border-radius:14px;padding:14px 16px;background:var(--bg)}
+.sp-card.fits{border-left-color:var(--good)}.sp-card.over{border-left-color:var(--bad)}
+.sp-card h3{margin:0 0 4px;font-size:18px}
+.sp-verdict{font-weight:700;margin-bottom:6px}
+.sp-card.fits .sp-verdict{color:var(--good)}.sp-card.over .sp-verdict{color:var(--bad)}.sp-card.check .sp-verdict{color:var(--warn)}
+.sp-card ul{margin:6px 0;padding-left:18px}.sp-card li{margin:5px 0;font-size:14.5px;max-width:none}
+.sp-card li.over{color:var(--bad)}
