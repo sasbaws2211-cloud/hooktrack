@@ -264,7 +264,78 @@ def subscription(ws: int) -> dict:
     return {**row, "lapsed": lapsed, "has_row": True}
 
 
+FREE_DEFAULTS = {"enabled": True, "max_accounts": 3, "max_members": 1, "max_ai_calls": 20}
+FREE_PLATFORMS = ("youtube", "yt", "youtube shorts", "shorts")
+FREE_UPGRADE_MSG = ("The free plan tracks YouTube channels only. Tracking TikTok and Instagram, publishing and add-ons "
+                    "need a paid plan: see Billing.")
+
+
+def free_plan_config() -> dict:
+    """The free YouTube plan's settings. It is defined here and edited in the admin console, not stored as a purchasable plan."""
+    raw = _pget("free_plan", {}) or {}
+    out = dict(FREE_DEFAULTS)
+    if isinstance(raw, dict):
+        for k in out:
+            if k in raw:
+                out[k] = raw[k]
+
+    def num(v, lo, hi, default):
+        try:
+            return max(lo, min(hi, int(v)))
+        except (TypeError, ValueError):
+            return default
+    return {"enabled": bool(out["enabled"]), "max_accounts": num(out["max_accounts"], 0, 50, 3),
+            "max_members": num(out["max_members"], 1, 20, 1), "max_ai_calls": num(out["max_ai_calls"], -1, 100000, 20)}
+
+
+def save_free_plan(enabled: Optional[bool] = None, max_accounts: Optional[int] = None, max_members: Optional[int] = None,
+                   max_ai_calls: Optional[int] = None) -> dict:
+    cfg = free_plan_config()
+    for k, v in (("enabled", enabled), ("max_accounts", max_accounts), ("max_members", max_members), ("max_ai_calls", max_ai_calls)):
+        if v is not None:
+            cfg[k] = v
+    _pset("free_plan", cfg)
+    return free_plan_config()
+
+
+def free_plan_on() -> bool:
+    """On when an admin has not turned it off, outside lifetime-only mode, and only once the free YouTube API key works:
+    without it a free workspace could not read YouTube at all, so the plan is not offered."""
+    if not free_plan_config()["enabled"] or billing_mode() == "lifetime":
+        return False
+    from . import youtube_api
+    return youtube_api.available()
+
+
+def free_plan() -> dict:
+    c = free_plan_config()
+    return {"code": "free_youtube", "name": "Free", "description": "Track and judge your YouTube channels. No card needed.",
+            "price_minor": 0, "currency": "USD", "interval": "month", "max_accounts": c["max_accounts"],
+            "max_members": c["max_members"], "max_ai_calls": c["max_ai_calls"], "max_connected": 0, "max_credits": 0,
+            "max_reports": 0, "active": True, "position": -1, "platforms": "youtube"}
+
+
+def platform_allowed(ws: int, platform: str) -> bool:
+    """The free plan covers YouTube only. Every other state may use any platform."""
+    if not enabled() or workspace_state(ws)["state"] != "free":
+        return True
+    return str(platform or "").strip().lower() in FREE_PLATFORMS
+
+
+def require_platform(ws: int, platform: str) -> None:
+    if not platform_allowed(ws, platform):
+        raise HTTPException(402, FREE_UPGRADE_MSG)
+
+
 def workspace_state(ws: int) -> dict:
+    """paid | comp | trial | free | expired. 'free' is what 'expired' becomes while the free YouTube plan is on."""
+    st = _state_raw(ws)
+    if st["state"] == "expired" and free_plan_on():
+        return {**st, "state": "free", "was": st.get("reason", "")}
+    return st
+
+
+def _state_raw(ws: int) -> dict:
     """paid | comp | trial | expired for a workspace, with the dates that explain it."""
     sub = subscription(ws)
     now = datetime.now(timezone.utc)
@@ -295,7 +366,7 @@ def access_blocked(ws: int) -> bool:
 
 def set_trial_end(ws: int, days: int) -> dict:
     """Operator: give a never-paid workspace `days` more trial from now (0 ends it today)."""
-    st = workspace_state(ws)
+    st = _state_raw(ws)
     if st["state"] in ("paid", "comp") or (st["state"] == "expired" and st.get("reason") == "paid_period_ended"):
         raise HTTPException(400, "This workspace has a paid plan history; give it a plan instead of a trial")
     end = datetime.now(timezone.utc) + timedelta(days=days)
@@ -314,6 +385,8 @@ def effective_plan(ws: int) -> dict:
         return get_plan(st["sub"]["plan_code"]) or dict(EXPIRED_PLAN)
     if st["state"] == "trial":
         return _trial_plan()
+    if st["state"] == "free":
+        return free_plan()
     return dict(EXPIRED_PLAN)
 
 
@@ -1046,6 +1119,7 @@ def billing_status(request: Request, ctx: Ctx = Depends(current)):
     if out["mode"] in ("lifetime", "both"):
         out["lifetime"] = lifetime.workspace_view(ctx.workspace_id)
     out["has_licence"] = lifetime.for_workspace(ctx.workspace_id) is not None
+    out["free_plan"] = free_plan() if free_plan_on() else None
     out["fx_usd"] = usd_rates()          # {"GHS": 15.5} means 1 USD = 15.5 GHS (display only)
     pays = db.query("SELECT plan_code, amount_minor, currency, status, created_at, paid_at, reference "
                     "FROM payments WHERE workspace_id=%s ORDER BY created_at DESC LIMIT 20", (ctx.workspace_id,))
@@ -1083,6 +1157,10 @@ def public_pricing() -> dict:
                 "max_reports": p.get("max_reports", -1),
                 "charge_minor": charge_minor, "charge_currency": charge_cur})
     out = {"billing_enabled": on, "mode": lifetime.mode(), "trial_days": trial_config()["days"] if on else 0, "plans": plans}
+    if on and free_plan_on():
+        fp = free_plan()
+        out["free_plan"] = {"name": fp["name"], "description": fp["description"], "max_accounts": fp["max_accounts"],
+                            "max_members": fp["max_members"], "max_ai_calls": fp["max_ai_calls"], "platforms": "YouTube"}
     if on and lifetime.mode() == "both":
         out["lifetime_offer"] = lifetime.offer()      # None until APPSUMO_BUY_URL is set, so nothing shows before the deal is live
     return out
@@ -1228,6 +1306,8 @@ def addon_checkout(b: AddonCheckoutIn, ctx: Ctx = Depends(auth.admin)):
         # lifetime licences carry fixed monthly allowances; only extra publishing accounts (a real monthly cost to us) are sold
         raise HTTPException(400, "Only extra publishing accounts can be bought on a lifetime licence")
     require_active(ctx.workspace_id)
+    if workspace_state(ctx.workspace_id)["state"] == "free":
+        raise HTTPException(400, "Add-ons are for paid plans. Choose a plan under Billing first.")
     total = addon_price_minor(b.kind) * b.qty
     amount, currency = charge_for({"price_minor": total, "currency": "USD"})
     ws = db.one("SELECT name FROM workspaces WHERE id=%s", (ctx.workspace_id,))

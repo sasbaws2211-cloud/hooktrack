@@ -56,6 +56,7 @@ def platform_set(key: str, value) -> None:
 
 def platform_delete(key: str) -> None:
     db.execute("DELETE FROM platform_settings WHERE key=%s", (key,))
+    cache.drop_platform(key)                     # or the removed value keeps being served from the cache
 
 
 def resolve_server_key() -> str:
@@ -859,6 +860,73 @@ def sync_youtube_account(workspace_id: int, account_id: int, days_back: int = 14
     }
 
 
+YOUTUBE_NAMES = ("youtube", "yt", "youtube shorts", "shorts")
+
+
+def is_youtube(platform) -> bool:
+    return str(platform or "").strip().lower() in YOUTUBE_NAMES
+
+
+def official_youtube() -> bool:
+    """True when Google's free YouTube Data API key is set up: YouTube then needs no SociaVault credits."""
+    from . import youtube_api
+    return youtube_api.available()
+
+
+def sync_youtube_account_official(workspace_id: int, account_id: int, days_back: int = 14, mode: str = "full") -> dict:
+    """Same result as sync_youtube_account, from the free official API: 2 to 3 units, no SociaVault credits."""
+    from . import youtube_api as yt
+    acc = db.one("SELECT * FROM accounts WHERE id=%s AND workspace_id=%s", (account_id, workspace_id))
+    if not acc:
+        raise SociaVaultError("Account not found")
+    handle = (acc["handle"] or "").lstrip("@")
+    light = (mode or "full").lower() == "light"
+    external_id = acc.get("external_id") or ""
+    chan = None
+    if not external_id or not light or _followers_due(account_id):
+        chan = yt.channel(handle=handle, channel_id=external_id)
+        external_id = chan["id"] or external_id
+        if chan["subscribers"] is not None or chan["video_count"] is not None:
+            _store_followers(workspace_id, account_id, "youtube",
+                             {"subscriberCount": chan["subscribers"], "videoCount": chan["video_count"]})
+    playlist = (chan or {}).get("uploads_playlist") or yt.uploads_playlist_for(external_id)
+    if not playlist:
+        raise yt.YouTubeError("Could not find this channel's videos.", 404)
+    ids = yt.recent_video_ids(playlist, 50)
+    items = yt.videos(ids) if ids else []
+    short = [v for v in items if yt.is_short_form(v["duration_s"])]
+    chosen = (short or items) if light else items         # short-form is the point; light mode stops there unless there is none
+
+    cutoff = datetime.now(timezone.utc).timestamp() - days_back * 86400
+    tz = logic.workspace_tz(workspace_id)
+    today = logic.today_in(tz)
+    upserted = 0
+    for v in chosen:
+        ts = 0
+        if v["published"]:
+            try:
+                ts = int(datetime.fromisoformat(v["published"].replace("Z", "+00:00")).timestamp())
+            except ValueError:
+                ts = 0
+        if ts and ts < cutoff:
+            continue
+        title = v["title"]
+        desc = v["description"] or title
+        post_id = _upsert_post(
+            workspace_id, account_id, ext_id=v["id"], post_date=_ts_to_date(ts, tz) if ts else today,
+            date_estimated=not ts, hook=(title or desc)[:200], caption=desc[:2200], views=v["views"],
+            comments=v["comments"] or 0, likes=v["likes"], shares=None, saves=None, duration_s=v["duration_s"],
+            url=f"https://www.youtube.com/watch?v={v['id']}")
+        upserted += 1
+        _record_post(workspace_id, account_id, post_id, v["views"], today)
+    daily = _apply_daily_gain(workspace_id, account_id, today)
+    db.execute("UPDATE accounts SET external_id=COALESCE(%s, external_id), last_synced_at=now() WHERE id=%s AND workspace_id=%s",
+               (external_id or None, account_id, workspace_id))
+    return {"platform": "YouTube", "handle": handle, "mode": "light" if light else "full", "upserted": upserted,
+            "days": daily["written"], "manual_kept": daily["kept"], "credits_est": 0, "source": "youtube_api",
+            "last_synced_at": datetime.now(timezone.utc).isoformat()}
+
+
 class SyncSkipped(SociaVaultError):
     """Another sync of this account is running, or it was synced too recently: nothing was done."""
 
@@ -926,7 +994,7 @@ def _note_failure(workspace_id: int, account_id: int, e: SociaVaultError) -> Non
     private or renamed, not an outage, so it does not count. Never raises."""
     try:
         from . import vaultwatch
-        if e.status == 404 or isinstance(e, SyncSkipped):
+        if e.status == 404 or isinstance(e, SyncSkipped) or getattr(e, "provider", "") == "youtube":
             return
         vaultwatch.record_sync_failure(account_id, str(e))
         if e.status == 403 and not resolve_workspace_key(workspace_id):
@@ -948,15 +1016,29 @@ def sync_account(workspace_id: int, account_id: int, days_back: int = 14,
         fn = sync_tiktok_account
     elif platform in ("instagram", "ig", "reels"):
         fn = sync_instagram_account
-    elif platform in ("youtube", "yt", "youtube shorts", "shorts"):
+    elif platform in YOUTUBE_NAMES:
         fn = sync_youtube_account
     else:
         raise SociaVaultError(
             f"SociaVault sync not supported for platform '{acc['platform']}'. "
             "Use TikTok, Instagram, or YouTube."
         )
-    credit_gate(workspace_id, 1)
-    if not _claim_account(account_id, min_age_s):
+    from fastapi import HTTPException
+    from . import auth, billing, youtube_api
+    try:
+        billing.require_platform(workspace_id, platform)          # the free plan covers YouTube only
+    except HTTPException as e:
+        raise SociaVaultError(str(e.detail), 402)
+    official = platform in YOUTUBE_NAMES and official_youtube()
+    if official:
+        fn = sync_youtube_account_official
+        try:
+            auth.require_verified_workspace(workspace_id)         # a confirmed email, so the free allowance is not farmed
+        except HTTPException as e:
+            raise SociaVaultError(str(e.detail), 403)
+    else:
+        credit_gate(workspace_id, 1)
+    if not _claim_account(account_id, max(min_age_s, youtube_api.MIN_SYNC_GAP_S if official else 0)):
         raise SyncSkipped("This account is already being synced, or was synced a moment ago")
     try:
         out = fn(workspace_id, account_id, days_back, mode=mode)
@@ -1142,8 +1224,9 @@ def _run_scheduled_pass(force: bool) -> dict:
             held = st
     except Exception:
         log.exception("balance check before sync failed")
+    yt_free = official_youtube()
     if held:
-        rows = []
+        rows = [r for r in rows if yt_free and is_youtube(r["platform"])] if yt_free else []   # SociaVault being low does not stop YouTube
     expired: dict = {}
     n_synced = 0
     for r in rows:
@@ -1156,8 +1239,11 @@ def _run_scheduled_pass(force: bool) -> dict:
         if expired[w]:                      # trial over / email not confirmed: do not spend provider credits on it
             skipped += 1
             continue
+        if not billing.platform_allowed(w, r["platform"]):  # the free plan covers YouTube only
+            skipped += 1
+            continue
         n_synced += 1
-        if n_synced % 20 == 0 and not force:               # the balance can run out in the middle of a big pass
+        if n_synced % 20 == 0 and not force and not (yt_free and is_youtube(r["platform"])):   # the balance can run out in the middle of a big pass
             try:
                 if vaultwatch.check(max_age_s=0)["status"] in ("paused", "exhausted"):
                     held = vaultwatch.state()["status"]
@@ -1165,7 +1251,7 @@ def _run_scheduled_pass(force: bool) -> dict:
             except Exception:
                 pass
         has_ws_key = bool(r.get("sociavault_key_enc"))
-        if not has_ws_key and not server_key:
+        if not has_ws_key and not server_key and not (yt_free and is_youtube(r["platform"])):
             results.append({
                 "id": r["id"], "workspace_id": r["workspace_id"], "handle": r["handle"],
                 "ok": False, "error": "No SociaVault key for this workspace",
@@ -1284,6 +1370,14 @@ def lookup_profile(workspace_id: int, platform: str, handle: str) -> dict:
     """Does this handle exist on that platform, and who is it? Costs 1 credit. Never raises for 'not found'."""
     platform = canonical_platform(platform)
     h = handle.lstrip("@")
+    if platform == "YouTube" and official_youtube():
+        from fastapi import HTTPException
+        from . import auth, youtube_api
+        try:
+            auth.require_verified_workspace(workspace_id)
+        except HTTPException as e:
+            raise SociaVaultError(str(e.detail), 403)
+        return youtube_api.lookup(h)
     key = resolve_key(workspace_id)
     if not key:
         raise SociaVaultError("SociaVault API key not configured")

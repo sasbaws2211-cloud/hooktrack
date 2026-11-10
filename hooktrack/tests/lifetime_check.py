@@ -1,6 +1,7 @@
 import os, sys, json, time, hmac, hashlib
 os.environ.setdefault("DATABASE_URL", "postgresql://hooktrack:ht_dev_pw@127.0.0.1:55434/hooktrack")
 os.environ["APPSUMO_API_KEY"] = "testkey"
+os.environ["YOUTUBE_API_KEY"] = "TESTKEYabcdefghijklmnop1234"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi.testclient import TestClient
 from app import db, billing, lifetime, appsumo
@@ -58,7 +59,7 @@ try:
     pb = c2.get("/api/public/pricing").json()
     ok("both: normal plans shown", pb["mode"] == "both" and len(pb["plans"]) >= 1 and all(x["interval"] != "lifetime" for x in pb["plans"]))
     ok("both: AppSumo offer shown with buy link", pb["lifetime_offer"] and pb["lifetime_offer"]["buy_url"] == "https://appsumo.com/x" and pb["lifetime_offer"]["price_minor"] == 4880)
-    ok("both: no free trial, a new workspace must pick a plan or redeem", billing.workspace_state(ws2)["state"] == "expired" and billing.workspace_state(ws2)["reason"] == "no_plan" and pb["trial_days"] == 0)
+    ok("both: no free trial; a new workspace is on the free YouTube plan until it buys or redeems", billing.workspace_state(ws2)["state"] == "free" and billing.workspace_state(ws2)["reason"] == "no_plan" and pb["trial_days"] == 0)
     bs = c2.get("/api/billing").json(); ok("both: billing shows plans and code box data", bs["mode"] == "both" and len(bs["plans"]) >= 1 and bs["has_licence"] is False)
     hook("purchase", "K3"+sfx, 1)
     ok("both: redeem works on a workspace with no plan", c2.post("/api/billing/lifetime/redeem", json={"license_key": "K3"+sfx}).status_code == 200 and billing.effective_plan(ws2)["code"] == "ltd_1")

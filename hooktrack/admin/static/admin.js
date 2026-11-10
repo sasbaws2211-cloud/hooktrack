@@ -159,7 +159,7 @@ pages.workspaces = async app => {
     <div class="table-wrap"><table><thead><tr><th>Name</th><th>Plan</th><th>Until</th><th class="num">Accounts</th><th class="num">Members</th><th class="num">Posts</th><th>Created</th></tr></thead><tbody>
     ${r.workspaces.map(w => `<tr data-id="${w.id}"><td><b>${esc(w.name)}</b></td>
       <td><span class="badge ${w.plan_code === 'expired' ? 'bad' : w.plan_code === 'trial' ? 'warn' : 'accent'}">${esc(w.plan_code)}</span>${w.sub_status === 'comp' ? ' <span class="badge warn">comp</span>' : ''}</td>
-      <td>${['trial', 'expired'].includes(w.plan_code) ? '—' : date(w.current_period_end)}</td><td class="num">${fmt(w.accounts)}</td><td class="num">${fmt(w.members)}</td><td class="num">${fmt(w.posts)}</td><td>${date(w.created_at)}</td></tr>`).join('')
+      <td>${['trial', 'expired', 'free'].includes(w.plan_code) ? '—' : date(w.current_period_end)}</td><td class="num">${fmt(w.accounts)}</td><td class="num">${fmt(w.members)}</td><td class="num">${fmt(w.posts)}</td><td>${date(w.created_at)}</td></tr>`).join('')
       || '<tr><td colspan="7" class="empty">No workspaces</td></tr>'}</tbody></table></div>`;
   let t; $('#q').oninput = e => { clearTimeout(t); t = setTimeout(() => { pages._wq = e.target.value; route(); }, 300); };
   $$('tr[data-id]', app).forEach(tr => (tr.onclick = () => workspaceModal(+tr.dataset.id)));
@@ -175,6 +175,7 @@ async function workspaceModal(id) {
     <div class="card" style="margin-top:12px"><h2>Plan</h2>
       <div>${b.state === 'trial' ? `<span class="badge warn">Free trial</span> <span class="muted small">${b.trial.days_left} day${b.trial.days_left === 1 ? '' : 's'} left, ends ${date(b.trial.ends_at)}</span>`
         : b.state === 'expired' ? `<span class="badge bad">Expired</span> <span class="muted small">${b.subscription.lapsed ? 'paid period ended ' + date(b.subscription.current_period_end) : b.trial.reason === 'trial_used' ? 'its owner already used a free trial on another workspace' : 'trial ended ' + date(b.trial.ends_at)}: read-only until they pay</span>`
+        : b.state === 'free' ? '<span class="badge">Free plan</span> <span class="muted small">YouTube only, no publishing</span>'
         : b.state === 'off' ? '<span class="badge">Billing is off</span>'
         : `<span class="badge accent">${esc(b.plan.name)}</span> ${b.state === 'comp' ? '<span class="badge warn">comp</span>' : ''} <span class="muted small">${b.subscription.current_period_end ? 'until ' + date(b.subscription.current_period_end) : 'no end date'}</span>`}</div>
       ${meter(b.usage.accounts, b.plan.max_accounts, 'Accounts')}${meter(b.usage.members, b.plan.max_members, 'Members')}${meter(b.usage.ai_calls, b.plan.max_ai_calls, 'AI requests this month')}
@@ -329,6 +330,19 @@ pages.settings = async app => {
         <a class="btn" href="/api/lifetime/codes.csv">Download unused codes (CSV)</a><a class="btn" href="/api/lifetime/codes.csv?all=true">Download all (CSV)</a></div>
       <div class="actions" style="align-items:center"><input id="refcode" placeholder="HT-XXXX-XXXX-XXXX" style="max-width:240px"><button class="btn danger" id="refundcode">Mark code refunded</button></div>
       ${L.licenses.length ? `<div class="table-wrap" style="margin-top:10px"><table><thead><tr><th>Licence</th><th>Tier</th><th>Status</th><th>Workspace</th><th>Last event</th></tr></thead><tbody>${L.licenses.map(x => `<tr><td><code>${esc(x.license_key_short)}</code></td><td>${x.tier}</td><td>${esc(x.status)}</td><td>${esc(x.workspace_name || (x.workspace_id ? '#' + x.workspace_id : 'not claimed'))}</td><td>${esc(x.last_event)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small muted">No licences yet.</p>'}</div>`; })()}
+    ${(() => { const Y = s.youtube, F = Y.free_plan; return `<div class="card" style="margin-top:12px"><h2>YouTube data and the free plan</h2>
+      <p class="small muted" style="margin:0 0 6px">YouTube is read through Google's free official API (10,000 units a day, about 2 to 3 per channel sync), so it costs no SociaVault credits. ${Y.configured ? '<span class="badge good">key set: ' + esc(Y.key_hint) + ' (' + esc(Y.source) + ')</span>' : '<span class="badge warn">no key: YouTube falls back to SociaVault</span>'}</p>
+      <label class="f">Google API key (YouTube Data API v3)</label><input id="ytk" type="password" autocomplete="off" placeholder="AIza… (leave blank to keep)">
+      <p class="small muted" style="margin:6px 0 0">Today: <b>${fmt(Y.used_today)}</b> of ${fmt(Y.budget)} units used (Google's limit is ${fmt(Y.google_limit)}; syncing pauses at the budget and resumes tomorrow).</p>
+      <div class="fields"><div><label class="f">Daily unit budget</label><input id="ytb" type="number" min="100" max="10000" value="${esc(Y.budget)}"></div></div>
+      <h3 style="margin:14px 0 4px">Free plan (YouTube only)</h3>
+      <label class="check" style="margin-top:0"><input type="checkbox" id="fpen" ${F.enabled ? 'checked' : ''}> Offer a free plan: track YouTube channels and see decisions, with no card</label>
+      <p class="small muted" style="margin:6px 0 0">Free workspaces cannot track TikTok or Instagram, publish, or buy add-ons, and get no SociaVault credits. ${fmt(Y.free_workspaces)} workspace(s) are on it now.${Y.free_on ? '' : ' <b>Not offered right now:</b> it needs the Google key above to work, and it is off while the switch is unticked or lifetime-only mode is on.'}</p>
+      <div class="fields">
+        <div><label class="f">YouTube channels</label><input id="fpa" type="number" min="0" max="50" value="${esc(F.max_accounts)}"></div>
+        <div><label class="f">Team members</label><input id="fpm" type="number" min="1" max="20" value="${esc(F.max_members)}"></div>
+        <div><label class="f">AI requests / month (-1 = unlimited)</label><input id="fpi" type="number" min="-1" value="${esc(F.max_ai_calls)}"></div></div>
+      <div class="actions"><button class="btn" id="yttest" ${Y.configured ? '' : 'disabled'}>Test key</button>${Y.source === 'platform' ? '<button class="btn danger" id="ytclear">Remove key</button>' : ''}<button class="btn primary" id="ytsave">Save</button></div></div>`; })()}
     <div class="card" style="margin-top:12px"><h2>AI</h2>
       <p class="small muted" style="margin:0 0 6px">One AI connection for every workspace: screenshot reading, hook ideas, weekly plans, "ask your data" and video structure. Customers do not enter keys. ${s.ai.available ? '<span class="badge good">on</span>' : '<span class="badge warn">off</span>'}</p>
       <div class="fields">
@@ -439,6 +453,13 @@ pages.settings = async app => {
   });
   $('#mkcodes').onclick = guard(async () => { const r = await api('POST', '/lifetime/codes', { count: Number($('#ncodes').value) || 1000 }); toast(r.made + ' codes made. Download the CSV below.'); route(); });
   $('#refundcode').onclick = guard(async () => { const c = $('#refcode').value.trim(); if (!c) return; const r = await api('POST', '/lifetime/codes/refund', { code: c }); toast('Result: ' + r.result); route(); });
+  $('#ytsave').onclick = guard(async () => {
+    await api('PUT', '/settings/youtube', { api_key: $('#ytk').value || null, daily_budget: +$('#ytb').value, free_enabled: $('#fpen').checked,
+      free_accounts: +$('#fpa').value, free_members: +$('#fpm').value, free_ai: +$('#fpi').value });
+    toast('YouTube and free plan settings saved'); route();
+  });
+  if ($('#ytclear')) $('#ytclear').onclick = guard(async () => { await api('PUT', '/settings/youtube', { clear_key: true }); toast('Key removed'); route(); });
+  $('#yttest').onclick = guard(async () => { const r = await api('POST', '/settings/youtube/test'); toast(r.message, !r.ok); });
   $('#savelmode').onclick = guard(async () => { await api('PUT', '/settings/lifetime', { mode: $('#lmode').value, cap: Number($('#lcap').value) }); toast('Saved'); route(); });
   if ($('#psclear')) $('#psclear').onclick = guard(async () => { await api('PUT', '/settings/billing', { clear_paystack_key: true }); toast('Key removed'); route(); });
   $('#pstest').onclick = guard(async () => { const r = await api('POST', '/settings/paystack/test'); toast(r.message, !r.ok); });

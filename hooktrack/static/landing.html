@@ -272,6 +272,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
     <div class="head"><h2>Simple pricing</h2><p id="pricing-sub">Pick a plan and start. Monthly plans can be stopped any time.</p></div>
     <div class="interval" id="interval" role="group" aria-label="Billing period" hidden></div>
     <div class="plans" id="plans" aria-live="polite"><div class="card muted" style="grid-column:1/-1;text-align:center">Loading prices…</div></div>
+    <div class="ltd-offer" id="free-offer" hidden></div>
     <div class="ltd-offer" id="ltd-offer" hidden></div>
     <p class="price-note" id="price-note"></p>
   </div>
@@ -424,6 +425,17 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
     }
     if (order.length >= 3) host.style.maxWidth = '1040px';
     draw();
+    var fp = p.free_plan, freeEl = $('#free-offer');
+    if (fp && freeEl) {
+      var lowest = Math.min.apply(null, plans.filter(function (x) { return x.interval === 'month' && x.price_minor > 0; }).map(function (x) { return x.price_minor; }));
+      freeEl.hidden = false;
+      freeEl.innerHTML = '<div><b>Just want YouTube? Start free</b><small>Track up to ' + fp.max_accounts + ' YouTube channel' + (fp.max_accounts === 1 ? '' : 's') + ' and see what to scale, tweak or stop. No card needed. TikTok, Instagram and publishing are on the paid plans.</small></div>' +
+        '<a class="btn primary" href="/app#/signup">Start free</a>';
+      $('#pricing-sub').textContent = 'Start free with YouTube. Upgrade when you want TikTok, Instagram or publishing.';
+      if (isFinite(lowest)) $('#hero-fine').textContent = 'Free for YouTube. Paid plans from ' + money(lowest, plans[0].currency) + ' a month. Bought the lifetime deal? Redeem your code.';
+      $('#faq-trial').parentNode.querySelector('summary').textContent = 'Is there a free plan or trial?';
+      $('#faq-trial').textContent = 'There is no free trial, but there is a free plan. It lets you track up to ' + fp.max_accounts + ' YouTube channel' + (fp.max_accounts === 1 ? '' : 's') + ' and see what to scale, tweak or stop, with no card. TikTok and Instagram tracking, publishing and add-ons are on the paid plans, which are month to month so you can stop any time.';
+    }
     var off = p.lifetime_offer, offEl = $('#ltd-offer');
     if (off && off.buy_url && !(off.spots && off.spots.cap && off.spots.left <= 0)) {
       var offLeft = off.spots && off.spots.cap ? off.spots.left + ' of ' + off.spots.cap + ' founding spots left' : '';

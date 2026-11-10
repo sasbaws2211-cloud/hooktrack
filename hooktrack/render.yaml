@@ -59,6 +59,8 @@ services:
         sync: false
       - key: HOOKTRACK_EMAIL_FROM
         sync: false
+      - key: YOUTUBE_API_KEY
+        sync: false
       - key: APPSUMO_API_KEY
         sync: false
       - key: APPSUMO_CLIENT_ID

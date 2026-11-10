@@ -65,6 +65,7 @@ sync/digest/backup/publish loops that run inside the app process. Do not use fre
 | `HOOKTRACK_LATE_API_KEY` | hooktrack | publishing via Late/Zernio (optional) |
 | `RESEND_API_KEY` | hooktrack | Resend API key (`re_...`). **Setting it turns on mandatory email verification**, digests and alerts |
 | `HOOKTRACK_EMAIL_FROM` | hooktrack | e.g. `HookTrack <hello@yourdomain.com>`; the domain must be verified in Resend (DNS records), otherwise it only delivers to your own Resend account email |
+| `YOUTUBE_API_KEY` | hooktrack | Google API key with the **YouTube Data API v3** enabled (free: 10,000 units a day). YouTube then needs no SociaVault credits, and the free YouTube plan works. You can also paste it in the admin console under Settings. |
 | `APPSUMO_API_KEY` | hooktrack | AppSumo lifetime deals: signs webhooks (from the AppSumo partner portal) |
 | `APPSUMO_CLIENT_ID` / `APPSUMO_CLIENT_SECRET` | hooktrack | AppSumo OAuth, to turn the buyer's activation code into a licence key |
 | `APPSUMO_REDIRECT_URL` | hooktrack | `https://hooktrack.site/appsumo/callback` (give the same URL to AppSumo) |
@@ -117,3 +118,7 @@ minute, and clears a workspace's cache the moment anything in it changes.
 ## Lifetime deals (AppSumo)
 
 In the admin console go to Settings → Lifetime deals and choose "Free trial + AppSumo lifetime deals only" (and keep "Enforce plan limits" on). Give AppSumo the webhook `https://hooktrack.site/api/appsumo/webhook` and the redirect `https://hooktrack.site/appsumo/callback`. Licences are created, upgraded and refunded only by AppSumo's webhooks. Try the flow locally with `python tools/appsumo_sim.py`.
+
+## Free YouTube plan
+
+Create a project at console.cloud.google.com, enable **YouTube Data API v3**, and create an **API key** (restrict it to that API). Set it as `YOUTUBE_API_KEY` or paste it in the admin console (Settings, "YouTube data and the free plan"), then press "Test key". Google gives 10,000 units a day free and one channel sync costs about 2 to 3; HookTrack stops at a daily budget (9,000 by default) and resumes the next day. To go beyond the free allowance Google requires a compliance audit. Read Google's YouTube API Services Developer Policies (especially the rules on how long API data may be stored) before relying on this at scale.

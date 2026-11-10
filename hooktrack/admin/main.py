@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import activation, appsumo, auth, backup, billing, lifetime, db, digest, emailguard, legal, mailer, sociavault, vaultwatch
+from app import activation, appsumo, auth, backup, billing, lifetime, db, digest, emailguard, legal, mailer, sociavault, vaultwatch, youtube_api
 
 log = logging.getLogger("hooktrack.admin")
 STATIC = Path(__file__).parent / "static"
@@ -171,6 +171,8 @@ def _state_sql() -> tuple[str, tuple]:
         WHEN COALESCE(s.trial_ends_at, GREATEST(w.created_at, %s::timestamptz) + make_interval(days => %s)) > now()
              THEN 'trial'
         ELSE 'expired' END"""
+    if billing.free_plan_on():
+        sql = sql.replace("'expired'", "'free'")           # a workspace with no plan is on the free YouTube plan
     return sql, (started, billing.trial_config()["days"])
 
 
@@ -562,6 +564,9 @@ def settings(_a: Admin = Depends(require_admin)):
         "trial": {**billing.trial_config(), "plans": [p["code"] for p in billing.list_plans()]},
         "billing": {"enabled": billing.enabled(), "paystack": billing.paystack_status(),
                     "webhook_path": "/api/billing/webhook/paystack"},
+        "youtube": {**youtube_api.status(), "free_plan": billing.free_plan_config(), "free_on": billing.free_plan_on(),
+                    "free_workspaces": db.one("SELECT COUNT(*) AS n FROM workspaces w LEFT JOIN workspace_subscriptions s ON s.workspace_id = w.id "
+                                              "WHERE s.plan_code IS NULL OR s.plan_code = 'free'")["n"]},
         "lifetime": {"mode": lifetime.mode(), "spots": lifetime.spots(), "codes": lifetime.codes_summary(),
                      "redeem_path": "/redeem", "appsumo": appsumo.status(), "licenses": lifetime.recent(50),
                      "webhook_path": "/api/appsumo/webhook", "callback_path": "/appsumo/callback"},
@@ -589,6 +594,42 @@ def settings_billing(b: BillingSettingsIn, _a: Admin = Depends(require_admin)):
     if b.enabled and billing.paystack_status()["configured"]:
         out["currency_check"] = billing.check_charge_currency()      # say now if customers will be unable to pay
     return out
+
+
+class YouTubeSettingsIn(BaseModel):
+    api_key: Optional[str] = None
+    clear_key: bool = False
+    daily_budget: Optional[int] = Field(None, ge=100, le=10000)
+    free_enabled: Optional[bool] = None
+    free_accounts: Optional[int] = Field(None, ge=0, le=50)
+    free_members: Optional[int] = Field(None, ge=1, le=20)
+    free_ai: Optional[int] = Field(None, ge=-1, le=100000)
+
+
+@app.put("/api/settings/youtube")
+def settings_youtube(b: YouTubeSettingsIn, _a: Admin = Depends(require_admin)):
+    """Google's free YouTube Data API key and daily budget, and the free YouTube plan's switch and limits."""
+    try:
+        if b.clear_key or (b.api_key and b.api_key.strip()):
+            youtube_api.save_key(b.api_key or "", clear=b.clear_key)
+    except youtube_api.YouTubeError as e:
+        raise HTTPException(400, str(e))
+    if b.daily_budget is not None:
+        sociavault.platform_set(youtube_api.BUDGET_SETTING, b.daily_budget)
+    billing.save_free_plan(enabled=b.free_enabled, max_accounts=b.free_accounts, max_members=b.free_members, max_ai_calls=b.free_ai)
+    return {"youtube": youtube_api.status(), "free_plan": billing.free_plan_config()}
+
+
+@app.post("/api/settings/youtube/test")
+def youtube_test(_a: Admin = Depends(require_admin)):
+    """One real call (1 unit): does Google accept the key and can it read a channel?"""
+    try:
+        ch = youtube_api.channel(handle="@YouTube")
+    except youtube_api.YouTubeError as e:
+        return {"ok": False, "message": str(e), "youtube": youtube_api.status()}
+    st = youtube_api.status()
+    return {"ok": True, "message": f"Google accepted the key and read the channel '{ch['title']}'. {st['used_today']} of {st['budget']} units used today.",
+            "youtube": st}
 
 
 class LifetimeModeIn(BaseModel):

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import activation, ai, appsumo, auth, baseline, billing, cache, crypto, db, demo, legal, logic, media, pages, publish, seo, sociavault, vaultwatch
+from . import activation, ai, appsumo, auth, baseline, billing, cache, crypto, db, demo, legal, logic, media, pages, publish, seo, sociavault, vaultwatch, youtube_api
 from . import backup, digest, reports
 from .auth import Ctx, admin, current
 from .import_xlsx import import_workbook
@@ -413,6 +413,7 @@ class LookupIn(BaseModel):
 def account_lookup(b: LookupIn, ctx: Ctx = Depends(current)):
     """Confirm a handle is a real account (and show who it is) before tracking it. Costs 1 SociaVault credit."""
     handle, platform = _clean_handle(b.handle, b.platform)
+    billing.require_platform(ctx.workspace_id, platform)          # the free plan covers YouTube only
     try:
         out = sociavault.lookup_profile(ctx.workspace_id, platform, handle)
     except sociavault.SociaVaultError as e:
@@ -434,6 +435,7 @@ def account_create(b: AccountIn, ctx: Ctx = Depends(current)):
     if b.status not in STATUSES:
         raise HTTPException(400, "Invalid status")
     b.handle, b.platform = _clean_handle(b.handle, b.platform)
+    billing.require_platform(ws, b.platform)                      # the free plan covers YouTube only
     billing.require_capacity(ws, "accounts")
     _own_phone(ws, b.phone_id)
     _own_client(ws, b.client_id)
@@ -1903,24 +1905,34 @@ def inspiration_lookup(b: LookupIn, ctx: Ctx = Depends(current)):
             else "youtube" if host.endswith(("youtube.com", "youtu.be")) else "")
     if not plat:
         raise HTTPException(400, "Use a TikTok, Instagram or YouTube video link")
-    key = sociavault.resolve_key(ctx.workspace_id)
-    if not key:
-        raise HTTPException(400, "Reading a link is not set up on this server yet")
-    try:
-        sociavault.credit_gate(ctx.workspace_id, 1)      # plan allowance, email confirmed, platform balance
-    except sociavault.SociaVaultError as e:
-        raise HTTPException(e.status or 400, str(e))
-    try:
-        info = sociavault.video_info(plat, u, key)
-    except sociavault.SociaVaultError as e:
-        raise HTTPException(e.status if e.status in (401, 403, 404) else 400, str(e))
-    sociavault.record_credits(ctx.workspace_id, "lookup", 1)
+    free_yt = plat == "youtube" and sociavault.official_youtube()
+    if free_yt:
+        try:
+            auth.require_verified_workspace(ctx.workspace_id)
+            info = youtube_api.video_info(u)
+        except HTTPException:
+            raise
+        except sociavault.SociaVaultError as e:
+            raise HTTPException(e.status if e.status in (401, 403, 404, 503) else 400, str(e))
+    else:
+        key = sociavault.resolve_key(ctx.workspace_id)
+        if not key:
+            raise HTTPException(400, "Reading a link is not set up on this server yet")
+        try:
+            sociavault.credit_gate(ctx.workspace_id, 1)      # plan allowance, email confirmed, platform balance
+        except sociavault.SociaVaultError as e:
+            raise HTTPException(e.status or 400, str(e))
+        try:
+            info = sociavault.video_info(plat, u, key)
+        except sociavault.SociaVaultError as e:
+            raise HTTPException(e.status if e.status in (401, 403, 404) else 400, str(e))
+        sociavault.record_credits(ctx.workspace_id, "lookup", 1)
     posted = ""
     if info.get("posted_ts"):
         posted = datetime.fromtimestamp(info["posted_ts"], timezone.utc).date().isoformat()
     elif info.get("posted_iso"):
         posted = str(info["posted_iso"])[:10]
-    return {**info, "posted": posted, "source_url": u, "credits_est": 1}
+    return {**info, "posted": posted, "source_url": u, "credits_est": 0 if free_yt else 1}
 
 
 class UseInspirationIn(BaseModel):

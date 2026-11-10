@@ -500,6 +500,12 @@ async function refreshTrialBar(force) {
   trialBarAt = Date.now();
   let b;
   try { b = await api('GET', '/api/billing'); } catch { return; }
+  if (b.enabled && b.state === 'free') {
+    bar.hidden = false; bar.className = 'trialbar';
+    bar.innerHTML = `<span><b>Free plan:</b> YouTube tracking and decisions. Upgrade to track TikTok and Instagram and to publish.</span> <button type="button" class="btn sm" data-plans>See plans</button>`;
+    bar.onclick = e => { if (e.target.closest('[data-plans]')) openPlanPicker().catch(err => toast(err.message, true)); };
+    return;
+  }
   if (!b.enabled || !['trial', 'expired'].includes(b.state)) { bar.hidden = true; return; }
   const left = b.trial.days_left;
   const ended = b.state === 'expired';
@@ -2754,6 +2760,7 @@ async function openPlanPicker(opts = {}) {
   const lim = n => (n === -1 ? 'Unlimited' : Number(n).toLocaleString());
   const why = opts.reason || (b.state === 'expired'
     ? (b.subscription.lapsed ? 'Your plan has ended.' : 'Choose a plan to get started.')
+    : b.state === 'free' ? 'You are on the free plan: YouTube tracking and decisions. A paid plan adds TikTok and Instagram, publishing, add-ons and more room.'
     : b.state === 'trial' ? `You have ${b.trial.days_left} day${b.trial.days_left === 1 ? '' : 's'} left on your free trial. You can pick a plan any time and keep everything.` : 'Pick the plan that fits.');
   const m = openModal('<div id="pp"></div>', true);
   planPickerEl = m;
@@ -2840,12 +2847,13 @@ pages.billing = async app => {
   app.innerHTML = ltdHtml !== null ? ltdHtml : `<div class="page-head"><div><h1>Billing</h1><div class="sub">${esc(state.me.workspace.name)}</div></div></div>
     <div id="paybanner" class="notice" style="margin-bottom:12px;display:none" hidden></div>
     ${b.state === 'expired' ? `<div class="notice" style="margin-bottom:12px;border-color:var(--bad)"><b>${sub.lapsed ? 'Your paid period has ended.' : 'Choose a plan to get started.'}</b> You can still look around, but nothing can be changed until you choose a plan below or redeem a code. Your data is safe.</div>` : ''}
-    <div class="card"><h2 style="margin:0">${b.state === 'trial' ? `Free trial: ${b.trial.days_left} day${b.trial.days_left === 1 ? '' : 's'} left` : b.state === 'expired' ? 'No active plan' : 'Current plan: ' + esc(b.plan.name)} ${sub.status === 'comp' ? '<span class="badge">complimentary</span>' : ''}</h2>
+    <div class="card"><h2 style="margin:0">${b.state === 'trial' ? `Free trial: ${b.trial.days_left} day${b.trial.days_left === 1 ? '' : 's'} left` : b.state === 'free' ? 'Free plan: YouTube tracking' : b.state === 'expired' ? 'No active plan' : 'Current plan: ' + esc(b.plan.name)} ${sub.status === 'comp' ? '<span class="badge">complimentary</span>' : ''}</h2>
       ${b.state === 'trial' ? `<div class="muted small">Ends ${new Date(b.trial.ends_at).toLocaleDateString()}. Pick a plan any time: you keep everything you have set up.</div>` : ''}
+      ${b.state === 'free' ? `<div class="muted small">Track up to ${b.limits.accounts} YouTube channel${b.limits.accounts === 1 ? '' : 's'} and see what to scale, tweak or stop. TikTok and Instagram tracking, publishing and add-ons need a paid plan, and nothing you have saved is deleted if you upgrade.</div>` : ''}
       <div class="muted small">${b.state === 'trial' || b.state === 'expired' ? '' : (sub.status === 'comp' ? (sub.current_period_end ? `Complimentary until ${new Date(sub.current_period_end).toLocaleDateString()}.` : 'Complimentary plan, no end date.') : sub.current_period_end && b.plan.price_minor ? `Paid until ${new Date(sub.current_period_end).toLocaleDateString()}. ${b.card && b.card.auto_renew ? 'It renews automatically with your saved card.' : 'Automatic renewal is off: renew before it ends to keep your plan.'}` : (sub.current_period_end ? `Until ${new Date(sub.current_period_end).toLocaleDateString()}` : ''))}</div>
       ${meter('Accounts', b.usage.accounts, b.limits.accounts)}${meter('Team members', b.usage.members, b.limits.members)}${meter('AI requests this month', b.usage.ai_calls, b.limits.ai_calls)}</div>
     ${cardPanel(b)}
-    ${b.state !== 'expired' && b.addons ? `<h2 style="margin:20px 0 8px">Add-ons</h2>
+    ${b.state !== 'expired' && b.state !== 'free' && b.addons ? `<h2 style="margin:20px 0 8px">Add-ons</h2>
     <p class="muted small" style="margin:0 0 8px">Need more than your plan includes? Buy only what you need. Accounts last 30 days; credits last until the end of this month.</p>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">
     ${b.addons.map(a => `<div class="card"><h3 style="margin:0">${esc(a.label)}</h3>

@@ -120,7 +120,23 @@ def _tokens(site: str) -> dict:
         trial = data.get("trial_days") or trial
     except Exception:
         pass
-    return {"{{site}}": site, "{{ht_from_price}}": low, "{{ht_trial_days}}": str(trial)}
+    free = None
+    try:
+        from . import billing as _b
+        free = _b.public_pricing().get("free_plan")
+    except Exception:
+        pass
+    if free:
+        n = free["max_accounts"]
+        cell = f"Yes, for YouTube only (up to {n} channel{'' if n == 1 else 's'}). No free trial"
+        sentence = "HookTrack has a free plan for YouTube tracking only, and no free trial."
+        faq = (f"Yes, for YouTube: you can track up to {n} YouTube channel{'' if n == 1 else 's'} and see what to scale, tweak or stop, with no card. "
+               "TikTok and Instagram tracking and publishing need a paid plan, and there is no free trial.")
+    else:
+        cell, sentence = "No free plan and no free trial", "HookTrack has no free plan and no free trial."
+        faq = "No. There is no free plan or free trial. Plans are month to month and you can stop any time."
+    return {"{{site}}": site, "{{ht_from_price}}": low, "{{ht_trial_days}}": str(trial),
+            "{{ht_free_cell}}": cell, "{{ht_free_sentence}}": sentence, "{{ht_free_faq}}": faq}
 
 
 def _crumbs(site: str, trail: list[tuple[str, str]]) -> dict:
