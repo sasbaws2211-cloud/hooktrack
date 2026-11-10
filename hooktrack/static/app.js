@@ -684,7 +684,7 @@ function renderAuth(mode = 'login', note = '') {
   $('#auth-form').onsubmit = async e => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(e.target));
-    if (mode !== 'login') body.timezone = browserTz();
+    if (mode !== 'login') { body.timezone = browserTz(); const r = new URLSearchParams(location.search).get('ref'); if (r) body.ref = r; }
     try {
       state.me = await api('POST', mode === 'login' ? '/api/auth/login' : '/api/auth/signup', body);
       state.authNote = '';

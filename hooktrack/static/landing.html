@@ -4,7 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>/* an app link (an invite, a reset or a confirm email) opened at the site root arrives with a #/ route: hand it to the app */
-if (location.hash.indexOf('#/') === 0) location.replace('/app' + location.search + location.hash);</script>
+if (location.hash.indexOf('#/') === 0) location.replace('/app' + location.search + location.hash);
+/* a visitor sent here by a free tool or guide (?ref=tools-...) keeps that tag on their way into the app, in the web address only: no cookie, no storage */
+(function () {
+  var m = location.search.match(/[?&]ref=([a-z0-9][a-z0-9-]{0,79})(?:&|$)/i);
+  if (!m) return;
+  var ref = m[1].toLowerCase();
+  function tag(href) { return /^\/app(?:[?#]|$)/.test(href) && href.indexOf('ref=') < 0 ? href.replace(/^\/app(\?)?/, function (x, q) { return '/app?ref=' + ref + (q ? '&' : ''); }) : href; }
+  function fix(a) { var h = a.getAttribute('href'); if (h) { var t = tag(h); if (t !== h) a.setAttribute('href', t); } }
+  document.addEventListener('click', function (e) { var a = e.target.closest && e.target.closest('a[href^="/app"]'); if (a) fix(a); }, true);
+  document.addEventListener('DOMContentLoaded', function () { Array.prototype.forEach.call(document.querySelectorAll('a[href^="/app"]'), fix); });
+})();</script>
 <title>HookTrack: Short-Form Video Analytics &amp; Winning Hook Finder</title>
 <meta name="description" content="Track every TikTok, Instagram Reels and YouTube Shorts account in one dashboard. See which hooks beat each account's normal, then scale the winners. Plans from $19 a month.">
 <link rel="canonical" href="__SITE__/">

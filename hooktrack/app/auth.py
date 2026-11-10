@@ -278,6 +278,24 @@ class SignupIn(BaseModel):
     name: str = Field("", max_length=100)
     workspace_name: str = Field("", max_length=100)
     timezone: str = Field("", max_length=64)   # the browser's zone; unknown/invalid -> UTC
+    ref: str = Field("", max_length=120)       # the page that sent them here (?ref=...); only a safe slug is kept
+
+
+REF_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
+
+
+def clean_ref(raw: str) -> str:
+    """A page name like tools-tiktok-analytics, or '' for anything else (so nothing odd is ever stored)."""
+    v = (raw or "").strip().lower()
+    return v if REF_RE.match(v) else ""
+
+
+def signup_sources() -> list[dict]:
+    """How many accounts came from each page, for the admin overview. '' (arrived directly) is shown as 'direct'."""
+    rows = db.query("""SELECT CASE WHEN signup_ref = '' THEN 'direct' ELSE signup_ref END AS source,
+                              COUNT(*) FILTER (WHERE created_at > now() - interval '30 days') AS last_30_days, COUNT(*) AS total
+                       FROM users GROUP BY 1 ORDER BY 2 DESC, 3 DESC, 1 LIMIT 25""")
+    return [{"source": r["source"], "last_30_days": int(r["last_30_days"]), "total": int(r["total"])} for r in rows]
 
 
 @router.post("/auth/signup")
@@ -294,9 +312,9 @@ def signup(b: SignupIn, request: Request, response: Response, background: Backgr
         raise HTTPException(429, "Too many accounts have been created from your network today. "
                                  "Try again tomorrow, or contact support if you need more.")
     first_user = db.one("SELECT COUNT(*) AS n FROM users")["n"] == 0
-    uid = db.one("INSERT INTO users(email, name, password_hash, terms_accepted_at, terms_version) "
-                 "VALUES (%s,%s,%s, now(), %s) RETURNING id",
-                 (email, b.name.strip(), hash_password(b.password), legal.TERMS_VERSION))["id"]
+    uid = db.one("INSERT INTO users(email, name, password_hash, terms_accepted_at, terms_version, signup_ref) "
+                 "VALUES (%s,%s,%s, now(), %s, %s) RETURNING id",
+                 (email, b.name.strip(), hash_password(b.password), legal.TERMS_VERSION, clean_ref(b.ref)))["id"]
     ws = create_workspace(uid, b.workspace_name.strip() or f"{b.name.strip() or email.split('@')[0]}'s workspace", b.timezone)
     if first_user:   # data created before multi-tenancy belongs to the first workspace
         for t in ("phones", "accounts", "daily_views", "posts"):

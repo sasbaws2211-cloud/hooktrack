@@ -129,7 +129,9 @@ pages.overview = async app => {
     <div class="grid two" style="margin-top:12px">
       <div class="card"><h2>Workspaces by plan / state</h2>${o.plan_distribution.map(d => `<div class="row"><span style="flex:1">${esc(d.plan)}</span><b>${fmt(d.n)}</b></div>`).join('') || '<span class="muted">None yet</span>'}</div>
       <div class="card"><h2>Newest workspaces</h2>${o.recent_workspaces.map(w => `<div class="row"><a href="#/workspaces/${w.id}" style="flex:1">${esc(w.name)}</a><span class="muted small">${date(w.created_at)}</span></div>`).join('') || '<span class="muted">None yet</span>'}</div>
-    </div>`;
+    </div>
+    <div class="card" style="margin-top:12px"><h2>Where signups came from <span class="muted small">the page that sent them: a free tool, a guide, or direct</span></h2>
+      ${o.signup_sources.length ? `<div class="table-wrap"><table><thead><tr><th>Source</th><th class="num">Last 30 days</th><th class="num">All time</th></tr></thead><tbody>${o.signup_sources.map(s => `<tr><td><code>${esc(s.source)}</code></td><td class="num">${fmt(s.last_30_days)}</td><td class="num">${fmt(s.total)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">No signups yet.</p>'}</div>`;
 };
 
 pages.funnel = async app => {

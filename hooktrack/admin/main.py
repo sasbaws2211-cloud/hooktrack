@@ -212,6 +212,7 @@ def overview(_a: Admin = Depends(require_admin)):
         "legal_configured": legal.configured(),
         "recent_workspaces": db.query("SELECT id, name, created_at FROM workspaces ORDER BY created_at DESC LIMIT 8"),
         "recent_users": db.query("SELECT id, email, name, created_at FROM users ORDER BY created_at DESC LIMIT 8"),
+        "signup_sources": auth.signup_sources(),
         "vault": vaultwatch.state(),
         "system": {"sociavault_schedule_enabled": sched.get("enabled"),
                    "has_server_sociavault_key": bool(sociavault.resolve_server_key())},
