@@ -121,8 +121,8 @@ assert r.status_code == 200, r.text
 ws = db.one("SELECT workspace_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE u.email=%s", (email,))["workspace_id"]
 db.execute("UPDATE users SET email_verified_at = now() WHERE email=%s", (email,))
 billing.set_enabled(True)
-db.execute("DELETE FROM platform_settings WHERE key IN ('billing_mode','free_plan')")
-ok("billing mode defaults to both and the free plan to on", billing.billing_mode() == "both" and billing.free_plan_on())
+db.execute("DELETE FROM platform_settings WHERE key IN ('free_plan')")
+ok("the free plan is on by default when the Google key works", billing.free_plan_on())
 
 st = billing.workspace_state(ws)
 ok("a workspace with no plan is on the free plan, not locked out", st["state"] == "free" and not billing.access_blocked(ws))
@@ -198,9 +198,7 @@ ok("with the free plan off, no plan means read-only again", billing.workspace_st
 billing.save_free_plan(enabled=True, max_accounts=5, max_ai_calls=-1)
 ok("the caps can be edited and AI can be unlimited", billing.effective_plan(ws)["max_accounts"] == 5 and billing.effective_plan(ws)["max_ai_calls"] == -1)
 billing.save_free_plan(max_accounts=3, max_ai_calls=20)
-billing._pset("billing_mode", "lifetime")
-ok("lifetime-only mode has no free plan", billing.workspace_state(ws)["state"] == "expired" and "free_plan" not in c.get("/api/public/pricing").json())
-db.execute("DELETE FROM platform_settings WHERE key IN ('billing_mode','free_plan')")
+db.execute("DELETE FROM platform_settings WHERE key IN ('free_plan')")
 _k = os.environ.pop("YOUTUBE_API_KEY")
 ok("without the Google key there is no free plan: a plan-less workspace stays read-only as before", billing.free_plan_on() is False and billing.workspace_state(ws)["state"] == "expired" and "free_plan" not in c.get("/api/public/pricing").json())
 os.environ["YOUTUBE_API_KEY"] = _k

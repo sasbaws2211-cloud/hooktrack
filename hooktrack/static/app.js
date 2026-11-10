@@ -511,14 +511,8 @@ async function refreshTrialBar(force) {
   const ended = b.state === 'expired';
   bar.hidden = false;
   bar.className = 'trialbar' + (ended ? ' ended' : left <= 2 ? ' soon' : '');
-  const ltd = b.mode === 'lifetime';
-  if (ltd && !ended) { bar.hidden = true; return; }
-  bar.innerHTML = ltd
-    ? (ended
-      ? `<span><b>${b.subscription.lapsed ? 'Your lifetime licence is no longer active.' : b.trial.reason === 'no_licence' ? 'Redeem your licence to get started.' : 'Your lifetime licence is no longer active.'}</b> You can view everything, but changes are paused until you redeem a lifetime deal.</span> <button type="button" class="btn sm primary" data-plans>Redeem licence</button>`
-      : '')
-    : ended
-    ? `<span><b>${b.subscription.lapsed ? 'Your plan has ended.' : 'Choose a plan or redeem a code to get started.'}</b> You can view everything, but changes are paused until you do.</span> <button type="button" class="btn sm primary" data-plans>Choose a plan</button>`
+  bar.innerHTML = ended
+    ? `<span><b>${b.subscription.lapsed ? 'Your plan has ended.' : 'Choose a plan to get started.'}</b> You can view everything, but changes are paused until you do.</span> <button type="button" class="btn sm primary" data-plans>Choose a plan</button>`
     : `<span><b>Free trial:</b> ${left} day${left === 1 ? '' : 's'} left.</span> <button type="button" class="btn sm" data-plans>Choose a plan</button>`;
   bar.onclick = e => { if (e.target.closest('[data-plans]')) openPlanPicker().catch(err => toast(err.message, true)); };
 }
@@ -2701,64 +2695,12 @@ async function payForPlan(planCode, { saveCard = false, banner = () => {}, alive
 
 let planPickerEl = null;
 
-// A code that arrived through the redeem link (before the buyer had an account) is applied as soon as they open Billing.
-async function autoRedeemPending(b) {
-  if (!b || !b.pending_licence || !b.can_manage) return b;
-  try {
-    const r = await api('POST', '/api/billing/lifetime/redeem', {});
-    toast(`Code redeemed: HookTrack Lifetime${r.tier > 1 ? ' Plus' : ''} unlocked. Thank you!`);
-    refreshTrialBar(true);
-    return await api('GET', '/api/billing');
-  } catch (e) { toast(e.message, true); return b; }
-}
-
-// Lifetime-deal mode (AppSumo): no card checkout, a licence key unlocks a tier for good.
-function lifetimeHtml(b) {
-  const L = b.lifetime || { tiers: [], license: null, buy_url: '' };
-  const lim = n => (n === -1 ? 'Unlimited' : Number(n).toLocaleString());
-  const money = (minor, cur) => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(minor / 100); } catch { return `${minor / 100} ${cur}`; } };
-  const has = L.license && L.license.status !== 'deactivated';
-  return `<div id="ltd-banner" class="notice" style="margin-bottom:10px" hidden></div>
-    ${has ? `<div class="notice" style="margin-bottom:10px"><b>${esc((L.tiers.find(x => x.tier === L.license.tier) || {}).name || 'HookTrack Lifetime')}</b> is active on this workspace (licence ${esc(L.license.key_hint)}).${L.license.tier < L.tiers.length ? ' Need more room? Buy a second code, then paste it below to stack it.' : ' Thank you for backing us early.'}</div>` : ''}
-    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
-    ${L.tiers.map(t => `<div class="card" style="margin:0;${has && L.license.tier === t.tier ? 'border-color:var(--accent)' : ''}">
-      <h3 style="margin:0">${esc(t.name)}</h3><div class="muted small">${esc(t.description)}</div>
-      <div style="font-size:20px;font-weight:700;margin:6px 0">${money(t.price_minor, t.currency)}<span class="muted small" style="font-weight:400"> one-time${t.tier === 2 ? ' · 2 codes' : ''}</span></div>
-      <ul style="padding-left:18px;margin:8px 0;font-size:13px"><li>${lim(t.max_accounts)} tracked accounts</li><li>${lim(t.max_members)} team member${t.max_members === 1 ? '' : 's'}</li><li>${lim(t.max_ai_calls)} AI requests / month</li><li>${lim(t.max_connected)} connected publishing</li><li>${lim(t.max_credits)} data credits / month</li></ul>
-      ${L.buy_url && !(has && L.license.tier >= t.tier) ? `<a class="btn ${t.tier === 1 ? 'primary' : ''}" style="width:100%" href="${esc(L.buy_url)}" target="_blank" rel="noopener">${t.tier === 1 ? 'Get lifetime deal' : (has ? 'Buy a second code' : 'Get 2 codes')}</a>` : ''}
-    </div>`).join('')}</div>
-    ${b.can_manage ? `<h3 style="margin:16px 0 6px">Redeem your licence code</h3>
-      <div class="row" style="gap:8px"><input id="ltd-key" placeholder="Paste your licence key" autocomplete="off" style="flex:1"><button type="button" class="btn primary" id="ltd-redeem">Redeem</button></div>
-      <div class="muted small" style="margin-top:4px">Used an "Activate" button? Leave it blank and press Redeem.</div>` : '<div class="muted small" style="margin-top:10px">Only a workspace owner or admin can redeem a licence.</div>'}`;
-}
-function bindLifetime(root, onDone) {
-  const btn = $('#ltd-redeem', root);
-  if (!btn) return;
-  btn.onclick = guard(async () => {
-    const ban = $('#ltd-banner', root);
-    busy(btn, true, 'Checking…');
-    try {
-      const r = await api('POST', '/api/billing/lifetime/redeem', { license_key: ($('#ltd-key', root).value || '').trim() || null });
-      toast('Lifetime access unlocked. Thank you!'); refreshTrialBar(true); onDone();
-    } catch (e) { if (ban) { ban.hidden = false; ban.textContent = e.message; } else toast(e.message, true); }
-    finally { if (btn.isConnected) busy(btn, false); }
-  });
-}
-
 // The plan list as a window over whatever page the person is on, so the trial bar and a blocked action can lead
 // straight to paying instead of to another page.
 async function openPlanPicker(opts = {}) {
   if (planPickerEl && planPickerEl.isConnected) return;
   let b = await api('GET', '/api/billing');
-  b = await autoRedeemPending(b);
   if (!b.enabled) return;
-  if (b.mode === 'lifetime' || (b.mode === 'both' && b.has_licence)) {
-    const lm = openModal(`<h2 style="margin-top:0">Lifetime deals</h2><p class="muted" style="margin:0 0 12px">${esc(opts.reason || (b.state === 'expired' ? 'Redeem your lifetime licence to start working.' : 'Pay once and keep it for good.'))}</p><div id="ltdp">${lifetimeHtml(b)}</div><div class="actions"><button class="btn" data-close>Not now</button></div>`, true);
-    planPickerEl = lm;
-    $$('[data-close]', lm).forEach(x => x.addEventListener('click', lm.close));
-    bindLifetime(lm, () => { lm.close(); route(); });
-    return;
-  }
   const hasYear = b.plans.some(p => p.interval === 'year'), hasMonth = b.plans.some(p => p.interval !== 'year');
   let iv = hasYear && hasMonth ? (state.billingInterval || (b.plan && b.plan.interval === 'year' ? 'year' : 'month')) : (hasYear ? 'year' : 'month');
   let saveCard = b.card.auto_renew || !b.card.has_card;
@@ -2809,7 +2751,6 @@ async function openPlanPicker(opts = {}) {
 
 pages.billing = async app => {
   let b = await api('GET', '/api/billing');
-  b = await autoRedeemPending(b);
   const money = (minor, cur) => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(minor / 100); } catch { return `${minor / 100} ${cur}`; } };
   const lim = n => (n === -1 ? 'Unlimited' : Number(n).toLocaleString());
   const meter = (label, used, limit) => `<div style="margin-top:12px"><div class="row" style="justify-content:space-between"><span>${label}</span>
@@ -2820,38 +2761,13 @@ pages.billing = async app => {
     return;
   }
   const sub = b.subscription;
-  let ltdHtml = null;
-  if (b.mode === 'lifetime' || (b.mode === 'both' && b.has_licence)) {
-    const ltdAddons = (b.state === 'paid' && b.addons) ? (() => {
-      const a = b.addons.find(x => x.kind === 'connected');
-      if (!a) return '';
-      return `<h2 style="margin:20px 0 8px">Extra publishing accounts</h2>
-        <p class="muted small" style="margin:0 0 8px">Your licence includes ${lim(b.limits.connected)} connected publishing account${b.limits.connected === 1 ? '' : 's'}. Need more? Add them month by month.</p>
-        <div class="card" style="max-width:360px"><h3 style="margin:0">${esc(a.label)}</h3>
-          <div style="font-size:20px;font-weight:700;margin:6px 0">${esc(new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(a.price_minor / 100))}<span class="muted small" style="font-weight:400"> each · ${esc(a.lasts)}</span></div>
-          <div class="muted small">${esc(a.what)}</div>
-          ${b.can_manage ? `<div class="row" style="gap:8px;margin-top:10px"><select id="aq-connected" style="width:auto">${[1, 2, 3, 5].map(n => `<option value="${n}">${n}</option>`).join('')}</select>
-            <button class="btn" data-addon="connected" ${b.payments_ready ? '' : 'disabled'}>Buy</button></div>` : '<div class="muted small" style="margin-top:8px">Only workspace admins can buy add-ons.</div>'}</div>
-        ${(b.addon_purchases || []).filter(p => p.kind === 'connected').length ? `<ul class="list" style="margin-top:10px">${b.addon_purchases.filter(p => p.kind === 'connected').map(p => `<li>
-          <span style="flex:1;min-width:0"><b>${fmt(p.units)} × ${esc(a.label)}</b>
-            <div class="small muted">${p.renew_state === 'renewed' ? 'Renewed: continues after' : p.auto_renew ? 'Renews automatically on' : 'Ends on'} ${new Date(p.expires_at).toLocaleDateString()}${p.renew_state === 'failed' ? ' · the last renewal was declined' : ''}</div></span>
-          ${b.can_manage && p.renew_state !== 'renewed' ? `<button class="btn sm" data-renew="${p.id}" data-on="${p.auto_renew ? 0 : 1}" type="button">${p.auto_renew ? 'Turn off auto-renew' : 'Renew automatically'}</button>` : ''}</li>`).join('')}</ul>` : ''}`;
-    })() : '';
-    ltdHtml = `<div class="page-head"><div><h1>Billing</h1><div class="sub">${esc(state.me.workspace.name)}</div></div></div>
-      <div id="paybanner" class="notice" style="margin-bottom:12px;display:none" hidden></div>
-      ${b.state === 'expired' ? `<div class="notice" style="margin-bottom:12px;border-color:var(--bad)"><b>${sub.lapsed ? 'Your lifetime licence is no longer active.' : 'Redeem your licence to get started.'}</b> You can still look around, but nothing can be changed until you redeem a lifetime deal. Your data is safe.</div>` : ''}
-      <div class="card"><h2 style="margin:0">${b.state === 'expired' ? 'No licence yet' : 'Lifetime access: ' + esc(b.plan.name)}</h2>
-        ${meter('Tracked accounts', b.usage.accounts, b.limits.accounts)}${meter('Team members', b.usage.members, b.limits.members)}${meter('AI requests this month', b.usage.ai_calls, b.limits.ai_calls)}${meter('Data credits this month', b.usage.credits, b.limits.credits)}</div>
-      ${ltdAddons}
-      <h2 style="margin:20px 0 8px">Lifetime deals${b.lifetime && b.lifetime.spots && b.lifetime.spots.cap ? ` <span class="muted small" style="font-weight:400">· ${b.lifetime.spots.left} of ${b.lifetime.spots.cap} founding spots left</span>` : ''}</h2><div id="ltdp">${lifetimeHtml(b)}</div>`;
-  }
   const hasYear = b.plans.some(p => p.interval === 'year'), hasMonth = b.plans.some(p => p.interval !== 'year');
   const iv = hasYear && hasMonth ? (state.billingInterval || (b.plan && b.plan.interval === 'year' ? 'year' : 'month')) : (hasYear ? 'year' : 'month');
   const shown = planTiers(b.plans, iv);
   const bestSave = Math.max(0, ...shown.map(t => t.save || 0));
-  app.innerHTML = ltdHtml !== null ? ltdHtml : `<div class="page-head"><div><h1>Billing</h1><div class="sub">${esc(state.me.workspace.name)}</div></div></div>
+  app.innerHTML = `<div class="page-head"><div><h1>Billing</h1><div class="sub">${esc(state.me.workspace.name)}</div></div></div>
     <div id="paybanner" class="notice" style="margin-bottom:12px;display:none" hidden></div>
-    ${b.state === 'expired' ? `<div class="notice" style="margin-bottom:12px;border-color:var(--bad)"><b>${sub.lapsed ? 'Your paid period has ended.' : 'Choose a plan to get started.'}</b> You can still look around, but nothing can be changed until you choose a plan below or redeem a code. Your data is safe.</div>` : ''}
+    ${b.state === 'expired' ? `<div class="notice" style="margin-bottom:12px;border-color:var(--bad)"><b>${sub.lapsed ? 'Your paid period has ended.' : 'Choose a plan to get started.'}</b> You can still look around, but nothing can be changed until you choose a plan below. Your data is safe.</div>` : ''}
     <div class="card"><h2 style="margin:0">${b.state === 'trial' ? `Free trial: ${b.trial.days_left} day${b.trial.days_left === 1 ? '' : 's'} left` : b.state === 'free' ? 'Free plan: YouTube tracking' : b.state === 'expired' ? 'No active plan' : 'Current plan: ' + esc(b.plan.name)} ${sub.status === 'comp' ? '<span class="badge">complimentary</span>' : ''}</h2>
       ${b.state === 'trial' ? `<div class="muted small">Ends ${new Date(b.trial.ends_at).toLocaleDateString()}. Pick a plan any time: you keep everything you have set up.</div>` : ''}
       ${b.state === 'free' ? `<div class="muted small">Track up to ${b.limits.accounts} YouTube channel${b.limits.accounts === 1 ? '' : 's'} and see what to scale, tweak or stop. TikTok and Instagram tracking, publishing and add-ons need a paid plan, and nothing you have saved is deleted if you upgrade.</div>` : ''}
@@ -2888,10 +2804,6 @@ pages.billing = async app => {
       ${p.code === b.plan.code && b.state !== 'trial' ? (p.price_minor && b.can_manage ? `<button class="btn" data-buy="${esc(p.code)}" ${b.payments_ready ? '' : 'disabled'}>Renew</button>` : '<span class="badge">Current</span>')
         : (p.price_minor ? `<button class="btn primary" data-buy="${esc(p.code)}" ${b.can_manage && b.payments_ready ? '' : 'disabled'} title="${b.can_manage ? (b.payments_ready ? '' : 'Payments are not set up yet') : 'Only workspace admins can change the plan'}">Choose ${esc(p.name)}</button>` : '')}
     </div>`; }).join('')}</div>
-    ${b.mode === 'both' && b.can_manage ? `<h2 style="margin:20px 0 8px">Have an AppSumo code?</h2>
-      <div id="ltd-banner" class="notice" style="margin-bottom:10px" hidden></div>
-      <div class="row" style="gap:8px"><input id="ltd-key" placeholder="Paste your licence key" autocomplete="off" style="flex:1"><button type="button" class="btn primary" id="ltd-redeem">Redeem</button></div>
-      <div class="muted small" style="margin-top:4px">Bought the lifetime deal? Paste your code to unlock it. Used an "Activate" button? Leave it blank and press Redeem.</div>` : ''}
     ${b.payments.length ? `<h2 style="margin:20px 0 8px">Payment history</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Plan</th><th class="num">Amount</th><th>Status</th></tr></thead><tbody>
       ${b.payments.map(p => `<tr><td>${new Date(p.created_at).toLocaleDateString()}</td><td>${esc(p.plan_code)}</td><td class="num">${money(p.amount_minor, p.currency)}</td><td>${esc(p.status)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
   const rerender = () => route();
@@ -2958,7 +2870,6 @@ pages.billing = async app => {
     });
     finish(await pollP);
   })));
-  bindLifetime(app, () => route());
   // a payment started earlier (page reloaded, tab closed): check it once, quietly
   if (b.pending) poll(b.pending.reference, { maxMs: 0 }).then(o => { if (o === 'success') finish(o); });
 };

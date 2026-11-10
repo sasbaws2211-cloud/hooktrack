@@ -315,21 +315,6 @@ pages.settings = async app => {
       <p class="small muted" style="margin:6px 0 0">Webhook URL to add in the Paystack dashboard (Settings → API Keys &amp; Webhooks): <code>https://YOUR-APP-DOMAIN${esc(b.webhook_path)}</code></p>
       <div class="actions"><button class="btn" id="pstest" ${b.paystack.configured ? '' : 'disabled'}>Test key</button>
         ${b.paystack.source === 'platform' ? '<button class="btn danger" id="psclear">Remove key</button>' : ''}<button class="btn primary" id="savebill">Save billing</button></div></div>
-    ${(() => { const L = s.lifetime, a = L.appsumo; return `<div class="card" style="margin-top:12px"><h2>Lifetime deals (AppSumo)</h2>
-      <label class="f">Sell plans as</label>
-      <select id="lmode"><option value="both" ${L.mode === 'both' ? 'selected' : ''}>Subscriptions, and AppSumo codes redeemable (recommended)</option><option value="subscriptions" ${L.mode === 'subscriptions' ? 'selected' : ''}>Subscriptions only</option><option value="lifetime" ${L.mode === 'lifetime' ? 'selected' : ''}>AppSumo lifetime deals only (no free trial)</option></select>
-      <label class="f">Founding licences to sell (set the same limit on AppSumo) &nbsp; <b>${L.spots.sold} sold, ${L.spots.left} left</b> ${L.spots.cap && L.spots.sold >= Math.min(90, L.spots.cap) ? '<span class="badge warn">nearly sold out: end the AppSumo deal at ' + L.spots.cap + '</span>' : ''}</label>
-      <input id="lcap" type="number" min="0" value="${L.spots.cap}" style="max-width:140px">
-      <p class="small muted" style="margin:6px 0 0">There is no free trial in any mode: a new workspace is read-only until a plan is bought or a code is redeemed. Lifetime only needs "Enforce plan limits" above to be on. Licences are created, upgraded and refunded only by AppSumo webhooks; they can't be edited here.</p>
-      <p class="small" style="margin:8px 0 0">Webhook key ${a.api_key ? '<span class="badge good">set</span>' : '<span class="badge warn">APPSUMO_API_KEY missing</span>'} &nbsp; OAuth ${a.oauth ? '<span class="badge good">set</span>' : '<span class="badge warn">client id/secret missing</span>'} &nbsp; Buy link ${a.buy_url ? '<span class="badge good">set</span>' : '<span class="badge warn">APPSUMO_BUY_URL missing</span>'}</p>
-      <p class="small muted" style="margin:6px 0 0">Give AppSumo: webhook <code>https://YOUR-APP-DOMAIN${esc(L.webhook_path)}</code> and redirect <code>https://YOUR-APP-DOMAIN${esc(L.callback_path)}</code></p>
-      <div class="actions"><button class="btn primary" id="savelmode">Save</button></div>
-      <h3 style="margin:16px 0 4px">Codes for AppSumo</h3>
-      <p class="small muted" style="margin:0 0 6px">${L.codes.total} made · ${L.codes.unused} unused · ${L.codes.redeemed} redeemed · ${L.codes.refunded} refunded. Redeem address to give AppSumo: <code>https://YOUR-APP-DOMAIN${esc(L.redeem_path)}</code></p>
-      <div class="actions" style="align-items:center"><input id="ncodes" type="number" min="1" max="10000" value="1000" style="max-width:110px"><button class="btn" id="mkcodes">Make codes</button>
-        <a class="btn" href="/api/lifetime/codes.csv">Download unused codes (CSV)</a><a class="btn" href="/api/lifetime/codes.csv?all=true">Download all (CSV)</a></div>
-      <div class="actions" style="align-items:center"><input id="refcode" placeholder="HT-XXXX-XXXX-XXXX" style="max-width:240px"><button class="btn danger" id="refundcode">Mark code refunded</button></div>
-      ${L.licenses.length ? `<div class="table-wrap" style="margin-top:10px"><table><thead><tr><th>Licence</th><th>Tier</th><th>Status</th><th>Workspace</th><th>Last event</th></tr></thead><tbody>${L.licenses.map(x => `<tr><td><code>${esc(x.license_key_short)}</code></td><td>${x.tier}</td><td>${esc(x.status)}</td><td>${esc(x.workspace_name || (x.workspace_id ? '#' + x.workspace_id : 'not claimed'))}</td><td>${esc(x.last_event)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small muted">No licences yet.</p>'}</div>`; })()}
     ${(() => { const Y = s.youtube, F = Y.free_plan; return `<div class="card" style="margin-top:12px"><h2>YouTube data and the free plan</h2>
       <p class="small muted" style="margin:0 0 6px">YouTube is read through Google's free official API (10,000 units a day, about 2 to 3 per channel sync), so it costs no SociaVault credits. ${Y.configured ? '<span class="badge good">key set: ' + esc(Y.key_hint) + ' (' + esc(Y.source) + ')</span>' : '<span class="badge warn">no key: YouTube falls back to SociaVault</span>'}</p>
       <label class="f">Google API key (YouTube Data API v3)</label><input id="ytk" type="password" autocomplete="off" placeholder="AIza… (leave blank to keep)">
@@ -451,8 +436,6 @@ pages.settings = async app => {
     if (r.currency_check && !r.currency_check.ok) { toast('Saved, but customers cannot pay yet: ' + r.currency_check.message, true); return route(); }
     toast('Billing settings saved'); route();
   });
-  $('#mkcodes').onclick = guard(async () => { const r = await api('POST', '/lifetime/codes', { count: Number($('#ncodes').value) || 1000 }); toast(r.made + ' codes made. Download the CSV below.'); route(); });
-  $('#refundcode').onclick = guard(async () => { const c = $('#refcode').value.trim(); if (!c) return; const r = await api('POST', '/lifetime/codes/refund', { code: c }); toast('Result: ' + r.result); route(); });
   $('#ytsave').onclick = guard(async () => {
     await api('PUT', '/settings/youtube', { api_key: $('#ytk').value || null, daily_budget: +$('#ytb').value, free_enabled: $('#fpen').checked,
       free_accounts: +$('#fpa').value, free_members: +$('#fpm').value, free_ai: +$('#fpi').value });
@@ -460,7 +443,6 @@ pages.settings = async app => {
   });
   if ($('#ytclear')) $('#ytclear').onclick = guard(async () => { await api('PUT', '/settings/youtube', { clear_key: true }); toast('Key removed'); route(); });
   $('#yttest').onclick = guard(async () => { const r = await api('POST', '/settings/youtube/test'); toast(r.message, !r.ok); });
-  $('#savelmode').onclick = guard(async () => { await api('PUT', '/settings/lifetime', { mode: $('#lmode').value, cap: Number($('#lcap').value) }); toast('Saved'); route(); });
   if ($('#psclear')) $('#psclear').onclick = guard(async () => { await api('PUT', '/settings/billing', { clear_paystack_key: true }); toast('Key removed'); route(); });
   $('#pstest').onclick = guard(async () => { const r = await api('POST', '/settings/paystack/test'); toast(r.message, !r.ok); });
   $('#runren').onclick = guard(async () => {

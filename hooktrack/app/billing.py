@@ -51,14 +51,6 @@ def _pget(key: str, default=None):
     return default if row is None else row.get("value", default)
 
 
-DEFAULT_BILLING_MODE = "both"            # card plans + a trial for direct customers, and AppSumo codes redeemable
-
-
-def billing_mode() -> str:
-    m = str(_pget("billing_mode", DEFAULT_BILLING_MODE) or DEFAULT_BILLING_MODE)
-    return m if m in ("subscriptions", "lifetime", "both") else DEFAULT_BILLING_MODE
-
-
 def _pset(key: str, value) -> None:
     db.execute(
         """INSERT INTO platform_settings(key, value, updated_at) VALUES (%s, %s, now())
@@ -81,7 +73,7 @@ EXPIRED_PLAN = {"code": "expired", "name": "No active plan", "description": "", 
                 "interval": "month", "max_accounts": 0, "max_members": 0, "max_ai_calls": 0, "max_connected": 0,
                 "max_credits": 0, "max_reports": 0, "active": False,
                 "position": 0}
-NO_PLAN_MSG = "Choose a plan, or redeem your lifetime code, under Billing to start using this workspace."
+NO_PLAN_MSG = "Choose a plan under Billing to start using this workspace."
 
 
 def normalize_email(email: str) -> str:
@@ -99,8 +91,6 @@ def claim_trial(email: str, ws: int) -> bool:
     """Called once when a workspace is created. True if this person had not had a trial yet (it is now theirs);
     False records that the workspace starts without one."""
     return False                                   # no free trial exists, so nothing about the email is recorded
-    if billing_mode() == "lifetime":
-        return False                              # no free trial is offered, so nothing about the email is recorded
     row = db.one(
         """INSERT INTO trial_claims(email, workspace_id) VALUES (%s, %s)
            ON CONFLICT (email) DO NOTHING RETURNING email""", (normalize_email(email), ws))
@@ -131,8 +121,6 @@ def _trial_plan() -> dict:
     """The limits a trial gets: the configured plan, else the first (cheapest) plan on sale."""
     code = trial_config()["plan"]
     plan = get_plan(code) if code and code != FREE else None
-    if plan is None and billing_mode() == "lifetime":
-        plan = get_plan("ltd_1")                  # lifetime mode: the trial feels like the entry tier
     if plan is None:
         paid = [p for p in list_plans(only_active=True)]
         plan = paid[0] if paid else None
@@ -299,9 +287,9 @@ def save_free_plan(enabled: Optional[bool] = None, max_accounts: Optional[int] =
 
 
 def free_plan_on() -> bool:
-    """On when an admin has not turned it off, outside lifetime-only mode, and only once the free YouTube API key works:
+    """On when an admin has not turned it off, and only once the free YouTube API key works:
     without it a free workspace could not read YouTube at all, so the plan is not offered."""
-    if not free_plan_config()["enabled"] or billing_mode() == "lifetime":
+    if not free_plan_config()["enabled"]:
         return False
     from . import youtube_api
     return youtube_api.available()
@@ -344,18 +332,14 @@ def _state_raw(ws: int) -> dict:
         return {"state": "comp" if sub["status"] == "comp" else "paid", "trial_ends_at": None, "sub": sub}
     if has_paid_history and sub["lapsed"]:
         return {"state": "expired", "trial_ends_at": None, "sub": sub, "reason": "paid_period_ended"}
-    # never paid: no free trial, so nothing to use until a plan is bought or a code is redeemed
+    # never paid: no free trial, so nothing to use until a plan is bought
     override = sub.get("trial_ends_at") if sub["has_row"] else None
     if override is not None and override > now:                      # a window an operator granted by hand
         return {"state": "trial", "trial_ends_at": override, "sub": sub}
-    reason = "no_licence" if billing_mode() == "lifetime" else "no_plan"
-    return {"state": "expired", "trial_ends_at": None, "sub": sub, "reason": reason}
+    return {"state": "expired", "trial_ends_at": None, "sub": sub, "reason": "no_plan"}
 
 
 def blocked_message(ws: int) -> str:
-    st = workspace_state(ws)
-    if st.get("reason") == "no_licence":
-        return "Redeem your lifetime licence under Billing to start using this workspace."
     return NO_PLAN_MSG
 
 
@@ -1102,8 +1086,6 @@ def run_addon_renewals(limit: int = 100) -> dict:
 @router.get("")
 def billing_status(request: Request, ctx: Ctx = Depends(current)):
     out = status(ctx.workspace_id)
-    from . import appsumo
-    out["pending_licence"] = bool(appsumo._pending(request))
     out["plans"] = list_plans(only_active=True)
     for p in out["plans"]:
         try:
@@ -1112,13 +1094,6 @@ def billing_status(request: Request, ctx: Ctx = Depends(current)):
             p["charge_minor"], p["charge_currency"] = p["price_minor"], p["currency"]
     out["paywalled"] = out["state"] == "expired"
     out["can_manage"] = ctx.role in ("owner", "admin")
-    from . import lifetime
-    out["mode"] = lifetime.mode()
-    if out["mode"] == "lifetime":
-        out["plans"] = []                              # nothing to subscribe to: licences come from AppSumo
-    if out["mode"] in ("lifetime", "both"):
-        out["lifetime"] = lifetime.workspace_view(ctx.workspace_id)
-    out["has_licence"] = lifetime.for_workspace(ctx.workspace_id) is not None
     out["free_plan"] = free_plan() if free_plan_on() else None
     out["fx_usd"] = usd_rates()          # {"GHS": 15.5} means 1 USD = 15.5 GHS (display only)
     pays = db.query("SELECT plan_code, amount_minor, currency, status, created_at, paid_at, reference "
@@ -1140,9 +1115,6 @@ def public_pricing() -> dict:
     """What the public landing page may show: plans, prices and the trial length. Nothing about any workspace."""
     on = enabled()
     plans = []
-    from . import lifetime
-    if on and lifetime.is_lifetime_mode():
-        return lifetime.public_view(trial_config()["days"])
     if on:
         for p in list_plans(only_active=True):
             try:
@@ -1156,13 +1128,11 @@ def public_pricing() -> dict:
                 "max_connected": p.get("max_connected", -1), "max_credits": p.get("max_credits", -1),
                 "max_reports": p.get("max_reports", -1),
                 "charge_minor": charge_minor, "charge_currency": charge_cur})
-    out = {"billing_enabled": on, "mode": lifetime.mode(), "trial_days": trial_config()["days"] if on else 0, "plans": plans}
+    out = {"billing_enabled": on, "trial_days": trial_config()["days"] if on else 0, "plans": plans}
     if on and free_plan_on():
         fp = free_plan()
         out["free_plan"] = {"name": fp["name"], "description": fp["description"], "max_accounts": fp["max_accounts"],
                             "max_members": fp["max_members"], "max_ai_calls": fp["max_ai_calls"], "platforms": "YouTube"}
-    if on and lifetime.mode() == "both":
-        out["lifetime_offer"] = lifetime.offer()      # None until APPSUMO_BUY_URL is set, so nothing shows before the deal is live
     return out
 
 
@@ -1184,21 +1154,11 @@ def delete_card(ctx: Ctx = Depends(auth.admin)):
 PENDING_WINDOW = "1 hour"
 
 
-def _no_card_in_lifetime_mode(ws: Optional[int] = None) -> None:
-    from . import lifetime
-    if lifetime.is_lifetime_mode():
-        raise HTTPException(400, "Plans are sold as a one-time lifetime deal. Redeem your licence key on the Billing page.")
-    if ws is not None and lifetime.for_workspace(ws):
-        raise HTTPException(400, "This workspace already has a lifetime licence, so there is no plan to buy. "
-                                 "To add more room, redeem a second code or buy an add-on.")
-
-
 @router.post("/checkout")
 def checkout(b: CheckoutIn, ctx: Ctx = Depends(auth.admin)):
     """Start a payment. Returns the Paystack access_code for the in-app popup and our own reference to poll."""
     if not enabled():
         raise HTTPException(400, "Billing is not turned on for this platform")
-    _no_card_in_lifetime_mode(ctx.workspace_id)
     plan = get_plan(b.plan_code)
     if plan is None or not plan["active"]:
         raise HTTPException(404, "That plan is not available")
@@ -1255,7 +1215,6 @@ def _switch_with_credit(ctx: Ctx, plan: dict, quote: dict, ws_name: str) -> dict
 @router.get("/quote")
 def quote(plan_code: str, ctx: Ctx = Depends(auth.admin)):
     """What it would cost to switch to this plan right now (credit for unused time included). Changes nothing."""
-    _no_card_in_lifetime_mode(ctx.workspace_id)
     plan = get_plan(plan_code)
     if plan is None or not plan["active"] or plan["price_minor"] <= 0:
         raise HTTPException(404, "That plan is not available")
@@ -1301,10 +1260,6 @@ def addon_checkout(b: AddonCheckoutIn, ctx: Ctx = Depends(auth.admin)):
     spec = ADDONS.get(b.kind)
     if spec is None:
         raise HTTPException(404, "Unknown add-on")
-    from . import lifetime
-    if (lifetime.is_lifetime_mode() or lifetime.for_workspace(ctx.workspace_id)) and b.kind != "connected":
-        # lifetime licences carry fixed monthly allowances; only extra publishing accounts (a real monthly cost to us) are sold
-        raise HTTPException(400, "Only extra publishing accounts can be bought on a lifetime licence")
     require_active(ctx.workspace_id)
     if workspace_state(ctx.workspace_id)["state"] == "free":
         raise HTTPException(400, "Add-ons are for paid plans. Choose a plan under Billing first.")
