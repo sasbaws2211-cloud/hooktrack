@@ -148,7 +148,7 @@
       (top ? '<h3>Your best slots</h3><ol class="slots">' + top + '</ol>' : '') +
       '<h3>Every day and time</h3><div class="table-wrap"><table class="heat"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>' +
       '<p class="muted small">Each cell is the median of your videos posted then, as a multiple of your overall normal. Green is above normal, red below. The times are the ones you typed, so use your own time zone. Posting time is only one factor: it is correlation, not proof, and the video itself usually matters more.</p>' +
-      '<div class="tool-actions"><a class="btn primary" href="/#pricing">Track every post across all your accounts automatically</a></div>';
+      '<div class="tool-actions">' + (window.HTCta ? HTCta.html('Track every post across all your accounts automatically') : '<a class="btn primary" href="/#pricing">Track every post across all your accounts automatically</a>') + '</div>';
     var topPx = host.getBoundingClientRect().top + window.pageYOffset - 80;
     if (window.scrollTo) window.scrollTo({ top: topPx, behavior: 'smooth' });
   }

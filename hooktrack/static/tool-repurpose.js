@@ -124,7 +124,7 @@
       res.innerHTML = '<div class="rp-card ' + r.verdict + '"><div class="rp-top"><b>' + head + '</b><span>' + r.done + ' of ' + r.total + ' done</span></div>' +
         '<div class="rp-bar"><span style="width:' + r.pct + '%"></span></div><p>' + esc(msg) + '</p>' + fixList +
         '<div class="tool-actions"><button type="button" class="btn" id="rp-copy">Copy what is left</button> ' +
-        '<a class="btn primary" href="/#pricing">Track every post across all your accounts</a></div></div>';
+        (window.HTCta ? HTCta.html('Track every post across all your accounts') : '<a class="btn primary" href="/#pricing">Track every post across all your accounts</a>') + '</div></div>';
       var copy = res.querySelector('#rp-copy');
       if (copy) copy.addEventListener('click', function () {
         var txt = 'Repurposing ' + NAMES[from] + ' to ' + NAMES[to] + ': still to do\n' + (r.missing.length ? r.missing.map(function (it) { return '- ' + it.text; }).join('\n') : 'Nothing, all done.');

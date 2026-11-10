@@ -42,7 +42,7 @@ TOOL_BOX = (
     '<button type="button" class="btn" id="sample">Use sample data</button>'
     '<button type="button" class="btn" id="clear">Clear</button></div>'
     '<div class="tool-out" id="out" aria-live="polite" hidden></div></div>'
-    '<script src="/tool-analyzer.js" defer></script>')
+    '<script src="/tool-cta.js" defer></script><script src="/tool-analyzer.js" defer></script>')
 BESTTIME_BOX = (
     '<div class="tool" id="besttime" data-platform="__P__">'
     '<label for="bt-data">Paste your videos\' publish date, time and views, one per line</label>'
@@ -52,14 +52,14 @@ BESTTIME_BOX = (
     '<button type="button" class="btn" id="bt-sample">Use sample data</button>'
     '<button type="button" class="btn" id="bt-clear">Clear</button></div>'
     '<div class="tool-out" id="bt-out" aria-live="polite" hidden></div></div>'
-    '<script src="/tool-besttime.js" defer></script>')
+    '<script src="/tool-cta.js" defer></script><script src="/tool-besttime.js" defer></script>')
 REPURPOSE_BOX = (
     '<div class="tool" id="repurpose" data-from="__F__" data-to="__T__">'
     '<div class="tool-row rp-pick"><label for="rp-from">Video is from</label><select id="rp-from"></select>'
     '<label for="rp-to">Posting it on</label><select id="rp-to"></select>'
     '<button type="button" class="btn" id="rp-reset">Start over</button></div>'
     '<div id="rp-list"></div><div id="rp-result" aria-live="polite"></div></div>'
-    '<script src="/tool-repurpose.js" defer></script>')
+    '<script src="/tool-cta.js" defer></script><script src="/tool-repurpose.js" defer></script>')
 SPECS_BOX = (
     '<div class="tool" id="specs">'
     '<p class="hint">Enter the length, the size, or both. Length like 45 or 1:30. Pick a common size or type your own.</p>'
@@ -72,7 +72,7 @@ SPECS_BOX = (
     '<div class="tool-row"><button type="button" class="btn primary" id="sp-go">Check my video</button>'
     '<button type="button" class="btn" id="sp-clear">Clear</button></div>'
     '<div class="tool-out" id="sp-out" aria-live="polite" hidden></div></div>'
-    '<script src="/tool-specs.js" defer></script>')
+    '<script src="/tool-cta.js" defer></script><script src="/tool-specs.js" defer></script>')
 LENGTH_BOX = (
     '<div class="tool" id="lengthtool" data-platform="__P__">'
     '<label for="ln-data">Paste each video\'s length and views, one per line</label>'
@@ -82,7 +82,7 @@ LENGTH_BOX = (
     '<button type="button" class="btn" id="ln-sample">Use sample data</button>'
     '<button type="button" class="btn" id="ln-clear">Clear</button></div>'
     '<div class="tool-out" id="ln-out" aria-live="polite" hidden></div></div>'
-    '<script src="/tool-length.js" defer></script>')
+    '<script src="/tool-cta.js" defer></script><script src="/tool-length.js" defer></script>')
 TOOL_RE = re.compile(r"\{\{(tool|besttime|repurpose|specs|length):([A-Za-z -]+)\}\}")
 
 
@@ -168,7 +168,8 @@ def _wrap(meta: dict, body: str, path: str, request: Request, trail: list[tuple[
     subs = {"__TITLE__": html.escape(title), "__DESC__": html.escape(desc, quote=True), "__CANON__": site + path,
             "__SITE__": site, "__OGTYPE__": "article" if meta.get("kind") == "post" else "website",
             "__JSONLD__": ld, "__CRUMBS__": crumbs, "__BODY__": body,
-            "__UPDATED__": html.escape(meta.get("updated", meta["date"]))}
+            "__UPDATED__": html.escape(meta.get("updated", meta["date"])),
+            "__REF__": re.sub(r"[^a-z0-9-]", "", path.strip("/").replace("/", "-").lower()) or "home"}
     for k, v in subs.items():
         page = page.replace(k, v)
     return page

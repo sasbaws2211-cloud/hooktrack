@@ -110,7 +110,7 @@
       '<div class="table-wrap"><table class="vtable"><thead><tr><th>Video</th><th class="num">Views</th><th class="num">vs your normal</th><th>Compared with your normal (line = 1×)</th><th>Verdict</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
       '<p class="muted small">Scale = 2× your normal or more. Hold = in between. Tweak = half your normal or less. This checker uses views only, from the numbers you pasted, and nothing leaves your browser.</p>' +
       '<div class="tool-actions"><button type="button" class="btn" id="copy">Copy summary</button> ' +
-      '<a class="btn primary" href="/#pricing">Track this automatically across all your accounts</a></div>';
+      (window.HTCta ? HTCta.html('Track this automatically across all your accounts') : '<a class="btn primary" href="/#pricing">Track this automatically across all your accounts</a>') + '</div>';
     var copy = host.querySelector('#copy');
     if (copy) copy.addEventListener('click', function () {
       var t = platform + ' check: normal ' + fmt(r.normal) + ' views, ' + r.winners + ' winners and ' + r.duds + ' duds out of ' + r.count + ' videos. Best: ' +

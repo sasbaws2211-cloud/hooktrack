@@ -162,7 +162,7 @@
       '</div><p>' + trendText + '</p>' + notes.join('') +
       '<h3>Every length range</h3><div class="table-wrap"><table class="vtable"><thead><tr><th>Length</th><th class="num">Videos</th><th class="num">Median vs your normal</th><th>Above or below normal</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
       '<p class="muted small">Each row is the median of your videos in that length range, as a multiple of your overall normal. Length is only one factor, this is correlation and not proof, and the hook usually matters more. Nothing you paste leaves your browser.</p>' +
-      '<div class="tool-actions"><a class="btn primary" href="/#pricing">Track every post across all your accounts automatically</a></div>';
+      '<div class="tool-actions">' + (window.HTCta ? HTCta.html('Track every post across all your accounts automatically') : '<a class="btn primary" href="/#pricing">Track every post across all your accounts automatically</a>') + '</div>';
     var top = host.getBoundingClientRect().top + window.pageYOffset - 80;
     if (window.scrollTo) window.scrollTo({ top: top, behavior: 'smooth' });
   }

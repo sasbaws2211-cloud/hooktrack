@@ -138,7 +138,8 @@
           '<ul>' + p.checks.map(function (c) { return '<li class="' + c.status + '"><b>' + c.kind + ':</b> ' + esc(c.text) + '</li>'; }).join('') + '</ul>' +
           '<p class="muted small">' + esc(p.note) + ' Source: ' + esc(p.source) + '.</p></div>';
       }).join('') + '</div>' +
-        '<p class="muted small">Specs last checked ' + CHECKED + '. Platforms change their limits, so for anything that matters, confirm in the app or on the platform\'s help page. Nothing you type leaves your browser.</p>';
+        '<p class="muted small">Specs last checked ' + CHECKED + '. Platforms change their limits, so for anything that matters, confirm in the app or on the platform\'s help page. Nothing you type leaves your browser.</p>' +
+        '<div class="tool-actions">' + (window.HTCta ? HTCta.html('See which of your videos actually worked') : '<a class="btn primary" href="/#pricing">See which of your videos actually worked</a>') + '</div>';
     });
     box.querySelector('#sp-clear').addEventListener('click', function () { dur.value = ''; w.value = ''; h.value = ''; preset.value = ''; out.hidden = true; });
   }

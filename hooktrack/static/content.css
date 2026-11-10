@@ -119,3 +119,5 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 20px;margin-bottom:10px}footer a{
 .sp-card.fits .sp-verdict{color:var(--good)}.sp-card.over .sp-verdict{color:var(--bad)}.sp-card.check .sp-verdict{color:var(--warn)}
 .sp-card ul{margin:6px 0;padding-left:18px}.sp-card li{margin:5px 0;font-size:14.5px;max-width:none}
 .sp-card li.over{color:var(--bad)}
+
+.cta-actions{display:flex;flex-wrap:wrap;gap:10px}
