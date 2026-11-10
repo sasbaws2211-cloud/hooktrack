@@ -2150,6 +2150,16 @@ def alternatives_postiz_page(request: Request):
     return _content(pages.render_page("/alternatives/postiz", request))
 
 
+@app.get("/tools")
+def tools_index(request: Request):
+    return _content(pages.render_page("/tools", request))
+
+
+@app.get("/tools/{slug}")
+def tool_page(slug: str, request: Request):
+    return _content(pages.render_tool(slug, request))
+
+
 @app.get("/blog")
 def blog_index(request: Request):
     return _content(pages.render_blog_index(request))

@@ -28,7 +28,22 @@ META_RE = re.compile(r"^\s*<!--meta\s*(\{.*?\})\s*-->\s*", re.S)
 PAGES = {
     "/compare": "compare.html",
     "/alternatives/postiz": "alternatives-postiz.html",
+    "/tools": "tools.html",
 }
+
+TOOL_BOX = (
+    '<div class="tool" id="tool" data-platform="__P__">'
+    '<label for="views">Paste the views of your last videos, one per line</label>'
+    '<p class="hint">Plain numbers work (12400, 12,400, 12.4k). To label a video, put a title first: Morning routine, 18400.</p>'
+    '<textarea id="views" rows="10" spellcheck="false" placeholder="18400&#10;9600&#10;52300&#10;8700&#10;11200&#10;4100&#10;9900"></textarea>'
+    '<div class="tool-row"><label class="order" for="order">First line is my <select id="order"><option value="newest">newest video</option>'
+    '<option value="oldest">oldest video</option></select></label>'
+    '<button type="button" class="btn primary" id="go">Check my videos</button>'
+    '<button type="button" class="btn" id="sample">Use sample data</button>'
+    '<button type="button" class="btn" id="clear">Clear</button></div>'
+    '<div class="tool-out" id="out" aria-live="polite" hidden></div></div>'
+    '<script src="/tool-analyzer.js" defer></script>')
+TOOL_RE = re.compile(r"\{\{tool:([A-Za-z]+)\}\}")
 
 
 def _load(path: Path) -> Optional[tuple[dict, str]]:
@@ -77,6 +92,7 @@ def _wrap(meta: dict, body: str, path: str, request: Request, trail: list[tuple[
     site = seo.site_url(request)
     for k, v in _tokens(site).items():
         body = body.replace(k, v)
+    body = TOOL_RE.sub(lambda m: TOOL_BOX.replace("__P__", m.group(1)), body)
     title, desc = meta["title"], meta["description"]
     graph = [_crumbs(site, trail)]
     if meta.get("kind") == "post":
@@ -127,6 +143,22 @@ def render_post(slug: str, request: Request) -> Optional[str]:
                  [("Home", "/"), ("Blog", "/blog"), (meta.get("crumb", meta["title"]), f"/blog/{slug}")])
 
 
+def tool_slugs() -> list[str]:
+    d = CONTENT / "tools"
+    return sorted(f.stem for f in d.glob("*.html")) if d.is_dir() else []
+
+
+def render_tool(slug: str, request: Request) -> Optional[str]:
+    if not re.fullmatch(r"[a-z0-9-]{1,80}", slug):
+        return None
+    loaded = _load(CONTENT / "tools" / f"{slug}.html")
+    if not loaded:
+        return None
+    meta, body = loaded
+    return _wrap(meta, body, f"/tools/{slug}", request,
+                 [("Home", "/"), ("Free tools", "/tools"), (meta.get("crumb", meta["title"]), f"/tools/{slug}")])
+
+
 def render_blog_index(request: Request) -> str:
     cards = []
     for m in posts():
@@ -147,6 +179,10 @@ def sitemap_entries() -> list[tuple[str, str, str, str]]:
         loaded = _load(CONTENT / fname)
         if loaded:
             out.append((path, loaded[0].get("updated", loaded[0]["date"]), "monthly", "0.8"))
+    for slug in tool_slugs():
+        loaded = _load(CONTENT / "tools" / f"{slug}.html")
+        if loaded:
+            out.append((f"/tools/{slug}", loaded[0].get("updated", loaded[0]["date"]), "monthly", "0.8"))
     ps = posts()
     if ps:
         out.append(("/blog", ps[0].get("updated", ps[0]["date"]), "weekly", "0.6"))
