@@ -803,7 +803,7 @@ pages.dashboard = async app => {
         <p class="muted" style="margin-bottom:14px">Complete the steps below. Advanced tools (pipeline, publish, video) unlock after you have accounts, views, and a scored hook.</p>
         ${!s.has_accounts && isAdmin() ? `<div class="demo-banner">
           <div><b>Want to explore first?</b><div class="muted small">Load sample accounts, views, and scored hooks — then try Scale / Tweak / Stop on the dashboard.</div></div>
-          <button class="btn primary" id="seed-demo">Load sample data</button>
+          <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn primary" id="seed-demo">Load sample data</button><button class="btn" id="watch-demo">▶ Watch the demo</button></div>
         </div>` : ''}
         ${s.has_accounts && state.settings && state.settings.demo_seeded ? `<div class="demo-banner subtle">
           <div class="muted small">Sample data is loaded in this workspace.</div>
@@ -831,6 +831,8 @@ pages.dashboard = async app => {
           <li>${pill('MUTATE')} Promising but not there — change the first 3 seconds</li>
           <li>${pill('KILL')} Not working after several posts — stop or rework the account</li>
         </ul></div>` : ''}`;
+    const wd = $('#watch-demo');
+    if (wd) wd.onclick = () => { if (window.HTDemo) HTDemo.open(wd); else window.open('https://youtu.be/SAprelI0bJ8', '_blank', 'noopener'); };
     const seedBtn = $('#seed-demo');
     if (seedBtn) seedBtn.onclick = guard(async () => {
       busy(seedBtn, true, 'Loading…');
@@ -859,6 +861,7 @@ pages.dashboard = async app => {
     <div class="row">
       <button type="button" class="btn sm" id="copy-summary" title="Copy weekly summary">Copy summary</button>
       <button type="button" class="btn sm" id="export-menu" title="Export CSV">Export</button>
+      <button type="button" class="btn sm" id="demo-dash" title="Watch the demo video">▶ Demo</button>
       <button type="button" class="btn sm" id="help-dash" title="Glossary">?</button>
     </div></div>
   ${showNext ? `<div class="card next-banner" id="next-banner">
@@ -933,6 +936,8 @@ pages.dashboard = async app => {
   if (nd) nd.onclick = () => { markNextSeen(); $('#next-banner')?.remove(); };
   const hd = $('#help-dash');
   if (hd) hd.onclick = () => openHelpGlossary();
+  const dd = $('#demo-dash');
+  if (dd) dd.onclick = () => { if (window.HTDemo) HTDemo.open(dd); else window.open('https://youtu.be/SAprelI0bJ8', '_blank', 'noopener'); };
   const cs = $('#copy-summary');
   if (cs) cs.onclick = guard(async () => {
     const r = await api('GET', '/api/workspace/summary');
