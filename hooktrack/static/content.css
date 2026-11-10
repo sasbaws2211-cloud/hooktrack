@@ -81,3 +81,13 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 20px;margin-bottom:10px}footer a{
 .tool-cards a.card{text-decoration:none;color:var(--text);display:block}
 .tool-cards a.card:hover{border-color:var(--accent)}
 .tool-cards h3{margin:0 0 .3em}.tool-cards p{margin:0;color:var(--muted);font-size:15px}
+
+/* best time to post */
+.heat{min-width:720px;table-layout:fixed}
+.heat th{font-size:12.5px;text-align:center;padding:8px 4px;position:static}
+.heat tbody th{text-align:left;padding-left:12px;width:56px;background:var(--surface-2)}
+.heat td.hm{text-align:center;padding:8px 4px;border-left:1px solid var(--border);vertical-align:middle}
+.heat td.hm b{display:block;font-size:15px}.heat td.hm small{display:block;font-size:11.5px;color:var(--muted)}
+.heat td.none{color:var(--muted)}
+.slots{padding-left:22px;margin:8px 0 18px}.slots li{margin:4px 0;max-width:none}
+.tool h3{margin:20px 0 6px;font-size:18px}

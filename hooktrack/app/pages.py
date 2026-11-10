@@ -43,7 +43,17 @@ TOOL_BOX = (
     '<button type="button" class="btn" id="clear">Clear</button></div>'
     '<div class="tool-out" id="out" aria-live="polite" hidden></div></div>'
     '<script src="/tool-analyzer.js" defer></script>')
-TOOL_RE = re.compile(r"\{\{tool:([A-Za-z]+)\}\}")
+BESTTIME_BOX = (
+    '<div class="tool" id="besttime" data-platform="__P__">'
+    '<label for="bt-data">Paste your videos\' publish date, time and views, one per line</label>'
+    '<p class="hint">Format: 2026-10-04 18:30, 4200. Include the year, and use the time zone you plan your posting in. 20 or more videos gives a reliable answer.</p>'
+    '<textarea id="bt-data" rows="10" spellcheck="false" placeholder="2026-10-02 18:30, 4200&#10;2026-10-04 10:00, 3100&#10;2026-10-07 12:15, 5200"></textarea>'
+    '<div class="tool-row"><button type="button" class="btn primary" id="bt-go">Find my best time</button>'
+    '<button type="button" class="btn" id="bt-sample">Use sample data</button>'
+    '<button type="button" class="btn" id="bt-clear">Clear</button></div>'
+    '<div class="tool-out" id="bt-out" aria-live="polite" hidden></div></div>'
+    '<script src="/tool-besttime.js" defer></script>')
+TOOL_RE = re.compile(r"\{\{(tool|besttime):([A-Za-z ]+)\}\}")
 
 
 def _load(path: Path) -> Optional[tuple[dict, str]]:
@@ -92,7 +102,7 @@ def _wrap(meta: dict, body: str, path: str, request: Request, trail: list[tuple[
     site = seo.site_url(request)
     for k, v in _tokens(site).items():
         body = body.replace(k, v)
-    body = TOOL_RE.sub(lambda m: TOOL_BOX.replace("__P__", m.group(1)), body)
+    body = TOOL_RE.sub(lambda m: (TOOL_BOX if m.group(1) == "tool" else BESTTIME_BOX).replace("__P__", m.group(2)), body)
     title, desc = meta["title"], meta["description"]
     graph = [_crumbs(site, trail)]
     if meta.get("kind") == "post":
