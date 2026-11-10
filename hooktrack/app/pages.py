@@ -73,7 +73,17 @@ SPECS_BOX = (
     '<button type="button" class="btn" id="sp-clear">Clear</button></div>'
     '<div class="tool-out" id="sp-out" aria-live="polite" hidden></div></div>'
     '<script src="/tool-specs.js" defer></script>')
-TOOL_RE = re.compile(r"\{\{(tool|besttime|repurpose|specs):([A-Za-z -]+)\}\}")
+LENGTH_BOX = (
+    '<div class="tool" id="lengthtool" data-platform="__P__">'
+    '<label for="ln-data">Paste each video\'s length and views, one per line</label>'
+    '<p class="hint">Format: 0:34, 4200 (length, then views). Lengths like 45, 1:30 or 1m 30s all work. You can put a title first. 20 or more videos gives a reliable answer.</p>'
+    '<textarea id="ln-data" rows="10" spellcheck="false" placeholder="0:18, 9800&#10;0:34, 4200&#10;0:27, 12800&#10;1:05, 3100"></textarea>'
+    '<div class="tool-row"><button type="button" class="btn primary" id="ln-go">Find my best length</button>'
+    '<button type="button" class="btn" id="ln-sample">Use sample data</button>'
+    '<button type="button" class="btn" id="ln-clear">Clear</button></div>'
+    '<div class="tool-out" id="ln-out" aria-live="polite" hidden></div></div>'
+    '<script src="/tool-length.js" defer></script>')
+TOOL_RE = re.compile(r"\{\{(tool|besttime|repurpose|specs|length):([A-Za-z -]+)\}\}")
 
 
 def _load(path: Path) -> Optional[tuple[dict, str]]:
@@ -126,6 +136,8 @@ def _wrap(meta: dict, body: str, path: str, request: Request, trail: list[tuple[
         kind, arg = m.group(1), m.group(2)
         if kind == "specs":
             return SPECS_BOX
+        if kind == "length":
+            return LENGTH_BOX.replace("__P__", arg)
         if kind == "repurpose":
             f, _, t = arg.partition("-")
             return REPURPOSE_BOX.replace("__F__", f).replace("__T__", t)
