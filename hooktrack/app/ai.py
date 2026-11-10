@@ -518,7 +518,8 @@ def structure_blueprint(cfg, post: dict, transcript: str, spoken: str, perf: dic
     )
     res = ""
     if perf:
-        res = (f"Result: {perf.get('multiple')}x this account's normal; label {perf.get('label')}; "
+        from . import logic
+        res = (f"Result: {perf.get('multiple')}x {logic._norm(perf)}; label {perf.get('label')}; "
                f"{perf.get('intent_per_1k')} saves+shares+comments per 1k views.\n")
     prompt = (
         f"{res}Duration: {post.get('duration_s')} s. Sound: {post.get('sound') or 'unknown'}.\n"

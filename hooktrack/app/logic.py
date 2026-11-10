@@ -223,7 +223,7 @@ def dashboard(ws: int, today: date | None = None):
         "WHERE p.workspace_id = %s AND p.status = 'posted' AND p.hook <> '' "
         "ORDER BY p.views DESC LIMIT 200", (ws,))
     for h in cand:
-        h.update({k: v for k, v in (perf.get(h["id"]) or {}).items() if k in ("label", "multiple", "intent_per_1k", "high_intent")})
+        h.update({k: v for k, v in (perf.get(h["id"]) or {}).items() if k in ("label", "multiple", "intent_per_1k", "high_intent", "baseline", "baseline_source", "peer", "own_needed")})
         h["vsc"] = vsc_total(h["v"], h["s"], h["c"])
     judged = [h for h in cand if h.get("multiple") is not None and h.get("label") != "TOO_EARLY"]
     # winners first (by how far they beat their own account's normal), then raw views for the rest
@@ -365,7 +365,7 @@ def engine_scores(pf: dict) -> dict | None:
     share = pf.get("intent_share")
     if share is not None and share >= 10 and c < 10:
         c, boost = min(10, c + 2), f" (+2: {share}% of comments ask to buy or where to get it)"
-    why = [f"Pull {v}/10: {pf['multiple']}x this account's normal views",
+    why = [f"Pull {v}/10: {pf['multiple']}x {_norm(pf)} views",
            f"Resonance {s}/10: " + ("no saves/shares baseline yet, assumed average" if "resonance" in assumed
                                     else f"saves+shares {pf['_res_multiple']:.1f}x normal"),
            f"Conversion {c}/10: " + (("no comments baseline yet, assumed average" if "conversion" in assumed
@@ -429,7 +429,7 @@ def performance(ws: int, today: date | None = None, days: int = 180) -> dict:
     since = today - timedelta(days=days)
     rows = db.query(
         """SELECT p.id, p.account_id, p.post_date, p.views, p.likes, p.comments, p.shares, p.saves, p.duration_s,
-                  p.date_estimated, p.views_updated_at, a.platform,
+                  p.date_estimated, p.views_updated_at, a.platform, a.niche,
                   p.comments_fetched, p.buy_comments, p.ask_comments, p.more_comments
            FROM posts p LEFT JOIN accounts a ON a.id = p.account_id
            WHERE p.workspace_id = %s AND p.status IN ('posted', 'analysed') AND p.post_date >= %s
@@ -494,6 +494,7 @@ def performance(ws: int, today: date | None = None, days: int = 180) -> dict:
     for (acc, _fmt), posts in by_acc.items():
         mature = [r for r in posts if (age(r) is None or age(r) >= MATURE_DAYS)]
         recent = mature[:BASELINE_POSTS + 1]
+        peer_grp = []          # looked up once per account, and only if some post lacks a baseline of its own
         acc_intent = _median(intent(r) for r in mature)
 
         def res_rate(r):
@@ -517,6 +518,20 @@ def performance(ws: int, today: date | None = None, days: int = 180) -> dict:
             baseline = _median(others) if len(others) >= MIN_BASELINE else None
             a = age(r)
             views = r["views"] or 0
+            peer = None
+            if not baseline and (a is None or a >= MATURE_DAYS):
+                # too few posts of its own: compare with the typical similar account instead of leaving it unjudged
+                if not peer_grp:
+                    try:
+                        from . import peer as _peer
+                        peer_grp.append(_peer.lookup(r["platform"], _fmt, r.get("niche"), followers_at(acc, posts[0])))
+                    except Exception:
+                        peer_grp.append(None)
+                peer = peer_grp[0]
+                if peer and peer["median"]:
+                    baseline = peer["median"]
+                else:
+                    peer = None
             multiple = (views / baseline) if baseline else None
             ev = early_views(r)
             early_multiple = (ev / early_base) if (ev and early_base) else None
@@ -553,7 +568,11 @@ def performance(ws: int, today: date | None = None, days: int = 180) -> dict:
             lvl_n = 2 if n_base >= 15 else 1 if n_base >= 8 else 0
             lvl_a = 2 if (a is None or a >= SETTLED_DAYS) else 1 if a >= 4 else 0
             out[r["id"]] = {
-                "n_baseline": n_base, "confidence": ("low", "medium", "high")[min(lvl_n, lvl_a)],
+                "baseline_source": "peer" if peer else "own",
+                "peer": ({"who": peer["who"], "n_accounts": peer["n_accounts"], "p25": peer["p25"], "p75": peer["p75"],
+                          "source": peer["source"], "exact": peer["exact"], "band": peer["band"], "niche": peer["niche"]} if peer else None),
+                "own_mature": len(mature), "own_needed": max(0, MIN_BASELINE + 1 - len(mature)),
+                "n_baseline": n_base, "confidence": "low" if peer else ("low", "medium", "high")[min(lvl_n, lvl_a)],
                 "settled": bool(a is None or a >= SETTLED_DAYS), "recent_duds": 0,
                 "early_views": ev, "early_baseline": round(early_base) if early_base else None,
                 "early_multiple": round(early_multiple, 2) if early_multiple is not None else None,
@@ -579,7 +598,8 @@ def performance(ws: int, today: date | None = None, days: int = 180) -> dict:
     for (acc, _fmt), posts in by_acc.items():
         judged = [r for r in posts if (age(r) is None or age(r) >= MATURE_DAYS)]
         for i, r in enumerate(judged):
-            out[r["id"]]["recent_duds"] = sum(1 for x in judged[i:i + 3] if out[x["id"]]["label"] == "DUD")
+            out[r["id"]]["recent_duds"] = sum(1 for x in judged[i:i + 3]
+                                              if out[x["id"]]["label"] == "DUD" and out[x["id"]]["baseline_source"] == "own")
     return out
 
 
@@ -602,7 +622,7 @@ def describe_performance(pf: dict | None, post: dict | None, quotes: list, short
         if pf and pf["label"] == "HOT_START" and pf["early_multiple"] is not None:
             return f"fast start: first day {pf['early_multiple']}x this account's usual first day (too young to judge fully)"
         return ""
-    bits = [f"{pf['multiple']}x this account's normal of {pf['baseline']:,} views ({pf['label'].lower()})"]
+    bits = [f"{pf['multiple']}x {_norm(pf)} of {pf['baseline']:,} views ({pf['label'].lower()})"]
     if post:
         for k, word in (("likes", "likes"), ("saves", "saves"), ("shares", "shares")):
             if post.get(k):
@@ -645,7 +665,7 @@ def winner_examples(ws: int, account_id: int | None = None, n: int = 8, n_losers
         pf = perf.get(r["id"])
         if not pf or pf["multiple"] is None or pf["label"] == "TOO_EARLY":
             continue
-        bits = [f"{r['views']:,} views", f"{pf['multiple']}x this account's normal"]
+        bits = [f"{r['views']:,} views", f"{pf['multiple']}x {_norm(pf)}"]
         if r["saves"]:
             bits.append(f"{r['saves']:,} saves")
         if r["shares"]:
@@ -682,8 +702,18 @@ def winner_examples(ws: int, account_id: int | None = None, n: int = 8, n_losers
             [{**r, "note": f"{r['views']:,} views"} for r in byviews[::-1][:n_losers]])
 
 
+def _norm(pf) -> str:
+    """Whose normal a call was measured against: the account's own, or (for a new account) similar accounts'."""
+    if pf and pf.get("baseline_source") == "peer" and pf.get("peer"):
+        return f"the typical for {pf['peer']['who']}"
+    return "this account's normal"
+
+
 def _sure(pf) -> str:
     """' (12 posts, medium confidence)' for a measured call, or ''."""
+    if pf and pf.get("baseline_source") == "peer":
+        return (f" (early read: this account has {pf.get('own_mature', 0)} judged post"
+                f"{'' if pf.get('own_mature') == 1 else 's'} so far, so it is compared with similar accounts)")
     if pf and pf.get("n_baseline") is not None and pf.get("confidence"):
         return f" ({pf['n_baseline']} posts of its own, {pf['confidence']} confidence)"
     return ""
@@ -709,20 +739,20 @@ def evidence_decision(total, st, pf) -> tuple[str, str]:
     if pf and pf.get("multiple") is not None and pf["label"] in ("WINNER", "AVERAGE", "DUD"):
         m, tail = pf["multiple"], _sure(pf)
         if pf["label"] == "WINNER":
-            return "SCALE", f"Measured: {m}x this account's normal{tail}"
+            return "SCALE", f"Measured: {m}x {_norm(pf)}{tail}"
         if pf["label"] == "DUD":
             duds = pf.get("recent_duds")
             if duds is None or duds >= 2:        # no history given (older callers), or a pattern: stop it
-                return "KILL", f"Measured: only {m}x this account's normal{tail}"
-            return "MUTATE", (f"Measured: only {m}x this account's normal, but one weak post is not a pattern: "
+                return "KILL", f"Measured: only {m}x {_norm(pf)}{tail}"
+            return "MUTATE", (f"Measured: only {m}x {_norm(pf)}, but one weak post is not a pattern: "
                               f"rework the angle, not the account{tail}" + _diag(pf))
         hi = (st.get("hold_high_pct") or HOLD_HIGH * 100) / 100.0
         lo = (st.get("hold_low_pct") or HOLD_LOW * 100) / 100.0
         if m >= hi:
-            return "MUTATE", f"Measured: {m}x this account's normal (above normal, so strengthen it){tail}" + _diag(pf)
+            return "MUTATE", f"Measured: {m}x {_norm(pf)} (above normal, so strengthen it){tail}" + _diag(pf)
         if m <= lo:
-            return "MUTATE", f"Measured: {m}x this account's normal (below normal, so rework it){tail}" + _diag(pf)
-        return "HOLD", f"Measured: {m}x this account's normal (about normal, nothing to change){tail}"
+            return "MUTATE", f"Measured: {m}x {_norm(pf)} (below normal, so rework it){tail}" + _diag(pf)
+        return "HOLD", f"Measured: {m}x {_norm(pf)} (about normal, nothing to change){tail}"
     if pf and pf["label"] == "HOT_START" and pf.get("early_multiple") is not None:
         return "SCALE", f"Fast start: {pf['early_multiple']}x this account's usual first day"
     base = post_decision(total, st)
@@ -913,6 +943,8 @@ def log_decisions(ws: int) -> int:
         age_ = pf.get("age_days")
         if age_ is None or not (1 <= age_ <= 45):
             continue
+        if pf.get("baseline_source") == "peer":
+            continue                                  # a peer-based early read is not the account's own track record
         d, _why = evidence_decision(None, st, pf)
         if not d:
             continue

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, legal, logic, media, pages, publish, seo, sociavault, vaultwatch, youtube_api
+from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, legal, logic, media, pages, peer, publish, seo, sociavault, vaultwatch, youtube_api
 from . import backup, digest, reports
 from .auth import Ctx, admin, current
 from .import_xlsx import import_workbook
@@ -53,6 +53,10 @@ async def _sync_scheduler_loop():
             await asyncio.to_thread(vaultwatch.tick)     # balance + failure watch (lease: one worker at a time)
         except Exception:
             log.exception("balance watch failed")
+        try:
+            await asyncio.to_thread(peer.refresh_users_if_due)     # once a day: anonymous peer benchmarks from our own workspaces
+        except Exception:
+            log.exception("peer benchmark refresh failed")
         await asyncio.sleep(300)
 
 
@@ -378,7 +382,7 @@ ACCOUNT_FIELDS = {
 
 @app.get("/api/accounts")
 def accounts(ctx: Ctx = Depends(current)):
-    return db.query(
+    rows = db.query(
         """SELECT a.*, p.label AS phone_label, p.color AS phone_color,
                   f.followers, f.day AS followers_day, f.video_count,
                   CASE WHEN f.followers IS NOT NULL AND o.followers IS NOT NULL THEN f.followers - o.followers END
@@ -392,6 +396,16 @@ def accounts(ctx: Ctx = Depends(current)):
                               ORDER BY day DESC LIMIT 1) o ON TRUE
            WHERE a.workspace_id = %s
            ORDER BY p.position NULLS LAST, a.handle""", (ctx.workspace_id,))
+    # how far each account is from having a normal of its own (until then its posts are compared with similar accounts)
+    judged = {r["account_id"]: r["n"] for r in db.query(
+        "SELECT account_id, COUNT(*) AS n FROM posts WHERE workspace_id = %s AND status IN ('posted', 'analysed') "
+        "AND views_updated_at IS NOT NULL AND post_date <= current_date - %s GROUP BY account_id",
+        (ctx.workspace_id, logic.MATURE_DAYS))}
+    for r in rows:
+        n = judged.get(r["id"], 0)
+        r["judged_posts"] = n
+        r["baseline_needed"] = max(0, logic.MIN_BASELINE + 1 - n)
+    return rows
 
 
 def _clean_handle(handle: str, platform: str) -> tuple[str, str]:

@@ -310,10 +310,14 @@ const winnerChip = pf => {
   const hot = pf.label === 'HOT_START';
   const text = hot ? `${pf.early_multiple}× day 1` : (pf.multiple != null ? `${pf.multiple}×` : (pf.label === 'TOO_EARLY' ? 'early' : '-'));
   const star = pf.label === 'WINNER' ? '★ ' : hot ? '🔥 ' : '';
-  const tip = `${WIN_TIP[pf.label] || ''}${pf.baseline ? ` (normal ≈ ${fmt(pf.baseline)} views)` : ''}${hot && pf.early_baseline ? ` (usual first day ≈ ${fmt(pf.early_baseline)} views)` : ''}`;
+  const peer = pf.baseline_source === 'peer' && pf.peer;
+  const tip = (peer
+    ? `Early read: compared with ${pf.peer.who} (typical ≈ ${fmt(pf.baseline)} views). ${pf.own_needed > 0 ? `${pf.own_needed} more judged post${pf.own_needed === 1 ? '' : 's'} and this account gets its own baseline.` : ''}`
+    : `${WIN_TIP[pf.label] || ''}${pf.baseline ? ` (normal ≈ ${fmt(pf.baseline)} views)` : ''}`)
+    + (hot && pf.early_baseline ? ` (usual first day ≈ ${fmt(pf.early_baseline)} views)` : '');
   const per = pf.reach_multiple != null && pf.growth_note
     ? `<div class="small muted" title="${esc(pf.growth_note)}">per follower ${pf.reach_multiple}×</div>` : '';
-  return `<span class="pill ${cls}" title="${esc(tip)}">${star}${esc(text)}</span>${per}${pf.high_intent ? ' <span class="chip-intent" title="People saved, shared or commented far more than usual for this account">intent</span>' : ''}`;
+  return `<span class="pill ${cls}" title="${esc(tip)}">${star}${esc(text)}</span>${per}${pf.high_intent ? ' <span class="chip-intent" title="People saved, shared or commented far more than usual for this account">intent</span>' : ''}${peer ? ' <span class="chip-intent" title="Compared with similar accounts, not its own history yet">vs peers</span>' : ''}`;
 };
 
 const decisionSource = p => {
@@ -321,6 +325,7 @@ const decisionSource = p => {
   if (b.startsWith('Measured') && p.perf && p.perf.confidence) {
     return `measured · ${p.perf.confidence} confidence${p.perf.settled === false ? ' · may still move' : ''}`;
   }
+  if (b.includes('compared with similar accounts')) return 'early read · vs similar accounts';
   return b.startsWith('Measured') ? 'measured' : b.startsWith('Fast start') ? 'fast start' : 'hook score';
 };
 
@@ -909,8 +914,8 @@ pages.dashboard = async app => {
       `<li>${pill(a.decision)}<div><b>${esc(a.handle)}</b><div class="muted small">${esc(a.reason)}</div></div></li>`).join('')}</ul>`
       : '<p class="muted">Nothing to scale or kill right now.</p>'}
       ${d.unscored_posts ? `<p class="small muted">${d.unscored_posts} posted hooks aren't scored yet — <a href="#/hooks">score them</a> so SCALE decisions are accurate.</p>` : ''}</div>
-    <div class="card"><h2>Top hooks <span class="muted small" style="font-weight:400">vs each account's own normal</span></h2>${d.top_hooks.length ? `<ul class="list">${d.top_hooks.map(h =>
-      `<li><div style="flex:1"><div>${esc(short(h.hook, 60))}</div><div class="muted small">${esc(h.handle)} · ${compact(h.views)} views${h.saves ? ` · ${compact(h.saves)} saves` : ''}${h.intent_per_1k != null ? ` · ${h.intent_per_1k} intent/1k` : ''}</div></div>${h.multiple != null ? winnerChip({ label: h.label, multiple: h.multiple, high_intent: h.high_intent }) : ''}${h.vsc != null ? ` <b>${h.vsc}/30</b>` : ''}</li>`).join('')}</ul>`
+    <div class="card"><h2>Top hooks <span class="muted small" style="font-weight:400">vs each account's own normal (similar accounts for new ones)</span></h2>${d.top_hooks.length ? `<ul class="list">${d.top_hooks.map(h =>
+      `<li><div style="flex:1"><div>${esc(short(h.hook, 60))}</div><div class="muted small">${esc(h.handle)} · ${compact(h.views)} views${h.saves ? ` · ${compact(h.saves)} saves` : ''}${h.intent_per_1k != null ? ` · ${h.intent_per_1k} intent/1k` : ''}</div></div>${h.multiple != null ? winnerChip({ label: h.label, multiple: h.multiple, high_intent: h.high_intent, baseline: h.baseline, baseline_source: h.baseline_source, peer: h.peer, own_needed: h.own_needed }) : ''}${h.vsc != null ? ` <b>${h.vsc}/30</b>` : ''}</li>`).join('')}</ul>`
       : '<p class="muted">Log posts in <a href="#/hooks">Hooks</a> to see your best performers.</p>'}</div>
     <div class="card"><h2>Upcoming</h2>${d.upcoming.length ? `<ul class="list">${d.upcoming.map(u =>
       `<li><span class="muted small" style="width:70px">${esc(u.post_date)}</span><div style="flex:1">${esc(short(u.hook, 50) || '(no hook yet)')}<div class="muted small">${esc(u.handle)}</div></div>${pill(u.status)}</li>`).join('')}</ul>`
@@ -1281,6 +1286,11 @@ function postModal(post, defaults, onDone) {
       parts.push(`<div class="sig-row"><div class="sig-title">Views by day since posting</div>
         <div class="traj">${pf.trajectory.map(t => `<span style="height:${Math.max(6, Math.round(t[1] / mx * 100))}%" title="Day ${t[0]}: ${fmt(t[1])} views"><i>${t[0]}</i></span>`).join('')}</div>
         <div class="small muted">${pf.early_views != null ? `First day: ${fmt(pf.early_views)} views${pf.early_multiple != null ? ` · ${pf.early_multiple}× this account's usual (${fmt(pf.early_baseline)})` : ''}` : ''}${pf.label === 'HOT_START' ? ' · <b>🔥 fast start</b>' : ''}</div></div>`);
+    }
+    if (pf && pf.baseline_source === 'peer' && pf.peer) {
+      parts.push(`<div class="sig-row"><div class="sig-title">Compared with similar accounts</div>
+        <div class="small">This account has ${pf.own_mature} judged post${pf.own_mature === 1 ? '' : 's'} so far, so this video is measured against ${esc(pf.peer.who)}: a typical account posts about <b>${fmt(pf.baseline)}</b> views (middle half: ${fmt(pf.peer.p25)} to ${fmt(pf.peer.p75)}). ${pf.own_needed > 0 ? `After ${pf.own_needed} more judged post${pf.own_needed === 1 ? '' : 's'} it is measured against this account's own history.` : ''}</div>
+        <div class="small muted">Based on ${pf.peer.n_accounts} ${pf.peer.source === 'users' ? 'HookTrack accounts (anonymous)' : 'public accounts we sampled'}.${pf.peer.exact ? '' : ' A broader group is used because this niche and size has too few accounts yet.'} It is an early read: low confidence.</div></div>`);
     }
     if (pf && pf.growth_note) {
       parts.push(`<div class="sig-row"><div class="sig-title">Audience size</div><div class="small">${esc(pf.growth_note)}</div>
@@ -2899,7 +2909,7 @@ pages.accounts = async app => {
       <span class="dot" style="background:${esc(p.color)}"></span><b>${esc(p.label)}</b><span class="muted">${rows.length} accounts</span><span class="spacer"></span>
       ${p.id ? `<button class="btn sm" data-ep="${p.id}">Edit</button>` : ''}</div>
       ${rows.length ? `<div class="table-wrap" style="box-shadow:none"><table><thead><tr><th>Handle</th><th>Platform</th><th>Niche</th><th>Status</th><th class="num" title="From the platform profile, refreshed weekly (or on a full sync)">Followers</th><th class="num">Posts/day</th><th>Content hook</th><th>Sync</th><th></th></tr></thead><tbody>
-      ${rows.map(a => `<tr><td class="handle"><button type="button" class="pin-btn ${getPins().has(String(a.id)) ? 'on' : ''}" data-pin="${a.id}" title="Pin account">${getPins().has(String(a.id)) ? '★' : '☆'}</button> ${esc(a.handle)}${a.client_id ? `<div class="small muted">${esc((state.clients.find(c => c.id === a.client_id) || {}).name || '')}</div>` : ''}</td><td>${esc(a.platform)}</td><td>${esc(a.niche)}</td><td>${pill(a.status, a.status === 'active' ? 'posted' : a.status === 'killed' ? 'KILL' : 'HOLD')}</td>
+      ${rows.map(a => `<tr><td class="handle"><button type="button" class="pin-btn ${getPins().has(String(a.id)) ? 'on' : ''}" data-pin="${a.id}" title="Pin account">${getPins().has(String(a.id)) ? '★' : '☆'}</button> ${esc(a.handle)}${a.client_id ? `<div class="small muted">${esc((state.clients.find(c => c.id === a.client_id) || {}).name || '')}</div>` : ''}</td><td>${esc(a.platform)}</td><td>${esc(a.niche)}${a.baseline_needed > 0 ? `<div class="small muted" title="Until an account has ${a.judged_posts + a.baseline_needed} judged posts, its videos are compared with similar accounts instead of its own history">${a.judged_posts} of ${a.judged_posts + a.baseline_needed} posts to its own baseline</div>` : ''}</td><td>${pill(a.status, a.status === 'active' ? 'posted' : a.status === 'killed' ? 'KILL' : 'HOLD')}</td>
         <td class="num" title="${a.followers_day ? `as of ${esc(String(a.followers_day).slice(0, 10))}` : 'no snapshot yet: run a sync'}">${a.followers == null ? '<span class="muted">-</span>' : compact(a.followers)}${a.followers_change ? `<div class="small ${a.followers_change > 0 ? 'up' : 'down'}" title="since ${esc(String(a.followers_since).slice(0, 10))}">${a.followers_change > 0 ? '+' : ''}${compact(a.followers_change)}</div>` : ''}</td>
         <td class="num">${a.times_per_day}</td><td class="muted">${esc(a.content_hook)}</td>
         <td class="muted small">${a.sync_enabled ? 'on' : 'off'}${a.last_synced_at ? `<br><span title="${esc(a.last_synced_at)}">${esc(String(a.last_synced_at).slice(0,10))}</span>` : ''}</td>
@@ -3081,7 +3091,7 @@ function accountModal(a) {
       <div class="fields">
         <div><label class="f">Phone</label><select id="ph"><option value="">None</option>${state.phones.map(p => `<option value="${p.id}" ${p.id === x.phone_id ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></div>
         <div><label class="f">Client / brand</label><select id="cl"><option value="">None</option>${(state.clients || []).map(c => `<option value="${c.id}" ${c.id === x.client_id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
-        <div><label class="f">Niche</label><input id="n" value="${esc(x.niche)}"></div>
+        <div><label class="f">Niche</label><input id="n" value="${esc(x.niche)}" list="niche-list" placeholder="e.g. fitness, food, comedy" title="Also used to compare a new account with similar ones until it has posts of its own"><datalist id="niche-list">${['general', 'comedy', 'fitness', 'beauty', 'food', 'tech', 'education', 'gaming', 'lifestyle', 'music'].map(n => `<option value="${n}">`).join('')}</datalist></div>
         <div><label class="f">Status</label><select id="st">${['active', 'warming', 'paused', 'killed'].map(s => `<option ${x.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
         <div><label class="f">Posts per day</label><input id="t" type="number" min="0" max="50" value="${x.times_per_day}"></div>
         <div><label class="f">Content hook style</label><input id="ch" value="${esc(x.content_hook)}"></div>
