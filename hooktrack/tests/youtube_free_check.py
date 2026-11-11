@@ -127,7 +127,7 @@ ok("the free plan is on by default when the Google key works", billing.free_plan
 st = billing.workspace_state(ws)
 ok("a workspace with no plan is on the free plan, not locked out", st["state"] == "free" and not billing.access_blocked(ws))
 p = billing.effective_plan(ws)
-ok("the free plan: 3 channels, 1 member, 20 AI, no publishing, no credits", p["name"] == "Free" and p["max_accounts"] == 3 and p["max_members"] == 1 and p["max_ai_calls"] == 20 and p["max_connected"] == 0 and p["max_credits"] == 0)
+ok("the free plan: 3 channels, 1 member, unlimited AI, no publishing, no credits", p["name"] == "Free" and p["max_accounts"] == 3 and p["max_members"] == 1 and p["max_ai_calls"] == -1 and p["max_connected"] == 0 and p["max_credits"] == 0)
 b = c.get("/api/billing").json()
 ok("the billing page reports the free state", b["state"] == "free" and b["plan"]["name"] == "Free" and b["limits"]["connected"] == 0 and b["free_plan"]["name"] == "Free")
 pp = c.get("/api/public/pricing").json()
@@ -171,12 +171,15 @@ try:
 except Exception as e:
     cred = getattr(e, "status_code", 0) == 402
 ok("SociaVault credits are not part of the free plan", cred)
-db.execute("INSERT INTO ai_usage(workspace_id, month, calls) VALUES (%s,%s,20) ON CONFLICT (workspace_id, month) DO UPDATE SET calls=20", (ws, billing._month()))
+db.execute("INSERT INTO ai_usage(workspace_id, month, calls) VALUES (%s,%s,500) ON CONFLICT (workspace_id, month) DO UPDATE SET calls=500", (ws, billing._month()))
+billing.check_ai(ws)      # unlimited by default: heavy use is never refused
+billing.save_free_plan(max_ai_calls=20)       # an operator can still set a cap
 try:
     billing.check_ai(ws); ai = False
 except Exception as e:
     ai = getattr(e, "status_code", 0) == 402 and "Free" in str(getattr(e, "detail", ""))
-ok("AI stops at the free plan's 20 requests a month", ai)
+ok("AI is unlimited by default, and stops at a cap if an operator sets one", ai)
+billing.save_free_plan(max_ai_calls=-1)
 
 # a TikTok account left over from an earlier plan is not synced on the free plan
 tid = db.one("INSERT INTO accounts(workspace_id, handle, platform, status) VALUES (%s,'@old_tt','TikTok','active') RETURNING id", (ws,))["id"]
@@ -197,7 +200,7 @@ billing.save_free_plan(enabled=False)
 ok("with the free plan off, no plan means read-only again", billing.workspace_state(ws)["state"] == "expired" and billing.access_blocked(ws))
 billing.save_free_plan(enabled=True, max_accounts=5, max_ai_calls=-1)
 ok("the caps can be edited and AI can be unlimited", billing.effective_plan(ws)["max_accounts"] == 5 and billing.effective_plan(ws)["max_ai_calls"] == -1)
-billing.save_free_plan(max_accounts=3, max_ai_calls=20)
+billing.save_free_plan(max_accounts=3, max_ai_calls=-1)
 db.execute("DELETE FROM platform_settings WHERE key IN ('free_plan')")
 _k = os.environ.pop("YOUTUBE_API_KEY")
 ok("without the Google key there is no free plan: a plan-less workspace stays read-only as before", billing.free_plan_on() is False and billing.workspace_state(ws)["state"] == "expired" and "free_plan" not in c.get("/api/public/pricing").json())

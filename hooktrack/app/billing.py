@@ -351,7 +351,7 @@ def subscription(ws: int) -> dict:
     return {**row, "lapsed": lapsed, "has_row": True}
 
 
-FREE_DEFAULTS = {"enabled": True, "max_accounts": 3, "max_members": 1, "max_ai_calls": 20}
+FREE_DEFAULTS = {"enabled": True, "max_accounts": 3, "max_members": 1, "max_ai_calls": -1}
 FREE_PLATFORMS = ("youtube", "yt", "youtube shorts", "shorts")
 FREE_UPGRADE_MSG = ("The free plan tracks YouTube channels only. Tracking TikTok and Instagram, publishing and add-ons "
                     "need a paid plan: see Billing.")
@@ -372,7 +372,7 @@ def free_plan_config() -> dict:
         except (TypeError, ValueError):
             return default
     return {"enabled": bool(out["enabled"]), "max_accounts": num(out["max_accounts"], 0, 50, 3),
-            "max_members": num(out["max_members"], 1, 20, 1), "max_ai_calls": num(out["max_ai_calls"], -1, 100000, 20)}
+            "max_members": num(out["max_members"], 1, 20, 1), "max_ai_calls": num(out["max_ai_calls"], -1, 100000, -1)}
 
 
 def save_free_plan(enabled: Optional[bool] = None, max_accounts: Optional[int] = None, max_members: Optional[int] = None,

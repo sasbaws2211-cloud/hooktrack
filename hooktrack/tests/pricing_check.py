@@ -17,8 +17,8 @@ P = {p["code"]: p for p in db.query("SELECT * FROM plans")}
 # ---- the plans
 s, sy = P["solo"], P["solo_year"]
 ok("Solo is $12 a month and $120 a year", s["price_minor"] == 1200 and sy["price_minor"] == 12000 and s["interval"] == "month" and sy["interval"] == "year")
-ok("Solo: 3 accounts, 1 publishing account, 1 teammate, 100 credits, capped AI, no reports",
-   (s["max_accounts"], s["max_connected"], s["max_members"], s["max_credits"], s["max_ai_calls"], s["max_reports"]) == (3, 1, 1, 100, 300, 0))
+ok("Solo: 3 accounts, 1 publishing account, 1 teammate, 100 credits, unlimited AI, no reports",
+   (s["max_accounts"], s["max_connected"], s["max_members"], s["max_credits"], s["max_ai_calls"], s["max_reports"]) == (3, 1, 1, 100, -1, 0))
 ok("the yearly Solo has the same limits as the monthly", all(sy[k] == s[k] for k in ("max_accounts", "max_connected", "max_members", "max_credits", "max_ai_calls", "max_reports")))
 pr, py = P["pro"], P["pro_year"]
 ok("Pro is $39 a month and $390 a year", pr["price_minor"] == 3900 and py["price_minor"] == 39000)
@@ -26,6 +26,7 @@ ok("Pro is generous: 15 accounts, 3 publishing, 5 teammates, 800 credits, 5 clie
    (pr["max_accounts"], pr["max_connected"], pr["max_members"], pr["max_credits"], pr["max_reports"], pr["max_ai_calls"]) == (15, 3, 5, 800, 5, -1))
 ok("Pro beats Solo on every limit, so it is worth stepping up to", all(pr[k] > s[k] for k in ("max_accounts", "max_connected", "max_members", "max_credits", "max_reports")))
 ok("nobody already on Pro loses anything: it never gives less than before", pr["max_accounts"] >= 15 and pr["max_members"] >= 5 and pr["max_connected"] >= 3 and pr["max_credits"] >= 600)
+ok("AI is unlimited on every plan, including the free and lifetime ones", all(P[k]["max_ai_calls"] == -1 for k in ("free", "solo", "solo_year", "pro", "pro_year", "agency", "agency_year", "lifetime")) and billing.free_plan_config()["max_ai_calls"] == -1)
 ok("Agency is off sale, monthly and yearly", P["agency"]["active"] is False and P["agency_year"]["active"] is False)
 
 # ---- what the pricing page and the app see

@@ -284,6 +284,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
     <div class="interval" id="interval" role="group" aria-label="Billing period" hidden></div>
     <div class="plans" id="plans" aria-live="polite"><div class="card muted" style="grid-column:1/-1;text-align:center">Loading prices…</div></div>
     <p class="price-note" id="price-note"></p>
+    <p class="price-note acct-note"><b>Tracked</b> accounts are the ones HookTrack reads, to show what to scale, tweak or stop. <b>Publishing</b> accounts are the ones you can schedule and post to.</p>
     <div class="need-more" id="need-more" hidden>
       <p>Tracking more than a few accounts, or running a team? <button type="button" class="linkbtn" id="nm-open" aria-expanded="false" aria-controls="nm-form">Tell us what you need</button> and we will reply with a plan that fits.</p>
       <form id="nm-form" class="need-form" hidden novalidate>
@@ -383,7 +384,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
       return '<div class="card plan">' +
         '<h3>Free</h3><p>' + esc(fp.description || 'Track and judge your YouTube channels.') + '</p>' +
         '<div class="price">$0<small> / month</small></div><div class="charged">No card needed</div>' +
-        '<ul><li>' + tick + 'Up to ' + fp.max_accounts + ' YouTube channel' + (fp.max_accounts === 1 ? '' : 's') + '</li>' +
+        '<ul><li>' + tick + 'Track up to ' + fp.max_accounts + ' YouTube channel' + (fp.max_accounts === 1 ? '' : 's') + '</li>' +
         '<li>' + tick + 'Winner detection and decisions</li><li>' + tick + 'The Discover feed</li>' +
         '<li>' + tick + esc(lim(fp.max_ai_calls, 'AI request', 'AI requests')) + ' a month</li>' +
         '<li>' + tick + 'All the free tools</li></ul>' +
@@ -397,9 +398,9 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
         '<div class="price">' + money(lt.price_minor, lt.currency) + '<small> once</small></div>' +
         (local ? '<div class="local-price">\u2248 ' + money(lt.charge_minor, lt.charge_currency) + '</div>' : '') +
         '<div class="charged">One payment, no renewals · ' + lt.left + ' of ' + lt.cap + ' spots left</div>' +
-        '<ul><li>' + tick + inc.other_accounts + ' TikTok or Instagram account</li>' +
-        '<li>' + tick + 'Up to ' + inc.youtube_accounts + ' YouTube channels</li>' +
-        '<li>' + tick + inc.connected + ' publishing account</li>' +
+        '<ul><li>' + tick + 'Track ' + inc.other_accounts + ' TikTok or Instagram account</li>' +
+        '<li>' + tick + 'Track up to ' + inc.youtube_accounts + ' YouTube channels</li>' +
+        '<li>' + tick + 'Publish to ' + inc.connected + ' account' + (inc.connected === 1 ? '' : 's') + ' (TikTok, Instagram or YouTube)</li>' +
         '<li>' + tick + 'Discover feed and AI help</li>' +
         '<li>' + tick + '60-day money-back guarantee</li>' +
         '<li>' + tick + 'More accounts any time as add-ons</li></ul>' +
@@ -420,8 +421,8 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
         (local ? '<div class="local-price">\u2248 ' + money(pl.charge_minor, pl.charge_currency) + '<small> / ' + esc(pl.interval) + '</small></div>' : '') +
         '<div class="charged">' + esc([perMonth || only, charged].filter(Boolean).join(' \u00b7 ')) + '</div>' +
         '<ul>' +
-        '<li>' + tick + esc(lim(pl.max_accounts, 'tracked account', 'tracked accounts')) + '</li>' +
-        '<li>' + tick + esc(lim(pl.max_connected, 'publishing account', 'publishing accounts')) + '</li>' +
+        '<li>' + tick + (pl.max_accounts === -1 ? 'Track unlimited accounts' : 'Track up to ' + pl.max_accounts + ' account' + (pl.max_accounts === 1 ? '' : 's')) + ': any mix of TikTok, Instagram and YouTube</li>' +
+        '<li>' + tick + (pl.max_connected === 0 ? 'No publishing accounts' : pl.max_connected === -1 ? 'Publish to unlimited accounts' : 'Publish to ' + pl.max_connected + ' account' + (pl.max_connected === 1 ? '' : 's') + ' (TikTok, Instagram or YouTube)') + '</li>' +
         '<li>' + tick + esc(lim(pl.max_members, 'team member', 'team members')) + '</li>' +
         '<li>' + tick + esc(lim(pl.max_credits, 'data credit', 'data credits')) + ' a month</li>' +
         '<li>' + tick + esc(lim(pl.max_ai_calls, 'AI request', 'AI requests')) + ' a month</li>' +

@@ -40,7 +40,7 @@ def pay(ref):
 # ---- the plan and the switch
 p = billing.get_plan("lifetime")
 ok("the plan exists with the agreed limits", p and p["interval"] == "lifetime" and p["price_minor"] == 14900 and p["max_accounts"] == 4
-   and p["max_connected"] == 1 and p["max_credits"] == 60 and p["max_members"] == 1 and p["max_ai_calls"] == 200 and p["max_reports"] == 0)
+   and p["max_connected"] == 1 and p["max_credits"] == 60 and p["max_members"] == 1 and p["max_ai_calls"] == -1 and p["max_reports"] == 0)
 ok("it is never listed with the monthly and yearly plans", "lifetime" not in [x["code"] for x in billing.list_plans()] and "lifetime" not in [x["code"] for x in billing.list_plans(only_active=True)])
 ok("it is off by default", billing.lifetime_offer() is None and billing.public_pricing()["lifetime_offer"] is None)
 
@@ -72,7 +72,7 @@ sub = billing.subscription(wa)
 ok("a paid lifetime checkout grants the plan with no end date", out["applied"] and out["lifetime"] and sub["plan_code"] == "lifetime" and sub["current_period_end"] is None and sub["lapsed"] is False)
 ok("the workspace is in a paid state and never lapses", billing.workspace_state(wa)["state"] == "paid")
 st = billing.status(wa)
-ok("its limits are the finite lifetime ones", st["limits"]["accounts"] == 4 and st["limits"]["connected"] == 1 and st["limits"]["credits"] == 60 and st["limits"]["members"] == 1 and st["limits"]["ai_calls"] == 200)
+ok("its limits are the finite lifetime ones", st["limits"]["accounts"] == 4 and st["limits"]["connected"] == 1 and st["limits"]["credits"] == 60 and st["limits"]["members"] == 1 and st["limits"]["ai_calls"] == -1)
 ok("a sale is counted", billing.lifetime_sold() == 1 and db.one("SELECT COUNT(*) AS n FROM lifetime_grants WHERE workspace_id=%s", (wa,))["n"] == 1)
 ok("paying twice for the same reference does nothing the second time", pay(ref_a)["applied"] is False)
 ok("the buyer is emailed a receipt that says it is lifetime", any("lifetime access is active" in t for _, _, t in sent) and billing.has_lifetime(wa))

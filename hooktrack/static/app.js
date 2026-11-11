@@ -2739,6 +2739,10 @@ async function pollPayment(ref, { everyMs = 3000, maxMs = 5 * 60 * 1000, closed 
   }
 }
 // One path for every "pay for a plan" button: quote (credit for unused time), Paystack popup, confirmation.
+// Plain-language lines for what a plan's limits mean, so "3 accounts" is never ambiguous.
+const trackLine = n => (n === -1 ? 'Track unlimited accounts: any mix of TikTok, Instagram and YouTube' : `Track up to ${n} account${n === 1 ? '' : 's'}: any mix of TikTok, Instagram and YouTube`);
+const publishLine = n => (n === -1 ? 'Publish to unlimited accounts' : n === 0 ? 'No publishing accounts' : `Publish to ${n} account${n === 1 ? '' : 's'} (TikTok, Instagram or YouTube)`);
+
 // The one-time lifetime deal. `attr` is the button attribute the page's click handler listens for (data-buy or data-pick).
 function lifetimeCard(b, attr) {
   const o = b.lifetime_offer;
@@ -2751,9 +2755,9 @@ function lifetimeCard(b, attr) {
       <span class="pill ${o.sold_out ? '' : 'SCALE'}">${o.sold_out ? 'sold out' : `${o.left} of ${o.cap} spots left`}</span></div>
     <div style="font-size:26px;font-weight:700;margin:6px 0">${money(o.price_minor, o.currency)} <span class="muted small" style="font-weight:400">one time</span></div>${local}
     <ul style="padding-left:18px;margin:8px 0;font-size:14px">
-      <li>${inc.other_accounts} TikTok or Instagram account and up to ${inc.youtube_accounts} YouTube channels</li>
-      <li>${inc.connected} publishing account</li><li>Discover, AI help and all the free tools</li>
-      <li>About ${inc.credits} data credits and ${inc.ai_calls} AI requests a month</li></ul>
+      <li>Track ${inc.other_accounts} TikTok or Instagram account</li><li>Track up to ${inc.youtube_accounts} YouTube channels</li>
+      <li>${publishLine(inc.connected)}</li><li>Discover, AI help and all the free tools</li>
+      <li>About ${inc.credits} data credits a month, and no limit on AI</li></ul>
     <button type="button" class="btn primary" ${attr}="lifetime" ${b.can_manage && b.payments_ready && !o.sold_out ? '' : 'disabled'}>${o.sold_out ? 'Sold out' : 'Get the lifetime deal'}</button>
     <div class="muted small" style="margin-top:6px">Pay once and keep it for as long as we run HookTrack. 60-day money-back guarantee. Need more accounts or another publishing account? They are add-ons.${b.can_manage ? '' : ' Only a workspace owner or admin can buy.'}</div></div>`;
 }
@@ -2820,7 +2824,7 @@ async function openPlanPicker(opts = {}) {
         <h3 style="margin:0">${esc(planTierName(t))}</h3>
         ${priceBlock(p, b.fx_usd || {})}
         ${p.interval === 'year' && p.price_minor ? `<div class="muted small" style="margin-top:-2px">${fmtMoney(Math.round(p.price_minor / 12), p.currency)} / month${p.charge_currency && p.charge_currency !== p.currency ? ` (≈ ${fmtMoney(Math.round(p.charge_minor / 12), p.charge_currency)})` : ''}, billed yearly${t.save ? ` · <b>save ${t.save}%</b>` : ''}</div>` : ''}
-        <ul style="padding-left:18px;margin:8px 0;font-size:13px"><li>${lim(p.max_accounts)} accounts</li><li>${lim(p.max_members)} team member${p.max_members === 1 ? '' : 's'}</li><li>${lim(p.max_ai_calls)} AI requests / month</li></ul>
+        <ul style="padding-left:18px;margin:8px 0;font-size:13px"><li>${trackLine(p.max_accounts)}</li><li>${publishLine(p.max_connected)}</li><li>${lim(p.max_members)} team member${p.max_members === 1 ? '' : 's'}</li><li>${lim(p.max_ai_calls)} AI requests / month</li></ul>
         ${p.price_minor ? `<button type="button" class="btn primary" style="width:100%" data-pick="${esc(p.code)}" ${b.can_manage && b.payments_ready ? '' : 'disabled'}>${p.code === b.plan.code && b.state === 'paid' ? 'Renew' : 'Choose ' + esc(planTierName(t))}</button>` : ''}
       </div>`; }).join('')}</div>
       ${b.can_manage ? `<label class="check" style="margin:12px 0 0;display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="pp-card" ${saveCard ? 'checked' : ''} style="width:auto;margin-top:3px">
@@ -2894,7 +2898,7 @@ pages.billing = async app => {
       ${p.interval === 'year' && p.price_minor ? `<div class="muted small" style="margin-top:-2px">${money(Math.round(p.price_minor / 12), p.currency)} / month${p.charge_currency && p.charge_currency !== p.currency ? ` (≈ ${money(Math.round(p.charge_minor / 12), p.charge_currency)})` : ''}, billed yearly${t.save ? ` · <b>save ${t.save}%</b>` : ''}</div>` : ''}
       ${!t.exact ? `<div class="muted small">${iv === 'year' ? 'Billed monthly only' : 'Billed yearly only'}</div>` : ''}
       <div class="muted small">${esc(p.description)}</div>
-      <ul style="padding-left:18px;margin:8px 0"><li>${lim(p.max_accounts)} accounts</li><li>${lim(p.max_members)} team members</li><li>${lim(p.max_ai_calls)} AI requests / month</li><li>${lim(p.max_connected)} connected publishing account${p.max_connected === 1 ? '' : 's'}</li><li>${lim(p.max_credits)} data credits / month</li><li>${p.max_reports === 0 ? 'No shareable client reports' : lim(p.max_reports) + ' shareable client report' + (p.max_reports === 1 ? '' : 's')}</li></ul>
+      <ul style="padding-left:18px;margin:8px 0"><li>${trackLine(p.max_accounts)}</li><li>${publishLine(p.max_connected)}</li><li>${lim(p.max_members)} team member${p.max_members === 1 ? '' : 's'}</li><li>${lim(p.max_ai_calls)} AI requests / month</li><li>${lim(p.max_credits)} data credits / month</li><li>${p.max_reports === 0 ? 'No shareable client reports' : lim(p.max_reports) + ' shareable client report' + (p.max_reports === 1 ? '' : 's')}</li></ul>
       ${p.code === b.plan.code && b.state !== 'trial' ? (p.price_minor && b.can_manage ? `<button class="btn" data-buy="${esc(p.code)}" ${b.payments_ready ? '' : 'disabled'}>Renew</button>` : '<span class="badge">Current</span>')
         : (p.price_minor ? `<button class="btn primary" data-buy="${esc(p.code)}" ${b.can_manage && b.payments_ready ? '' : 'disabled'} title="${b.can_manage ? (b.payments_ready ? '' : 'Payments are not set up yet') : 'Only workspace admins can change the plan'}">Choose ${esc(p.name)}</button>` : '')}
     </div>`; }).join('')}</div>`}
