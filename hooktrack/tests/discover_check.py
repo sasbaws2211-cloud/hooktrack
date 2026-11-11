@@ -273,5 +273,85 @@ ok("the next call waits out the gap", discover.refresh_due_tiktok() is None)
 discover.set_tiktok_enabled(False)
 db.execute("DELETE FROM platform_settings WHERE key IN ('discover_tiktok','discover_tiktok_state')")
 
+# ======================= Instagram =======================
+ig_calls = {"search": 0, "reels": 0, "profile": 0}
+IG_FOLLOWERS = {"u1": 900, "u2": 3000, "u3": 700, "u4": 5_000_000, "u5": 1200}
+
+
+def ig_get(path, params, key):
+    assert path == "instagram/search/hashtag" and params["media_type"] == "reels"
+    ig_calls["search"] += 1
+    posts = {str(i): {"shortcode": f"s{i}", "owner": {"username": f"u{1 + i % 5}"}, "like_count": 900 - i * 10,
+                      "taken_at": "2026-11-09T10:00:00.000Z"} for i in range(10)}
+    return {"data": {"posts": posts, "cursor": None}}
+
+
+def reel(code, views, days, text="my workout routine"):
+    return {"media": {"code": code, "taken_at": TNOW - days * day, "play_count": views, "caption": {"text": text}}}
+
+
+def ig_reels(handle, key, max_id=None):
+    ig_calls["reels"] += 1
+    olds = {"u1": (10, 300), "u2": (10, 5000), "u3": (3, 300), "u4": (10, 300), "u5": (10, 300)}[handle]
+    items = [reel(f"old{handle}{i}", olds[1], 20 + i) for i in range(olds[0])]
+    if handle in ("u1", "u4"):
+        items += [reel(f"{handle}a", 6000, 4), reel(f"{handle}b", 2000, 5, "workout tip"), reel(f"{handle}c", 1500, 6),
+                  reel(f"{handle}new", 9000, 1), reel(f"{handle}off", 4000, 4, "pasta night")]
+    if handle == "u2":
+        items.append(reel("u2a", 7000, 4))
+    if handle == "u3":
+        items.append(reel("u3a", 8000, 4))
+    return {"data": {"items": {str(i): it for i, it in enumerate(items)}}}
+
+
+def ig_profile(handle, key):
+    ig_calls["profile"] += 1
+    return {"data": {"user": {"edge_followed_by": {"count": IG_FOLLOWERS[handle]}}}}
+
+
+sociavault._get = ig_get
+sociavault.instagram_reels = ig_reels
+sociavault.instagram_profile = ig_profile
+db.execute("DELETE FROM discover_items")
+res = discover.refresh_niche_instagram("fitness", "k")
+rows = {r["video_id"]: r for r in db.query("SELECT * FROM discover_items WHERE platform='instagram'")}
+ok("Instagram keeps the two best reels from the account whose own normal they beat", set(rows) == {"u1a", "u1b"})
+ok("a flat account, one with too little history, a huge account, a too-new reel and an off-topic one are left out",
+   all(v not in rows for v in ("u1c", "u1new", "u1off", "u2a", "u3a", "u4a", "u4b")))
+r = rows["u1a"]
+ok("the stored numbers are right and the follower count places it in a band", r["views"] == 6000 and r["channel_median"] == 300 and abs(r["multiple"] - 20.0) < 0.01 and r["band"] == "under-1k" and r["subscribers"] == 900 and r["channel_id"] == "u1")
+ok("it spends one search, one credit per account measured, and a profile only for accounts that had a hit",
+   ig_calls == {"search": 1, "reels": 5, "profile": 2} and res["credits"] == 8 and res["accounts_measured"] == 5 and res["outliers"] == 2)
+ig_calls.update(search=0, reels=0, profile=0)
+db.execute("DELETE FROM discover_items")
+capped = discover.refresh_niche_instagram("fitness", "k", max_credits=3)
+ok("the credit cap is a hard limit and stops quietly", capped["credits"] == 3 and sum(ig_calls.values()) == 3)
+
+app.dependency_overrides[auth.current] = lambda: auth.Ctx(user_id=1, email="a@example.com", name="A", workspace_id=1, role="owner")
+db.execute("DELETE FROM discover_items")
+discover.refresh_niche_instagram("fitness", "k")
+body = c.get("/api/discover").json()
+ig_items = [i for i in body["items"] if i["platform"] == "instagram"]
+ok("an Instagram item links to the reel and keeps no thumbnail", ig_items and ig_items[0]["url"] == "https://www.instagram.com/reel/u1a/" and ig_items[0]["thumb"] == "")
+ok("the platform filter offers Instagram once it has items", [p["key"] for p in body["platforms"]] == ["youtube", "instagram"] or "instagram" in [p["key"] for p in body["platforms"]])
+ok("and filters to it", {i["platform"] for i in c.get("/api/discover?platform=instagram").json()["items"]} == {"instagram"})
+app.dependency_overrides.clear()
+
+db.execute("DELETE FROM platform_settings WHERE key IN ('discover_instagram','discover_instagram_state')")
+sociavault.resolve_server_key = lambda: "k"
+vaultwatch.scheduled_paused = lambda: False
+vaultwatch.state = lambda: {"credits": 5000}
+ok("Instagram discovery is off by default and the scheduler does nothing", discover.paid_enabled("instagram") is False and discover.refresh_due_instagram() is None)
+discover.set_paid_enabled("instagram", True)
+vaultwatch.state = lambda: {"credits": 100}
+ok("when switched on it still waits for a comfortable balance", discover.refresh_due_instagram() is None)
+vaultwatch.state = lambda: {"credits": 5000}
+first = discover.refresh_due_instagram()
+ok("with a healthy balance it refreshes one niche within its credit cap", first and first["platform"] == "instagram" and first["credits"] <= discover.TT_MAX_CREDITS)
+ok("the next call waits out the gap", discover.refresh_due_instagram() is None)
+ok("TikTok's switch is separate", discover.paid_enabled("tiktok") is False)
+discover.set_paid_enabled("instagram", False)
+db.execute("DELETE FROM platform_settings WHERE key IN ('discover_instagram','discover_instagram_state')")
+
 db.execute("DELETE FROM discover_items"); db.execute("DELETE FROM youtube_quota"); db.execute("DELETE FROM platform_settings WHERE key = 'discover_state'")
 print("ALL OK")

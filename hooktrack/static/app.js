@@ -2238,6 +2238,7 @@ pages.calendar = async app => {
 
 /* ---------------- inspiration library ---------------- */
 /* ---------------- discover: what is working for similar creators ---------------- */
+const PLAT_NAME = { youtube: 'YouTube', tiktok: 'TikTok', instagram: 'Instagram' };
 pages.discover = async app => {
   const q = new URLSearchParams();
   if (state.discPlatform) q.set('platform', state.discPlatform);
@@ -2264,10 +2265,10 @@ pages.discover = async app => {
     </div>
     <div class="small muted" style="margin-top:8px">${esc(d.caution)}</div></div>
     ${d.items.length ? `<div class="insp-grid disc-grid">${d.items.map((x, i) => `<div class="insp-card disc-card">
-      <a href="${esc(x.url)}" target="_blank" rel="noopener" title="Watch it on ${x.platform === 'tiktok' ? 'TikTok' : 'YouTube'}">${x.thumb ? `<img src="${esc(x.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<div class="disc-tile">${x.platform === 'tiktok' ? 'TikTok' : 'Video'}</div>`}</a>
+      <a href="${esc(x.url)}" target="_blank" rel="noopener" title="Watch it on ${PLAT_NAME[x.platform] || 'the platform'}">${x.thumb ? `<img src="${esc(x.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<div class="disc-tile">${PLAT_NAME[x.platform] || 'Video'}</div>`}</a>
       <div class="body">
         <div class="row" style="gap:6px;flex-wrap:wrap"><span class="pill SCALE" title="${esc(x.note)}">${esc(x.multiple_label.replace('x', '×'))} their usual</span>
-          <span class="pill" title="Creator size">${esc(x.band_label)}</span>${x.platform === 'tiktok' ? '<span class="pill">TikTok</span>' : ''}</div>
+          <span class="pill" title="Creator size">${esc(x.band_label)}</span>${x.platform !== 'youtube' ? `<span class="pill">${PLAT_NAME[x.platform] || ''}</span>` : ''}</div>
         <div class="hook">${esc(x.title)}</div>
         <div class="small muted">${esc(x.channel)} · ${fmtViews(x.views)} views · ${x.days_ago === 0 ? 'today' : x.days_ago + ' day' + (x.days_ago === 1 ? '' : 's') + ' ago'}</div>
         <div class="small muted">${esc(x.pattern)}. ${esc(x.note)}.</div>
@@ -2288,7 +2289,7 @@ pages.discover = async app => {
   $$('[data-sv]', app).forEach(b => (b.onclick = guard(async () => {
     const x = d.items[+b.dataset.sv];
     const f = new FormData();
-    f.set('title', x.title); f.set('hook_text', x.title); f.set('source_url', x.url); f.set('platform', x.platform === 'tiktok' ? 'TikTok' : 'YouTube');
+    f.set('title', x.title); f.set('hook_text', x.title); f.set('source_url', x.url); f.set('platform', PLAT_NAME[x.platform] || 'YouTube');
     f.set('notes', `${x.note}. ${x.pattern}.`); f.set('use_in_ai', 'true');
     await api('POST', '/api/inspiration', f);
     b.textContent = 'Saved ✓'; b.disabled = true;

@@ -1,10 +1,12 @@
 """Fill the Discover feed by hand, one niche at a time, with a credit cap.
 
     python tools/discover_refresh.py --tiktok --niches fitness --max-credits 15   # TikTok: about 15 SociaVault credits per niche
+    python tools/discover_refresh.py --instagram --niches fitness                 # Instagram: about 14 credits per niche
     python tools/discover_refresh.py --youtube --niches fitness,food             # YouTube: about 300 free API units per niche
     python tools/discover_refresh.py --tiktok-on / --tiktok-off                  # let the scheduler refresh TikTok weekly, or not
+    python tools/discover_refresh.py --instagram-on / --instagram-off            # the same for Instagram
 
-TikTok costs SociaVault credits (search 1 + 1 per account measured), so a run never spends more than --max-credits and refuses to
+TikTok and Instagram cost SociaVault credits (a search, then 1 per account measured, plus 1 per Instagram account that has a hit), so a run never spends more than --max-credits and refuses to
 start when the balance would drop under --reserve. The scheduler never refreshes TikTok on its own unless you run --tiktok-on, and
 even then only while the balance stays above 300.
 """
@@ -33,20 +35,29 @@ def main() -> int:
     ap.add_argument("--niches", help="comma-separated; default is every niche")
     ap.add_argument("--max-credits", type=int, default=discover.TT_MAX_CREDITS, help="per niche (TikTok)")
     ap.add_argument("--reserve", type=int, default=0, help="credits that must remain after the run (TikTok)")
+    ap.add_argument("--instagram", action="store_true")
     ap.add_argument("--tiktok-on", action="store_true")
     ap.add_argument("--tiktok-off", action="store_true")
+    ap.add_argument("--instagram-on", action="store_true")
+    ap.add_argument("--instagram-off", action="store_true")
     a = ap.parse_args()
     if a.tiktok_on or a.tiktok_off:
-        discover.set_tiktok_enabled(a.tiktok_on)
+        discover.set_paid_enabled("tiktok", a.tiktok_on)
         print("TikTok discovery is now", "ON" if a.tiktok_on else "OFF")
+        return 0
+    if a.instagram_on or a.instagram_off:
+        discover.set_paid_enabled("instagram", a.instagram_on)
+        print("Instagram discovery is now", "ON" if a.instagram_on else "OFF")
         return 0
     niches = a.niches.split(",") if a.niches else list(discover.NICHE_TERMS)
     bad = [n for n in niches if n not in discover.NICHE_TERMS]
     if bad:
         ap.error(f"unknown niche {bad}; choose from {list(discover.NICHE_TERMS)}")
-    if not a.tiktok and not a.youtube:
-        ap.error("give --tiktok and/or --youtube")
-    if a.tiktok:
+    if not a.tiktok and not a.youtube and not a.instagram:
+        ap.error("give --tiktok, --instagram and/or --youtube")
+    for flag, fn in ((a.tiktok, discover.refresh_niche_tiktok), (a.instagram, discover.refresh_niche_instagram)):
+        if not flag:
+            continue
         key = sociavault.resolve_server_key()
         balance = vaultwatch._fetch_credits(key)
         print(f"SociaVault balance {balance}")
@@ -54,7 +65,7 @@ def main() -> int:
             if balance - a.max_credits < a.reserve:
                 print(f"stopping before {n}: it could take the balance under {a.reserve}")
                 break
-            res = discover.refresh_niche_tiktok(n, key, max_credits=a.max_credits)
+            res = fn(n, key, max_credits=a.max_credits)
             balance -= res["credits"]
             print(res)
     if a.youtube:

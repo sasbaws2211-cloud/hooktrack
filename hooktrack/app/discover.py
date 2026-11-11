@@ -237,13 +237,23 @@ class _Credits:
         self.used += n
 
 
+PAID = {"tiktok": ("discover_tiktok", "discover_tiktok_state"), "instagram": ("discover_instagram", "discover_instagram_state")}
+
+
+def paid_enabled(platform: str) -> bool:
+    return bool((sociavault.platform_get(PAID[platform][0]) or {}).get("enabled"))
+
+
+def set_paid_enabled(platform: str, on: bool) -> None:
+    sociavault.platform_set(PAID[platform][0], {"enabled": bool(on)})
+
+
 def tiktok_enabled() -> bool:
-    cfg = sociavault.platform_get(TT_SETTING) or {}
-    return bool(cfg.get("enabled"))
+    return paid_enabled("tiktok")
 
 
 def set_tiktok_enabled(on: bool) -> None:
-    sociavault.platform_set(TT_SETTING, {"enabled": bool(on)})
+    set_paid_enabled("tiktok", on)
 
 
 def _tt_items(page: dict) -> list:
@@ -318,7 +328,7 @@ def refresh_niche_tiktok(niche: str, key: str, max_credits: int = TT_MAX_CREDITS
                        ON CONFLICT (platform, video_id) DO UPDATE SET niche=EXCLUDED.niche, band=EXCLUDED.band, views=EXCLUDED.views,
                          channel_median=EXCLUDED.channel_median, multiple=EXCLUDED.multiple, subscribers=EXCLUDED.subscribers,
                          title=EXCLUDED.title, collected_at=now()""",
-                    (vid, niche, band, handle, c["nickname"][:120], (v["desc"] or "(no caption)")[:200], v["ts"], v["views"],
+                    (vid, niche, band, handle, c["nickname"][:120], (" ".join(v["desc"].split()) or "(no caption)")[:200], v["ts"], v["views"],
                      round(median), round(multiple, 2), c["followers"]))
                 found += 1
     except CreditCap:
@@ -328,10 +338,111 @@ def refresh_niche_tiktok(niche: str, key: str, max_credits: int = TT_MAX_CREDITS
             "accounts_measured": measured, "outliers": found, "credits": credits.used}
 
 
-def refresh_due_tiktok() -> Optional[dict]:
-    """Scheduler entry. Does nothing unless TikTok discovery has been switched on, the balance is comfortable and no account sync is
-    being held back for lack of credits. One niche per call, each niche weekly."""
-    if not tiktok_enabled():
+IG_TAGS = {
+    "comedy": ["comedy", "funny"], "fitness": ["fitness", "workout"], "beauty": ["makeup", "skincare"], "food": ["recipes", "foodie"],
+    "tech": ["business", "entrepreneur"], "education": ["learnontiktok", "tutorial"], "gaming": ["gaming", "gamer"],
+    "lifestyle": ["lifestyle", "vlog"], "music": ["music", "cover"],
+}
+IG_MIN_OTHERS = 6        # an Instagram reels page is short, so a slightly smaller history is accepted than on YouTube
+
+
+def _ig_reel(item: dict) -> Optional[dict]:
+    """One reel from either the hashtag search or a user's reels page. Field names vary, so every one is read defensively."""
+    m = (item or {}).get("media") or item or {}
+    code = m.get("code") or m.get("shortcode")
+    ts = m.get("taken_at") or m.get("taken_at_timestamp") or m.get("timestamp")
+    if isinstance(ts, str):
+        d = _parse(ts)
+        ts = d.timestamp() if d else 0
+    views = next((m.get(k) for k in ("play_count", "video_play_count", "ig_play_count", "view_count") if m.get(k) is not None), None)
+    cap = m.get("caption")
+    text = (cap.get("text") if isinstance(cap, dict) else cap) or ""
+    o = m.get("owner") or m.get("user")
+    owner = o.get("username") if isinstance(o, dict) else None
+    if not owner and isinstance(cap, dict):
+        owner = (cap.get("user") or {}).get("username")
+    return {"code": code, "ts": int(ts or 0), "views": int(views) if views is not None else None, "text": str(text).strip(),
+            "likes": int(m.get("like_count") or 0), "owner": owner}
+
+
+def refresh_niche_instagram(niche: str, key: str, max_credits: int = TT_MAX_CREDITS, measure: int = TT_MEASURE) -> dict:
+    """Rebuild one niche's Instagram outliers. A hashtag search (1 credit, 10 reels) names accounts but gives no follower or view
+    counts, so each candidate's own reels are read (1 credit): reels from the last WINDOW_DAYS that beat the account's own normal by
+    OUTLIER_MULTIPLE are kept, and only then is the profile read (1 credit) for the follower count that places it in a size band."""
+    credits = _Credits(max_credits)
+    cutoff_ts = (_now() - timedelta(days=MIN_AGE_DAYS)).timestamp()
+    window_ts = (_now() - timedelta(days=WINDOW_DAYS)).timestamp()
+    tag = IG_TAGS[niche][0]
+    cands: dict = {}
+    pages = measured = found = 0
+    try:
+        cursor = None
+        for _ in range(2):
+            credits.spend()
+            params = {"hashtag": tag, "media_type": "reels", "date_posted": "last-week"}
+            if cursor:
+                params["cursor"] = cursor
+            data = sociavault._payload(sociavault._get("instagram/search/hashtag", params, key))
+            pages += 1
+            posts = data.get("posts") or {}
+            posts = list(posts.values()) if isinstance(posts, dict) else list(posts)
+            for it in posts:
+                r = _ig_reel(it)
+                u = r["owner"] if r else None
+                if u:
+                    cands[u] = max(cands.get(u, 0), r["likes"])
+            cursor = data.get("cursor")
+            if not posts or not cursor:
+                break
+        for handle in sorted(cands, key=lambda h: -cands[h])[:measure]:
+            credits.spend()
+            page = sociavault._payload(sociavault.instagram_reels(handle, key))
+            measured += 1
+            items = page.get("items") or page.get("reels") or page.get("posts") or page.get("data") or []
+            items = list(items.values()) if isinstance(items, dict) else list(items)
+            reels = [r for r in (_ig_reel(i) for i in items) if r and r["code"] and r["views"] is not None and r["ts"]]
+            mature = [r for r in reels if r["ts"] <= cutoff_ts]
+            recent = [r for r in mature if r["ts"] >= window_ts and r["views"] >= MIN_VIEWS
+                      and (on_topic(niche, r["text"]) or tag in r["text"].lower())]
+            if not recent:
+                continue
+            best = {}
+            for r in recent:
+                others = [x["views"] for x in mature if x["code"] != r["code"]]
+                if len(others) < IG_MIN_OTHERS:
+                    continue
+                med = logic._median(others)
+                if med and med >= MIN_MEDIAN and r["views"] / med >= OUTLIER_MULTIPLE:
+                    best[r["code"]] = (r["views"] / med, med, r)
+            if not best:
+                continue
+            credits.spend()
+            followers = sociavault._profile_stats("instagram", sociavault.instagram_profile(handle, key))["followers"]
+            if followers is None or followers > MAX_SUBSCRIBERS:
+                continue
+            band = peer.band_for(followers) or "under-1k"
+            for multiple, med, r in sorted(best.values(), key=lambda x: -x[0])[:MAX_PER_CHANNEL]:
+                db.execute(
+                    """INSERT INTO discover_items(platform, video_id, niche, band, channel_id, channel_title, title, duration_s,
+                                                  published_at, views, channel_median, multiple, subscribers, collected_at)
+                       VALUES ('instagram',%s,%s,%s,%s,%s,%s,NULL,to_timestamp(%s),%s,%s,%s,%s, now())
+                       ON CONFLICT (platform, video_id) DO UPDATE SET niche=EXCLUDED.niche, band=EXCLUDED.band, views=EXCLUDED.views,
+                         channel_median=EXCLUDED.channel_median, multiple=EXCLUDED.multiple, subscribers=EXCLUDED.subscribers,
+                         title=EXCLUDED.title, collected_at=now()""",
+                    (r["code"], niche, band, handle, handle[:120], (" ".join(r["text"].split()) or "(no caption)")[:200], r["ts"], r["views"],
+                     round(med), round(multiple, 2), followers))
+                found += 1
+    except CreditCap:
+        pass
+    purge()
+    return {"platform": "instagram", "niche": niche, "searches": pages, "candidates": len(cands),
+            "accounts_measured": measured, "outliers": found, "credits": credits.used}
+
+
+def refresh_due_paid(platform: str) -> Optional[dict]:
+    """Scheduler entry for a platform that costs SociaVault credits. Does nothing unless that platform has been switched on, the
+    balance is comfortable and no account sync is being held back for lack of credits. One niche per call, each weekly."""
+    if not paid_enabled(platform):
         return None
     key = sociavault.resolve_server_key()
     if not key or vaultwatch.scheduled_paused():
@@ -339,7 +450,8 @@ def refresh_due_tiktok() -> Optional[dict]:
     bal = (vaultwatch.state() or {}).get("credits")
     if bal is None or bal < TT_MIN_BALANCE:
         return None
-    state = platform_get(TT_STATE_KEY) or {}
+    state_key = PAID[platform][1]
+    state = platform_get(state_key) or {}
     now = _now()
     last_run = _parse(state.get("_last_run", ""))
     if last_run and now - last_run < timedelta(minutes=GAP_BETWEEN_RUNS_MIN):
@@ -352,21 +464,30 @@ def refresh_due_tiktok() -> Optional[dict]:
     if not due:
         return None
     niche = sorted(due)[0][1]
-    with leases.lease(LEASE + "-tiktok", ttl=900) as got:
+    refresh = refresh_niche_tiktok if platform == "tiktok" else refresh_niche_instagram
+    with leases.lease(f"{LEASE}-{platform}", ttl=900) as got:
         if not got:
             return None
         try:
-            res = refresh_niche_tiktok(niche, key)
+            res = refresh(niche, key)
         except sociavault.SociaVaultError as e:
-            log.warning("tiktok discover refresh for %s stopped: %s", niche, e)
+            log.warning("%s discover refresh for %s stopped: %s", platform, niche, e)
             state["_last_run"] = now.isoformat()
-            platform_set(TT_STATE_KEY, state)
+            platform_set(state_key, state)
             return None
         state[niche] = now.isoformat()
         state["_last_run"] = now.isoformat()
-        platform_set(TT_STATE_KEY, state)
-        log.info("tiktok discover refreshed: %s", res)
+        platform_set(state_key, state)
+        log.info("%s discover refreshed: %s", platform, res)
         return res
+
+
+def refresh_due_tiktok() -> Optional[dict]:
+    return refresh_due_paid("tiktok")
+
+
+def refresh_due_instagram() -> Optional[dict]:
+    return refresh_due_paid("instagram")
 
 
 # ---------------- the feed ----------------
@@ -379,11 +500,13 @@ def _mult_label(m: float) -> str:
 def _item(r: dict) -> dict:
     days = max(0, (_now() - r["published_at"]).days)
     tt = r["platform"] == "tiktok"
+    ig = r["platform"] == "instagram"
     return {
         "platform": r["platform"], "video_id": r["video_id"], "title": r["title"], "channel": r["channel_title"],
         "url": (f"https://www.tiktok.com/@{r['channel_id']}/video/{r['video_id']}" if tt
+                else f"https://www.instagram.com/reel/{r['video_id']}/" if ig
                 else f"https://www.youtube.com/shorts/{r['video_id']}"),
-        "thumb": "" if tt else f"https://i.ytimg.com/vi/{r['video_id']}/mqdefault.jpg",     # TikTok's cover links expire: none is kept
+        "thumb": "" if (tt or ig) else f"https://i.ytimg.com/vi/{r['video_id']}/mqdefault.jpg",     # TikTok and Instagram cover links expire: none is kept
         "views": r["views"], "multiple": round(r["multiple"], 1), "multiple_label": _mult_label(r["multiple"]),
         "channel_median": r["channel_median"],
         "subscribers": r["subscribers"], "band": r["band"], "band_label": peer.BAND_LABELS.get(r["band"], r["band"]),
@@ -420,7 +543,7 @@ def feed(niche: str = Query("", max_length=40), band: str = Query("", max_length
     niche = niche if niche in NICHE_TERMS else ""
     band = band if band in {b[0] for b in peer.BANDS} else ""
     applied = {"niche": niche, "band": band}
-    platform = platform if platform in ("youtube", "tiktok") else ""
+    platform = platform if platform in ("youtube", "tiktok", "instagram") else ""
     where, args = ["TRUE"], []
     if platform:
         where.append("platform=%s"); args.append(platform)
@@ -437,8 +560,9 @@ def feed(niche: str = Query("", max_length=40), band: str = Query("", max_length
         "niches": [{"key": k, "label": NICHE_LABELS.get(k, k.title()), "count": counts.get(k, 0), "refreshed": state.get(k)}
                    for k in NICHE_TERMS],
         "bands": [{"key": k, "label": peer.BAND_LABELS[k]} for k, _, _ in peer.BANDS],
-        "available": youtube_api.available(), "applied": applied, "platforms": [{"key": "youtube", "label": "YouTube Shorts"}] + ([{"key": "tiktok", "label": "TikTok"}]
-                                                                    if db.one("SELECT 1 FROM discover_items WHERE platform='tiktok' LIMIT 1") else []),
+        "available": youtube_api.available(), "applied": applied, "platforms": [{"key": "youtube", "label": "YouTube Shorts"}] + [
+            {"key": k, "label": lbl} for k, lbl in (("tiktok", "TikTok"), ("instagram", "Instagram Reels"))
+            if db.one("SELECT 1 FROM discover_items WHERE platform=%s LIMIT 1", (k,))],
         "rule": f"Short videos from the last {WINDOW_DAYS} days that got at least {OUTLIER_MULTIPLE:g}x what their own channel usually gets.",
         "caution": "These worked for similar creators. That does not mean they will work for you: try your own version and see.",
     }

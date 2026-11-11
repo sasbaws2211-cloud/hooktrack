@@ -65,6 +65,10 @@ async def _sync_scheduler_loop():
             await asyncio.to_thread(discover.refresh_due_tiktok)    # paid data: does nothing unless switched on and the balance is healthy
         except Exception:
             log.exception("tiktok discover refresh failed")
+        try:
+            await asyncio.to_thread(discover.refresh_due_instagram)
+        except Exception:
+            log.exception("instagram discover refresh failed")
         await asyncio.sleep(300)
 
 
