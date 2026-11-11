@@ -36,6 +36,11 @@ ok("a larger account gets a larger benchmark", big and big["band"] == "10k-100k"
 ok("unknown size falls back to all sizes", peer.lookup("TikTok", "main", "fitness", None)["band"] == "all")
 other = peer.lookup("TikTok", "main", "cooking", 400)
 ok("a niche with no sample falls back to the general group", other and other["niche"] == "general" and not other["exact"])
+thin = [{"platform": "instagram", "fmt": "main", "niche": "general", "followers": 50000, "median_views": 30000 + i, "n_posts": 10} for i in range(8)]
+peer.store_samples("seed", thin)
+ok("a beginner is never compared with a platform's big accounts when their own band has no data", peer.lookup("Instagram", "main", "fitness", 300) is None and peer.lookup("Instagram", "main", "fitness", 60000) is not None)
+ok("an account of unknown size can still use the all-sizes group", peer.lookup("Instagram", "main", "fitness", None) is not None)
+db.execute("DELETE FROM peer_benchmarks WHERE platform='instagram'"); peer.forget()
 ok("another platform has no benchmark", peer.lookup("Instagram", "main", "fitness", 400) is None)
 
 # ---- user-derived figures need 20 accounts and then win over the seed

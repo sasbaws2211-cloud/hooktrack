@@ -117,10 +117,9 @@ def lookup(platform: str | None, fmt: str, niche_text: str | None, followers) ->
     if not rows:
         return None
     plat, niche, band = canonical_platform(platform), niche_bucket(niche_text), band_for(followers)
-    chain = []
-    if band:
-        chain += [(niche, band), ("general", band)]
-    chain += [(niche, "all"), ("general", "all")]
+    # A known follower band is only ever compared with its own band. The all-sizes group is for accounts whose size is
+    # unknown: using it for a known beginner would measure them against accounts hundreds of times larger.
+    chain = [(niche, band), ("general", band)] if band else [(niche, "all"), ("general", "all")]
     seen = set()
     for n, b in chain:
         if (n, b) in seen:
