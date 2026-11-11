@@ -200,6 +200,31 @@ def channel(handle: str = "", channel_id: str = "") -> dict:
     return _channel_dict(items[0])
 
 
+def channels(ids: list) -> list:
+    """Many channels by id, 50 per call (1 unit per 50): for judging a list of candidates cheaply."""
+    out = []
+    ids = [i for i in ids if _CHANNEL_ID.match(i or "")]
+    for i in range(0, len(ids), 50):
+        data = _get("channels", {"part": "snippet,statistics,contentDetails", "id": ",".join(ids[i:i + 50]), "maxResults": 50})
+        out += [_channel_dict(it) for it in data.get("items") or []]
+    return out
+
+
+def search_recent_shorts(query: str, published_after_iso: str, order: str = "viewCount", limit: int = 50) -> list:
+    """Short videos (under 4 minutes) on a topic published since a date, best-performing first. search.list costs 100 units
+    (not 1 like the other calls), so it is counted as such. Returns [{video_id, channel_id}]."""
+    _spend(99)                                   # _get counts the other 1
+    data = _get("search", {"part": "snippet", "type": "video", "videoDuration": "short", "q": query, "order": order,
+                           "publishedAfter": published_after_iso, "maxResults": max(1, min(50, limit))})
+    out = []
+    for it in data.get("items") or []:
+        vid = (it.get("id") or {}).get("videoId")
+        cid = (it.get("snippet") or {}).get("channelId")
+        if vid and cid:
+            out.append({"video_id": vid, "channel_id": cid})
+    return out
+
+
 def uploads_playlist_for(channel_id: str) -> str:
     """The uploads playlist id is the channel id with UC changed to UU, so no extra call is needed once the id is known."""
     return "UU" + channel_id[2:] if _CHANNEL_ID.match(channel_id or "") else ""

@@ -67,7 +67,7 @@ const state = {
   me: null, accounts: [], phones: [], settings: {}, ai: { available: false }, sv: { configured: false },
   weekStart: null,   // set lazily from the workspace time zone
   calMonth: null,
-  calAccount: '', hookStatus: '', hookAccount: '', postsView: 'board',
+  calAccount: '', hookStatus: '', hookAccount: '', postsView: 'board', discNiche: null, discBand: '',
 };
 
 async function api(method, path, body) {
@@ -867,6 +867,7 @@ pages.dashboard = async app => {
     <div><b>You’re set up — what’s next?</b>
       <ul class="next-list">
         <li><a href="#/pipeline">Plan posts</a> on the board or calendar</li>
+        <li><a href="#/discover">See what is working</a> for creators like you</li>
         <li><a href="#/inspiration">Save inspiration</a> from competitors (optional)</li>
         <li><a href="#/settings">Settings</a> — connect your TikTok, Instagram and YouTube accounts to publish</li>
       </ul>
@@ -2236,6 +2237,60 @@ pages.calendar = async app => {
 
 
 /* ---------------- inspiration library ---------------- */
+/* ---------------- discover: what is working for similar creators ---------------- */
+pages.discover = async app => {
+  const q = new URLSearchParams();
+  if (state.discNiche === null) q.set('mine', '1');           // first visit: start on the niche and size that fit this workspace
+  else {
+    if (state.discNiche) q.set('niche', state.discNiche);
+    if (state.discBand) q.set('band', state.discBand);
+  }
+  const d = await api('GET', '/api/discover' + (q.toString() ? '?' + q : ''));
+  if (state.discNiche === null) { state.discNiche = d.applied.niche; state.discBand = d.applied.band; }
+  const fmtViews = n => fmt(n);
+  const empty = !d.available
+    ? 'This feed is built from YouTube data, which is not switched on for this platform yet.'
+    : 'Nothing here yet. The feed is rebuilt every couple of days for each niche, so check back soon, or try another niche.';
+  app.innerHTML = `<div class="page-head"><div><h1>What's working in your niche</h1>
+    <div class="sub">YouTube Shorts that did far better than their own channel usually does. ${esc(d.rule)}</div></div></div>
+    <div class="card" style="margin-bottom:14px"><div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
+      <label class="small muted">Niche</label>
+      <select id="dn" style="width:auto"><option value="">All niches</option>${d.niches.map(n => `<option value="${esc(n.key)}" ${state.discNiche === n.key ? 'selected' : ''}>${esc(n.label)}${n.count ? ` (${n.count})` : ''}</option>`).join('')}</select>
+      <label class="small muted">Creator size</label>
+      <select id="db" style="width:auto"><option value="">Any size</option>${d.bands.map(b => `<option value="${esc(b.key)}" ${state.discBand === b.key ? 'selected' : ''}>${esc(b.label)}</option>`).join('')}</select>
+    </div>
+    <div class="small muted" style="margin-top:8px">${esc(d.caution)}</div></div>
+    ${d.items.length ? `<div class="insp-grid disc-grid">${d.items.map((x, i) => `<div class="insp-card disc-card">
+      <a href="${esc(x.url)}" target="_blank" rel="noopener" title="Watch it on YouTube"><img src="${esc(x.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer"></a>
+      <div class="body">
+        <div class="row" style="gap:6px;flex-wrap:wrap"><span class="pill SCALE" title="${esc(x.note)}">${esc(x.multiple_label.replace('x', '×'))} their usual</span>
+          <span class="pill" title="Creator size">${esc(x.band_label)}</span></div>
+        <div class="hook">${esc(x.title)}</div>
+        <div class="small muted">${esc(x.channel)} · ${fmtViews(x.views)} views · ${x.days_ago === 0 ? 'today' : x.days_ago + ' day' + (x.days_ago === 1 ? '' : 's') + ' ago'}</div>
+        <div class="small muted">${esc(x.pattern)}. ${esc(x.note)}.</div>
+        <div class="actions row">
+          <button class="btn sm primary" data-mk="${i}" title="Write your own take, with AI">Make my version</button>
+          <button class="btn sm" data-sv="${i}" title="Keep it on your Inspiration page">Save</button>
+          <a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">Watch ↗</a>
+        </div></div></div>`).join('')}</div>`
+      : `<div class="empty card"><h2>Nothing to show yet</h2><p>${esc(empty)}</p></div>`}`;
+  $('#dn', app).onchange = e => { state.discNiche = e.target.value; route(); };
+  $('#db', app).onchange = e => { state.discBand = e.target.value; route(); };
+  $$('[data-mk]', app).forEach(b => (b.onclick = guard(async () => {
+    const x = d.items[+b.dataset.mk];
+    if (!state.accounts.length) { toast('Add an account first (Accounts page) so the ideas are written for it.', true); return; }
+    ideasModal(route, { brief: `Write my own version of this hook that worked for a similar creator: "${x.title}" (${x.pattern.toLowerCase()}). Keep the idea, change the subject and wording so it is mine.` });
+  })));
+  $$('[data-sv]', app).forEach(b => (b.onclick = guard(async () => {
+    const x = d.items[+b.dataset.sv];
+    const f = new FormData();
+    f.set('title', x.title); f.set('hook_text', x.title); f.set('source_url', x.url); f.set('platform', 'YouTube');
+    f.set('notes', `${x.note}. ${x.pattern}.`); f.set('use_in_ai', 'true');
+    await api('POST', '/api/inspiration', f);
+    b.textContent = 'Saved ✓'; b.disabled = true;
+  })));
+};
+
 pages.inspiration = async app => {
   const rows = await api('GET', '/api/inspiration');
   app.innerHTML = `<div class="page-head"><div><h1>Inspiration</h1>
@@ -2581,11 +2636,11 @@ function simulateThresholdsModal() {
   });
 }
 
-function ideasModal(onDone) {
+function ideasModal(onDone, pre = {}) {
   const m = openModal(`<h2>✨ AI hook ideas</h2>${aiNotice()}<p class="muted small">Uses your best and worst posts plus Inspiration items marked for AI as style references. Nothing is added until you press <b>Add to Posts</b>.</p>
-    <div class="fields"><div><label class="f">For account</label><select id="acc">${accountOptions(state.hookAccount, 'Choose…')}</select></div>
+    <div class="fields"><div><label class="f">For account</label><select id="acc">${accountOptions(pre.account || state.hookAccount, 'Choose…')}</select></div>
     <div><label class="f">How many</label><input type="number" id="n" value="5" min="1" max="12"></div>
-    <div class="full"><label class="f">Direction (optional)</label><input id="brief" maxlength="500" placeholder="e.g. lean into long-distance anxiety, slideshow format"></div></div>
+    <div class="full"><label class="f">Direction (optional)</label><input id="brief" maxlength="500" value="${esc(pre.brief || '')}" placeholder="e.g. lean into long-distance anxiety, slideshow format"></div></div>
     <div id="out"></div><div class="actions"><button class="btn" data-close>Close</button><button class="btn ai" id="go" ${state.ai.available ? '' : 'disabled'}>Generate</button></div>`, true);
   $('#go', m).onclick = guard(async () => {
     const acc = $('#acc', m).value; if (!acc) throw new Error('Choose an account');

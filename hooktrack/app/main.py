@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, legal, logic, media, pages, peer, publish, seo, sociavault, vaultwatch, youtube_api
+from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, discover, legal, logic, media, pages, peer, publish, seo, sociavault, vaultwatch, youtube_api
 from . import backup, digest, reports
 from .auth import Ctx, admin, current
 from .import_xlsx import import_workbook
@@ -57,6 +57,10 @@ async def _sync_scheduler_loop():
             await asyncio.to_thread(peer.refresh_users_if_due)     # once a day: anonymous peer benchmarks from our own workspaces
         except Exception:
             log.exception("peer benchmark refresh failed")
+        try:
+            await asyncio.to_thread(discover.refresh_due)     # the shared "what's working in your niche" feed: one niche at a time
+        except Exception:
+            log.exception("discover refresh failed")
         await asyncio.sleep(300)
 
 
@@ -204,6 +208,7 @@ async def trial_paywall(request: Request, call_next):
     return await call_next(request)
 app.include_router(auth.router)
 app.include_router(billing.router)
+app.include_router(discover.router)
 app.include_router(baseline.router)
 app.include_router(media.router)
 app.include_router(reports.router)
