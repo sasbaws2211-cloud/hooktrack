@@ -19,14 +19,27 @@ def public_url() -> str:
     return (os.environ.get("HOOKTRACK_PUBLIC_URL") or "").strip().rstrip("/")
 
 
+def _local_database() -> bool:
+    """True when this process is working against a database on this same machine. A developer's .env holds the real Resend key, so
+    without this guard every demo, test or local run that signs somebody up would send a REAL email through the live account (and
+    bounce, for made-up addresses). Set HOOKTRACK_ALLOW_LOCAL_EMAIL=1 to send from a local database on purpose."""
+    if os.environ.get("HOOKTRACK_ALLOW_LOCAL_EMAIL", "").strip() == "1":
+        return False
+    from urllib.parse import urlparse
+    return (urlparse(os.environ.get("DATABASE_URL", "")).hostname or "") in ("127.0.0.1", "localhost", "::1")
+
+
 def configured() -> bool:
-    return bool(os.environ.get("RESEND_API_KEY", "").strip() and public_url())
+    return bool(os.environ.get("RESEND_API_KEY", "").strip() and public_url()) and not _local_database()
 
 
 def send(to: str, subject: str, text: str) -> bool:
     """Send a plain-text email. Returns False (and logs) instead of raising: callers must not leak failures."""
     key = os.environ.get("RESEND_API_KEY", "").strip()
     if not key:
+        return False
+    if _local_database():
+        log.info("not sending %r to %s: this is a local database (set HOOKTRACK_ALLOW_LOCAL_EMAIL=1 to send from one)", subject, to)
         return False
     sender = os.environ.get("HOOKTRACK_EMAIL_FROM", "").strip()
     if not sender:

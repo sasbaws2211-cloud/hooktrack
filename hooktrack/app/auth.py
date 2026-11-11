@@ -23,6 +23,27 @@ SESSION_DAYS = 30
 INVITE_DAYS = 7
 ROLES = ("owner", "admin", "member")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# A strict check for NEW addresses (sign-up and invitations). The loose EMAIL_RE above stays for sign-in and password reset, so an
+# older account with an unusual address can still get in.
+_LOCAL_ATOM = r"[a-z0-9!#$%&'*+/=?^_`{|}~-]+"
+_STRICT_LOCAL = re.compile(rf"^{_LOCAL_ATOM}(\.{_LOCAL_ATOM})*$")
+_DOMAIN_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+_TLD = re.compile(r"^([a-z]{2,24}|xn--[a-z0-9-]{2,59})$")
+
+
+def valid_email_format(e: str) -> bool:
+    """True for a standard address: one @, a local part of 1-64 allowed characters with no leading, trailing or doubled dots, and a
+    domain of two or more dot-separated labels (letters, digits, inner hyphens; each 1-63 long) ending in a real-looking TLD (letters,
+    2-24 long, so no digits and no bare IP addresses). Lower-case input is expected."""
+    if not e or len(e) > 254 or e.count("@") != 1 or not e.isascii():
+        return False
+    local, domain = e.split("@")
+    if not local or len(local) > 64 or not _STRICT_LOCAL.fullmatch(local):
+        return False
+    labels = domain.split(".")
+    if len(labels) < 2 or not all(_DOMAIN_LABEL.fullmatch(x) for x in labels) or not _TLD.fullmatch(labels[-1]):
+        return False
+    return True
 
 
 # ---------- passwords & tokens ----------
@@ -187,6 +208,12 @@ VERIFY_HOURS = 48
 SETTING_REQUIRE_VERIFY = "require_email_verification"
 SETTING_SIGNUP_IP_DAILY = "signup_ip_daily_limit"
 DEFAULT_SIGNUP_IP_DAILY = 5
+# Abuse brakes on sign-up (each one a stop a bot cannot get round by changing its IP address):
+SETTING_SIGNUP_GLOBAL_HOURLY = "signup_global_hourly_limit"      # all new accounts, whoever they come from
+DEFAULT_SIGNUP_GLOBAL_HOURLY = 150
+DOMAIN_SIGNUPS_PER_HOUR = 5                                      # new accounts from one email domain (the big mailbox providers are exempt)
+COMMON_MAIL_DOMAINS = frozenset("""gmail.com googlemail.com outlook.com hotmail.com live.com msn.com yahoo.com ymail.com icloud.com me.com
+    aol.com proton.me protonmail.com pm.me gmx.com gmx.net mail.com zoho.com yandex.com fastmail.com hey.com""".split())
 
 
 def _psetting(key: str, default):
@@ -243,8 +270,8 @@ def _mark_verified(user_id: int) -> None:
 
 def _clean_email(email: str) -> str:
     e = (email or "").strip().lower()
-    if len(e) > 254 or not EMAIL_RE.match(e):
-        raise HTTPException(400, "Enter a valid email address")
+    if not EMAIL_RE.match(e) or not valid_email_format(e):
+        raise HTTPException(400, "Enter a valid email address, like name@example.com")
     return e
 
 
@@ -279,6 +306,7 @@ class SignupIn(BaseModel):
     workspace_name: str = Field("", max_length=100)
     timezone: str = Field("", max_length=64)   # the browser's zone; unknown/invalid -> UTC
     ref: str = Field("", max_length=120)       # the page that sent them here (?ref=...); only a safe slug is kept
+    website: str = Field("", max_length=200)   # a hidden trap field: people never see it, so only a bot fills it in
 
 
 REF_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
@@ -302,11 +330,20 @@ def signup_sources() -> list[dict]:
 def signup(b: SignupIn, request: Request, response: Response, background: BackgroundTasks):
     ip = _client_ip(request)
     _throttle("signup:" + ip, 10, 3600)
+    if b.website.strip():                                       # the trap field was filled: a bot
+        raise HTTPException(400, "We couldn't create that account.")
     email = _clean_email(b.email)
     emailguard.require_permanent(email)
+    emailguard.require_deliverable(email)                       # never send a confirmation to an address that can't receive it
     _check_password(b.password)
     if db.one("SELECT 1 FROM users WHERE email=%s", (email,)):
         raise HTTPException(409, "An account with that email already exists. Log in instead.")
+    dom = email.rpartition("@")[2]
+    if dom not in COMMON_MAIL_DOMAINS and _hits("signup-domain:" + dom, 3600) >= DOMAIN_SIGNUPS_PER_HOUR:
+        raise HTTPException(429, "Too many accounts were just created with that email domain. Please try again later.")
+    g = int(_psetting(SETTING_SIGNUP_GLOBAL_HOURLY, DEFAULT_SIGNUP_GLOBAL_HOURLY) or 0)
+    if g > 0 and _hits("signup-global", 3600) >= g:
+        raise HTTPException(429, "We're getting a lot of sign-ups right now. Please try again in a few minutes.")
     daily = int(_psetting(SETTING_SIGNUP_IP_DAILY, DEFAULT_SIGNUP_IP_DAILY) or 0)
     if daily > 0 and _hits("signup-day:" + ip, 86400) >= daily:    # only completed sign-ups count toward this
         raise HTTPException(429, "Too many accounts have been created from your network today. "
@@ -321,6 +358,9 @@ def signup(b: SignupIn, request: Request, response: Response, background: Backgr
             db.execute(f"UPDATE {t} SET workspace_id = %s WHERE workspace_id IS NULL", (ws,))
         db.execute("SELECT ht_tighten_workspace_ids()")   # now that nothing is orphaned, require it going forward
     _record("signup-day:" + ip)
+    _record("signup-global")
+    if dom not in COMMON_MAIL_DOMAINS:
+        _record("signup-domain:" + dom)
     if verification_required():
         background.add_task(send_verification, uid, email)
     _new_session(response, request, uid, ws)
@@ -782,6 +822,7 @@ class InviteIn(BaseModel):
 def invite_create(b: InviteIn, ctx: Ctx = Depends(admin)):
     email = _clean_email(b.email)
     emailguard.require_permanent(email)
+    emailguard.require_deliverable(email)
     if b.role not in ("admin", "member"):
         raise HTTPException(400, "Invite as admin or member")
     if db.one("SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=%s AND u.email=%s",

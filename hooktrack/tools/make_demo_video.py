@@ -776,8 +776,9 @@ def main() -> int:
     url = build_database()
     env = {**os.environ, "DATABASE_URL": url, "HOOKTRACK_SECRET": "demo-secret", "HOOKTRACK_SYNC_INTERVAL_HOURS": "0", "HOOKTRACK_BACKUP": "0",
            "YOUTUBE_API_KEY": "AIzaDEMOKEYNOTREAL00000000000000000000", "SOCIAVAULT_API_KEY": ""}
-    for k in ("HOOKTRACK_PUBLIC_URL", "RESEND_API_KEY"):
-        env.pop(k, None)
+    for k in ("HOOKTRACK_PUBLIC_URL", "RESEND_API_KEY", "HOOKTRACK_EMAIL_FROM"):
+        env[k] = ""         # present but empty: the app only reads .env for variables that are absent, so no real email can be sent
+    env["HOOKTRACK_ALLOW_LOCAL_EMAIL"] = "0"
     server = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(PORT)], cwd=ROOT, env=env,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:

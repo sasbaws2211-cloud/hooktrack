@@ -135,6 +135,75 @@ def require_permanent(email: str) -> None:
         raise HTTPException(400, MESSAGE)
 
 
+# ---- addresses that can never receive mail
+# Every sign-up sends a confirmation email, so a bot that signs up with made-up addresses makes this server send mail that bounces, which
+# damages the sending domain's reputation. These checks refuse an address that cannot receive mail BEFORE anything is sent. They only
+# apply when this server can actually send email (mailer.configured()), so local development and the tests are not affected.
+RESERVED_TLDS = frozenset("example test invalid localhost local internal localdomain home lan corp onion arpa".split())
+RESERVED_DOMAINS = frozenset("example.com example.net example.org".split())
+UNDELIVERABLE_MESSAGE = "That email address can't receive mail. Please use your real email address."
+_dns_cache: dict = {}
+_DNS_TTL = 6 * 3600
+
+
+def is_reserved(domain: str) -> bool:
+    """A domain reserved for documentation and testing (RFC 2606 / 6761): it can never receive real mail."""
+    d = (domain or "").strip().lower().strip(".")
+    return d.rpartition(".")[2] in RESERVED_TLDS or any(d == r or d.endswith("." + r) for r in RESERVED_DOMAINS)
+
+
+def _lookup(domain: str):
+    """True when the domain publishes somewhere to deliver mail, False when it definitely does not, None when we could not tell
+    (a slow or failing DNS server must never block a real customer)."""
+    import dns.resolver
+    res = dns.resolver.Resolver()
+    res.lifetime = res.timeout = 3.0
+    try:
+        for rr in res.resolve(domain, "MX"):
+            return bool(str(rr.exchange).strip("."))         # a "null MX" (just ".") says the domain accepts no mail
+    except dns.resolver.NXDOMAIN:
+        return False
+    except dns.resolver.NoAnswer:
+        pass                                                 # no MX: mail falls back to the domain's own address record
+    except Exception:
+        return None
+    for kind in ("A", "AAAA"):
+        try:
+            if list(res.resolve(domain, kind)):
+                return True
+        except dns.resolver.NXDOMAIN:
+            return False
+        except dns.resolver.NoAnswer:
+            continue
+        except Exception:
+            return None
+    return False
+
+
+def can_receive_mail(domain: str):
+    import time
+    d = (domain or "").strip().lower().strip(".")
+    hit = _dns_cache.get(d)
+    if hit and time.monotonic() - hit[0] < _DNS_TTL:
+        return hit[1]
+    ok = _lookup(d)
+    if ok is not None:                                       # only a definite answer is remembered
+        _dns_cache[d] = (time.monotonic(), ok)
+        if len(_dns_cache) > 5000:
+            _dns_cache.clear()
+    return ok
+
+
+def require_deliverable(email: str) -> None:
+    """Raise 400 when the address's domain is reserved or has no mail records. Does nothing when this server sends no email."""
+    from . import mailer
+    if not mailer.configured():
+        return
+    dom = _domain(email)
+    if is_reserved(dom) or can_receive_mail(dom) is False:
+        raise HTTPException(400, UNDELIVERABLE_MESSAGE)
+
+
 def clean_domains(values) -> list[str]:
     out = []
     for v in values or []:

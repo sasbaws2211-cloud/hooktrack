@@ -8,6 +8,7 @@ from app.main import app
 
 db.init_schema()
 billing._pset(auth.SETTING_SIGNUP_IP_DAILY, 1000)
+auth.DOMAIN_SIGNUPS_PER_HOUR = 1000          # this test makes many accounts from one domain on purpose
 db.execute("DELETE FROM rate_limits")
 sfx = str(int(time.time()))
 ok = lambda n, cond: print(("PASS " if cond else "FAIL ") + n) or (cond or sys.exit(1))

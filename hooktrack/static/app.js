@@ -680,7 +680,8 @@ function renderAuth(mode = 'login', note = '') {
     ${note ? `<div class="notice">${esc(note)}</div>` : ''}
     <form id="auth-form" class="fields" style="grid-template-columns:1fr">
       ${mode === 'signup' ? `<div><label class="f">Your name</label><input name="name" autocomplete="name" maxlength="100"></div>
-        <div><label class="f">Workspace name</label><input name="workspace_name" placeholder="e.g. Acme Growth" maxlength="100"></div>` : ''}
+        <div><label class="f">Workspace name</label><input name="workspace_name" placeholder="e.g. Acme Growth" maxlength="100"></div>
+        <div style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden" aria-hidden="true"><label>Leave this empty<input name="website" tabindex="-1" autocomplete="off"></label></div>` : ''}
       <div><label class="f">Email</label><input name="email" type="email" autocomplete="email" required></div>
       <div><label class="f">Password${mode === 'signup' ? ' (8+ characters)' : ''}</label><input name="password" type="password" minlength="${mode === 'signup' ? 8 : 1}" autocomplete="${mode === 'login' ? 'current-password' : 'new-password'}" required></div>
       <div id="auth-err" class="small" style="color:var(--bad)" role="alert"></div>
