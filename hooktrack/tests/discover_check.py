@@ -208,6 +208,7 @@ TT_SEARCH = [tv("a1", "t1", 12000, 4), tv("a1", "t2", 4000, 5), tv("a1", "t3", 3
 
 def tt_get(path, params, key):
     assert path == "tiktok/search/keyword"
+    assert params["sort_by"] == "most-liked" and params["date_posted"] == "this-week"       # never newest-first: those are all too young
     tt_calls["search"] += 1
     return {"search_item_list": {str(i): x for i, x in enumerate(TT_SEARCH)}, "cursor": 30, "has_more": 0}
 

@@ -265,7 +265,9 @@ def refresh_niche_tiktok(niche: str, key: str, max_credits: int = TT_MAX_CREDITS
         cursor = None
         for _ in range(2):
             credits.spend()
-            params = {"query": NICHE_TERMS[niche][0], "date_posted": "this-week", "sort_by": "date-posted"}
+            # most-liked, not newest: newest-first returns videos hours old, all too young to judge, and an outlier is by
+            # definition a video that has already taken off
+            params = {"query": NICHE_TERMS[niche][0], "date_posted": "this-week", "sort_by": "most-liked"}
             if cursor:
                 params["cursor"] = cursor
             page = sociavault._get("tiktok/search/keyword", params, key)
