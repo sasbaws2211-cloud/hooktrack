@@ -477,3 +477,32 @@ details.pm-more[open] { padding-bottom: 14px; }
 .logo img { width: 100%; height: 100%; display: block; }
 
 .disc-tile { display: grid; place-items: center; height: 120px; background: var(--surface-2); color: var(--muted); font-weight: 700; letter-spacing: .04em; }
+
+/* discover: play a video inside the app */
+.disc-play { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; background: var(--surface-2); }
+.disc-play img, .disc-play .disc-tile { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; object-fit: cover; }
+.disc-play .disc-tile { background: linear-gradient(135deg, var(--surface-2), var(--border)); font-size: 0; }
+.disc-play-btn { position: absolute; inset: 0; margin: auto; width: 46px; height: 46px; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; display: grid; place-items: center; font-size: 18px; padding-left: 3px; pointer-events: none; transition: transform .15s; }
+.disc-play:hover .disc-play-btn { transform: scale(1.1); background: rgba(0,0,0,.78); }
+.modal.vid-modal { max-width: min(760px, calc(100vw - 24px)); }
+.vid-head { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.vid-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; overflow: hidden; }
+.vid-frame.tall { aspect-ratio: auto; height: min(78vh, 740px); max-width: 420px; margin: 0 auto; }
+.vid-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+/* discover cards: a tidier, more finished look */
+.disc-card { transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
+.disc-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.14); border-color: var(--accent, var(--border)); }
+.disc-chip { position: absolute; font-size: 11px; font-weight: 600; line-height: 1; padding: 5px 8px; border-radius: 999px; background: rgba(0,0,0,.62); color: #fff; backdrop-filter: blur(4px); pointer-events: none; }
+.disc-chip.plat { top: 8px; left: 8px; letter-spacing: .02em; }
+.disc-chip.views { bottom: 8px; right: 8px; }
+.disc-card .body { padding: 14px 16px 16px; gap: 8px; }
+.disc-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.disc-title { font-size: 15px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: calc(2 * 1.35em); }
+.disc-meta { font-size: 12.5px; color: var(--muted); }
+.disc-why { font-size: 12px; color: var(--muted); padding-top: 8px; border-top: 1px solid var(--border); }
+.disc-actions { gap: 6px; flex-wrap: wrap; padding-top: 4px; }
+.disc-actions .btn.primary { flex: 1 1 auto; }
+
+.disc-stats { display: flex; gap: 14px; font-size: 12.5px; font-weight: 600; color: var(--text); }
+.disc-stats span { white-space: nowrap; }

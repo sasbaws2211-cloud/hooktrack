@@ -155,13 +155,13 @@ def refresh_niche(niche: str, max_units: int = 600) -> dict:
         for multiple, v in [w for w in wins if w[0] >= OUTLIER_MULTIPLE][:MAX_PER_CHANNEL]:
             db.execute(
                 """INSERT INTO discover_items(platform, video_id, niche, band, channel_id, channel_title, title, duration_s,
-                                              published_at, views, channel_median, multiple, subscribers, collected_at)
-                   VALUES ('youtube',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now())
+                                              published_at, views, channel_median, multiple, subscribers, likes, comments, collected_at)
+                   VALUES ('youtube',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now())
                    ON CONFLICT (platform, video_id) DO UPDATE SET niche=EXCLUDED.niche, band=EXCLUDED.band, views=EXCLUDED.views,
                      channel_median=EXCLUDED.channel_median, multiple=EXCLUDED.multiple, subscribers=EXCLUDED.subscribers,
-                     title=EXCLUDED.title, collected_at=now()""",
+                     likes=EXCLUDED.likes, comments=EXCLUDED.comments, title=EXCLUDED.title, collected_at=now()""",
                 (v["id"], niche, band, cid, v["channel_title"][:120], v["title"][:200], v["duration_s"], _parse(v["published"]),
-                 v["views"], round(median), round(multiple, 2), ch["subscribers"]))
+                 v["views"], round(median), round(multiple, 2), ch["subscribers"], v.get("likes"), v.get("comments")))
             found += 1
     purge()
     return {"niche": niche, "candidates": len(cand), "channels_checked": checked, "outliers": found,
@@ -293,7 +293,8 @@ def refresh_niche_tiktok(niche: str, key: str, max_credits: int = TT_MAX_CREDITS
                         or ts < window_ts or not on_topic(niche, desc)):
                     continue
                 c = cands.setdefault(handle, {"followers": int(f), "nickname": au.get("nickname") or handle, "videos": {}})
-                c["videos"][str(a.get("aweme_id") or "")] = {"views": views, "ts": ts, "desc": desc}
+                c["videos"][str(a.get("aweme_id") or "")] = {"views": views, "ts": ts, "desc": desc, "likes": st.get("digg_count"),
+                                                             "comments": st.get("comment_count"), "shares": st.get("share_count")}
             data = sociavault._payload(page)
             cursor = data.get("cursor")
             if not data.get("has_more") or not cursor:
@@ -323,13 +324,13 @@ def refresh_niche_tiktok(niche: str, key: str, max_credits: int = TT_MAX_CREDITS
             for multiple, vid, v in [w for w in wins if w[0] >= OUTLIER_MULTIPLE][:MAX_PER_CHANNEL]:
                 db.execute(
                     """INSERT INTO discover_items(platform, video_id, niche, band, channel_id, channel_title, title, duration_s,
-                                                  published_at, views, channel_median, multiple, subscribers, collected_at)
-                       VALUES ('tiktok',%s,%s,%s,%s,%s,%s,NULL,to_timestamp(%s),%s,%s,%s,%s, now())
+                                                  published_at, views, channel_median, multiple, subscribers, likes, comments, shares, collected_at)
+                       VALUES ('tiktok',%s,%s,%s,%s,%s,%s,NULL,to_timestamp(%s),%s,%s,%s,%s,%s,%s,%s, now())
                        ON CONFLICT (platform, video_id) DO UPDATE SET niche=EXCLUDED.niche, band=EXCLUDED.band, views=EXCLUDED.views,
                          channel_median=EXCLUDED.channel_median, multiple=EXCLUDED.multiple, subscribers=EXCLUDED.subscribers,
-                         title=EXCLUDED.title, collected_at=now()""",
+                         likes=EXCLUDED.likes, comments=EXCLUDED.comments, shares=EXCLUDED.shares, title=EXCLUDED.title, collected_at=now()""",
                     (vid, niche, band, handle, c["nickname"][:120], (" ".join(v["desc"].split()) or "(no caption)")[:200], v["ts"], v["views"],
-                     round(median), round(multiple, 2), c["followers"]))
+                     round(median), round(multiple, 2), c["followers"], _n(v.get("likes")), _n(v.get("comments")), _n(v.get("shares"))))
                 found += 1
     except CreditCap:
         pass                                  # the cap is a normal stop: keep what was found so far
@@ -362,7 +363,7 @@ def _ig_reel(item: dict) -> Optional[dict]:
     if not owner and isinstance(cap, dict):
         owner = (cap.get("user") or {}).get("username")
     return {"code": code, "ts": int(ts or 0), "views": int(views) if views is not None else None, "text": str(text).strip(),
-            "likes": int(m.get("like_count") or 0), "owner": owner}
+            "likes": int(m.get("like_count") or 0), "comments": _n(m.get("comment_count")), "owner": owner}
 
 
 def refresh_niche_instagram(niche: str, key: str, max_credits: int = TT_MAX_CREDITS, measure: int = TT_MEASURE) -> dict:
@@ -424,13 +425,13 @@ def refresh_niche_instagram(niche: str, key: str, max_credits: int = TT_MAX_CRED
             for multiple, med, r in sorted(best.values(), key=lambda x: -x[0])[:MAX_PER_CHANNEL]:
                 db.execute(
                     """INSERT INTO discover_items(platform, video_id, niche, band, channel_id, channel_title, title, duration_s,
-                                                  published_at, views, channel_median, multiple, subscribers, collected_at)
-                       VALUES ('instagram',%s,%s,%s,%s,%s,%s,NULL,to_timestamp(%s),%s,%s,%s,%s, now())
+                                                  published_at, views, channel_median, multiple, subscribers, likes, comments, collected_at)
+                       VALUES ('instagram',%s,%s,%s,%s,%s,%s,NULL,to_timestamp(%s),%s,%s,%s,%s,%s,%s, now())
                        ON CONFLICT (platform, video_id) DO UPDATE SET niche=EXCLUDED.niche, band=EXCLUDED.band, views=EXCLUDED.views,
                          channel_median=EXCLUDED.channel_median, multiple=EXCLUDED.multiple, subscribers=EXCLUDED.subscribers,
-                         title=EXCLUDED.title, collected_at=now()""",
+                         likes=EXCLUDED.likes, comments=EXCLUDED.comments, title=EXCLUDED.title, collected_at=now()""",
                     (r["code"], niche, band, handle, handle[:120], (" ".join(r["text"].split()) or "(no caption)")[:200], r["ts"], r["views"],
-                     round(med), round(multiple, 2), followers))
+                     round(med), round(multiple, 2), followers, (r["likes"] or None), r["comments"]))
                 found += 1
     except CreditCap:
         pass
@@ -492,6 +493,14 @@ def refresh_due_instagram() -> Optional[dict]:
 
 # ---------------- the feed ----------------
 
+def _n(v) -> Optional[int]:
+    """A count from a platform response, or None when it is missing or not a number."""
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _mult_label(m: float) -> str:
     """A ratio past 100x says 'a fluke on a tiny normal', not a number anyone can aim for, so it is shown as 100x+."""
     return "100x+" if m >= 100 else f"{round(m, 1):g}x"
@@ -507,7 +516,8 @@ def _item(r: dict) -> dict:
                 else f"https://www.instagram.com/reel/{r['video_id']}/" if ig
                 else f"https://www.youtube.com/shorts/{r['video_id']}"),
         "thumb": "" if (tt or ig) else f"https://i.ytimg.com/vi/{r['video_id']}/mqdefault.jpg",     # TikTok and Instagram cover links expire: none is kept
-        "views": r["views"], "multiple": round(r["multiple"], 1), "multiple_label": _mult_label(r["multiple"]),
+        "views": r["views"], "likes": r.get("likes"), "comments": r.get("comments"), "shares": r.get("shares"),
+        "multiple": round(r["multiple"], 1), "multiple_label": _mult_label(r["multiple"]),
         "channel_median": r["channel_median"],
         "subscribers": r["subscribers"], "band": r["band"], "band_label": peer.BAND_LABELS.get(r["band"], r["band"]),
         "niche": r["niche"], "days_ago": days, "pattern": hook_pattern(r["title"]),

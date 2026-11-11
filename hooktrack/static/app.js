@@ -2242,6 +2242,23 @@ pages.calendar = async app => {
 /* ---------------- saved ideas (the inspiration library; routes, tables and API paths keep that name) ---------------- */
 /* ---------------- discover: what is working for similar creators ---------------- */
 const PLAT_NAME = { youtube: 'YouTube', tiktok: 'TikTok', instagram: 'Instagram' };
+// each platform's own official embed player, so a video plays here without leaving HookTrack
+function embedUrl(x) {
+  const id = encodeURIComponent(x.video_id || '');
+  if (!id) return '';
+  if (x.platform === 'tiktok') return `https://www.tiktok.com/embed/v2/${id}`;
+  if (x.platform === 'instagram') return `https://www.instagram.com/reel/${id}/embed`;
+  return `https://www.youtube.com/embed/${id}?autoplay=1&rel=0&playsinline=1`;
+}
+function playVideoModal(x) {
+  const src = embedUrl(x);
+  if (!src) { window.open(x.url, '_blank', 'noopener'); return; }
+  const el = openModal(`<div class="vid-head"><div class="hook">${esc(x.title)}</div><button class="btn sm" data-close>Close</button></div>
+    <div class="vid-frame ${x.platform === 'youtube' ? '' : 'tall'}"><iframe src="${esc(src)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin" title="${esc(x.title)}"></iframe></div>
+    <div class="small muted" style="margin-top:8px">Not playing? <a href="${esc(x.url)}" target="_blank" rel="noopener">Watch it on ${PLAT_NAME[x.platform] || 'the platform'} ↗</a></div>`);
+  el.querySelector('.modal').classList.add('vid-modal');
+  el.addEventListener('click', e => { if (e.target === el) el.close(); });   // click outside closes, and the video stops
+}
 pages.discover = async app => {
   const q = new URLSearchParams();
   if (state.discPlatform) q.set('platform', state.discPlatform);
@@ -2268,22 +2285,28 @@ pages.discover = async app => {
     </div>
     <div class="small muted" style="margin-top:8px">${esc(d.caution)}</div></div>
     ${d.items.length ? `<div class="insp-grid disc-grid">${d.items.map((x, i) => `<div class="insp-card disc-card">
-      <a href="${esc(x.url)}" target="_blank" rel="noopener" title="Watch it on ${PLAT_NAME[x.platform] || 'the platform'}">${x.thumb ? `<img src="${esc(x.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<div class="disc-tile">${PLAT_NAME[x.platform] || 'Video'}</div>`}</a>
+      <a href="${esc(x.url)}" class="disc-play" data-play="${i}" title="Play it here">${x.thumb ? `<img src="${esc(x.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<div class="disc-tile">${PLAT_NAME[x.platform] || 'Video'}</div>`}
+        <span class="disc-chip plat">${PLAT_NAME[x.platform] || 'Video'}</span>
+        <span class="disc-chip views">${fmtViews(x.views)} views</span>
+        <span class="disc-play-btn" aria-hidden="true">▶</span></a>
       <div class="body">
-        <div class="row" style="gap:6px;flex-wrap:wrap"><span class="pill SCALE" title="${esc(x.note)}">${esc(x.multiple_label.replace('x', '×'))} their usual</span>
-          <span class="pill" title="Creator size">${esc(x.band_label)}</span>${x.platform !== 'youtube' ? `<span class="pill">${PLAT_NAME[x.platform] || ''}</span>` : ''}</div>
-        <div class="hook">${esc(x.title)}</div>
-        <div class="small muted">${esc(x.channel)} · ${fmtViews(x.views)} views · ${x.days_ago === 0 ? 'today' : x.days_ago + ' day' + (x.days_ago === 1 ? '' : 's') + ' ago'}</div>
-        <div class="small muted">${esc(x.pattern)}. ${esc(x.note)}.</div>
-        <div class="actions row">
+        <div class="disc-tags"><span class="pill SCALE" title="${esc(x.note)}">${esc(x.multiple_label.replace('x', '×'))} their usual</span>
+          <span class="pill" title="Creator size">${esc(x.band_label)}</span></div>
+        <div class="hook disc-title" title="${esc(x.title)}">${esc(x.title)}</div>
+        <div class="disc-meta">${esc(x.channel)} · ${x.days_ago === 0 ? 'today' : x.days_ago + 'd ago'}</div>
+        ${[['♥', 'Likes', x.likes], ['💬', 'Comments', x.comments], ['↗', 'Shares', x.shares]].filter(e => e[2] != null).length
+          ? `<div class="disc-stats">${[['♥', 'Likes', x.likes], ['💬', 'Comments', x.comments], ['↗', 'Shares', x.shares]].filter(e => e[2] != null).map(e => `<span title="${e[1]}">${e[0]} ${fmt(e[2])}</span>`).join('')}</div>` : ''}
+        <div class="disc-why">${esc(x.pattern)}. ${esc(x.note)}.</div>
+        <div class="actions row disc-actions">
           <button class="btn sm primary" data-mk="${i}" title="Write your own take, with AI">Make my version</button>
           <button class="btn sm" data-sv="${i}" title="Keep it on your Saved page">Save</button>
-          <a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">Watch ↗</a>
+          <button class="btn sm" data-play="${i}" title="Play it here, without leaving HookTrack">▶ Play</button>
         </div></div></div>`).join('')}</div>`
       : `<div class="empty card"><h2>Nothing to show yet</h2><p>${esc(empty)}</p></div>`}`;
   if ($('#dp', app)) $('#dp', app).onchange = e => { state.discPlatform = e.target.value; route(); };
   $('#dn', app).onchange = e => { state.discNiche = e.target.value; route(); };
   $('#db', app).onchange = e => { state.discBand = e.target.value; route(); };
+  $$('[data-play]', app).forEach(b => (b.onclick = e => { e.preventDefault(); playVideoModal(d.items[+b.dataset.play]); }));
   $$('[data-mk]', app).forEach(b => (b.onclick = guard(async () => {
     const x = d.items[+b.dataset.mk];
     if (!state.accounts.length) { toast('Add an account first (Accounts page) so the ideas are written for it.', true); return; }
