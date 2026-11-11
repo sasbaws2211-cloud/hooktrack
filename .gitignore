@@ -85,3 +85,6 @@ yarn-error.log
 
 .secret
 hooktrack/tools/demo_out/
+
+/tools/
+/*.log
