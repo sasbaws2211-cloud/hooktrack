@@ -2,6 +2,9 @@
 
     python tools/seed_benchmarks.py --youtube-discover 40 --dry-run      # YouTube only, free (official API), prints the result
     python tools/seed_benchmarks.py --accounts tools/seed_accounts.json  # TikTok / Instagram / YouTube handles you listed
+    python tools/seed_benchmarks.py --tiktok-batch                       # TikTok: measure accounts with up to 45 credits, stage them
+    python tools/seed_benchmarks.py --staging-report                     # what has been staged so far, per follower band
+    python tools/seed_benchmarks.py --publish                            # turn the staged TikTok accounts into the live benchmark
     python tools/seed_benchmarks.py --youtube-discover 40 --accounts tools/seed_accounts.json
 
 It writes ONLY anonymous aggregates (quartiles of per-account medians) to the peer_benchmarks table, source 'seed'. Handles
@@ -13,6 +16,15 @@ Sampling matters more than volume. A benchmark built from viral accounts tells a
 
 seed_accounts.json looks like:  {"tiktok": {"fitness": ["handle1", "handle2"]}, "instagram": {"food": ["handle3"]},
                                  "youtube": {"gaming": ["@handle4"]}}
+TikTok discovery finds accounts through keyword search (one credit returns ~30 authors with their follower counts) and then
+measures each account from its own last ~20 posts (one credit each: the follower count comes from the search result). It
+never uses the views shown in search results: search surfaces videos that are already doing well, which inflated an earlier
+attempt about 50x. Accounts are filled band by band so under-1k accounts, which search rarely returns, are not starved.
+Everything found is stored as niche 'general', because a search term does not make an account belong to a niche.
+SociaVault credits arrive in small packs, so TikTok is seeded in BATCHES. Each --tiktok-batch spends at most --max-credits
+(default 45), saves every account it measures at once (by a hash of the handle, never the handle itself) in
+peer_seed_samples, skips accounts already measured, and only looks for the follower bands that still need accounts.
+Nothing goes live until you look at --staging-report and run --publish.
 Cost: YouTube discovery costs 200 units per niche (two searches) plus about 3 per channel (free, 10,000 units a day). TikTok and
 Instagram cost about 2 SociaVault credits per account. 100 accounts is a few hundred credits, once, refreshed monthly.
 """
@@ -88,6 +100,137 @@ def discover_youtube(per_niche: int, only: list | None = None) -> dict:
     return found
 
 
+class CreditCap(Exception):
+    pass
+
+
+class Credits:
+    """Counts SociaVault credits spent by this run and refuses to pass the cap."""
+
+    def __init__(self, cap: int):
+        self.cap, self.used = cap, 0
+
+    def spend(self, n: int = 1) -> None:
+        if self.used + n > self.cap:
+            raise CreditCap(f"credit cap of {self.cap} reached")
+        self.used += n
+
+
+BAND_KEYS = [b[0] for b in peer.BANDS]
+
+
+def tiktok_discover_candidates(key: str, per_band: int, credits: Credits, max_search: int, needs: dict | None = None,
+                               skip: set | None = None) -> dict:
+    """band -> {handle: followers}. Keyword search (1 credit per ~30 results), several terms, newest first. Stops when every
+    band has 2x the accounts needed (some will fail to measure), or after max_search credits of searching."""
+    found: dict = {b: {} for b in BAND_KEYS}
+    skip = skip or set()
+    needs = needs or {b: per_band for b in BAND_KEYS}
+    want = {b: needs[b] * 2 for b in BAND_KEYS}
+    spent = 0
+    terms = [t for ts in NICHE_TERMS.values() for t in ts]
+    for term in terms:
+        cursor = None
+        for _ in range(2):
+            if spent >= max_search or all(len(found[b]) >= want[b] for b in BAND_KEYS):
+                return found
+            credits.spend()
+            spent += 1
+            params = {"query": term, "date_posted": "this-week", "sort_by": "date-posted"}
+            if cursor:
+                params["cursor"] = cursor
+            data = sociavault._payload(sociavault._get("tiktok/search/keyword", params, key))
+            items = data.get("search_item_list") or []
+            items = list(items.values()) if isinstance(items, dict) else items
+            for it in items:
+                au = ((it or {}).get("aweme_info") or {}).get("author") or {}
+                handle, f = au.get("unique_id"), au.get("follower_count")
+                band = peer.band_for(int(f)) if f is not None else None
+                if (handle and band and needs.get(band, 0) > 0 and len(found[band]) < want[band]
+                        and peer._handle_hash("tiktok", handle) not in skip and not any(handle in v for v in found.values())):
+                    found[band][handle] = int(f)
+            cursor = data.get("cursor")
+            if not data.get("has_more") or not cursor:
+                break
+    return found
+
+
+def tiktok_measure(handle: str, followers: int, key: str, credits: Credits) -> dict | None:
+    """One credit: the account's last posts. Uses only mature, non-pinned posts; needs MIN_POSTS_PER_ACCOUNT of them."""
+    credits.spend()
+    page = sociavault.tiktok_videos(handle, key)
+    cutoff = datetime.now(timezone.utc).timestamp() - logic.MATURE_DAYS * 86400
+    views = []
+    for item in sociavault._aweme_items(page):
+        if item.get("is_top"):
+            continue
+        ts = int(item.get("create_time") or item.get("createTime") or 0)
+        if ts and ts > cutoff:
+            continue
+        st = item.get("statistics") or item.get("stats") or {}
+        views.append(int(st.get("play_count") or st.get("playCount") or 0))
+    views = views[:POSTS_PER_ACCOUNT]
+    m = _median_views(views)
+    return {"followers": followers, "median": m, "n": len(views)} if m else None
+
+
+def tiktok_batch(key: str, per_band: int, cap: int, max_search: int, reserve: int) -> dict:
+    """Measure TikTok accounts for the bands that still need them, staging each one as soon as it is measured."""
+    from app import vaultwatch
+    have = peer.staged_counts("tiktok")
+    needs = {b: max(0, per_band - have[b]) for b in BAND_KEYS}
+    print("staged so far: " + ", ".join(f"{b}={have[b]}" for b in BAND_KEYS) + f"  (target {per_band} per band)")
+    if not any(needs.values()):
+        print("every band already has its target; run --staging-report, then --publish")
+        return {"measured": 0, "credits": 0}
+    balance = vaultwatch._fetch_credits(key)
+    cap = min(cap, balance - reserve)
+    print(f"SociaVault balance {balance}; this batch may spend up to {max(cap, 0)}")
+    if cap < 6:
+        raise SystemExit(f"Not enough credits for a batch ({balance} in the account, {reserve} kept back).")
+    credits = Credits(cap)
+    done = peer.staged_hashes("tiktok")
+    measured = 0
+    try:
+        found = tiktok_discover_candidates(key, max(needs.values()), credits, max_search=min(max_search, max(3, cap // 4)),
+                                           needs=needs, skip=done)
+        print("new candidates: " + ", ".join(f"{b}={len(v)}" for b, v in found.items()))
+        for band in sorted(BAND_KEYS, key=lambda x: len(found[x])):
+            for handle, followers in found[band].items():
+                if needs[band] <= 0:
+                    break
+                try:
+                    r = tiktok_measure(handle, followers, key, credits)
+                except CreditCap:
+                    raise
+                except Exception as e:
+                    print(f"  skipped one account ({type(e).__name__})")
+                    continue
+                if not r:
+                    continue
+                if peer.stage_sample("tiktok", handle, "main", "general", followers, r["median"], r["n"]):
+                    measured += 1
+                    needs[band] -= 1
+                    print(f"  {band:10s} {followers:>9,} followers  median {r['median']:>9,.0f} over {r['n']} posts")
+    except CreditCap as e:
+        print(f"stopped: {e}")
+    now = peer.staged_counts("tiktok")
+    print(f"batch done: {measured} accounts staged, {credits.used} credits used. Staged: "
+          + ", ".join(f"{b}={now[b]}" for b in BAND_KEYS))
+    return {"measured": measured, "credits": credits.used}
+
+
+def staging_report(platform: str = "tiktok") -> None:
+    samples = peer.staged_samples(platform)
+    print(f"{len(samples)} {platform} accounts staged")
+    for band in BAND_KEYS + ["all"]:
+        vals = [x["median_views"] for x in samples if band == "all" or peer.band_for(x["followers"]) == band]
+        if vals:
+            p25, med, p75 = peer.quartiles(vals)
+            print(f"  {band:10s} n={len(vals):3d}  p25={p25:>9,.0f}  median={med:>9,.0f}  p75={p75:>9,.0f}")
+    print(f"A group is used once it has {peer.MIN_SEED}+ accounts. Check the numbers look like ordinary accounts, then --publish.")
+
+
 def tiktok_account(handle: str, key: str) -> dict | None:
     prof = sociavault.tiktok_profile(handle, key)
     followers = sociavault._profile_stats("tiktok", prof)["followers"]
@@ -127,12 +270,28 @@ def instagram_account(handle: str, key: str) -> dict | None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--youtube-discover", type=int, metavar="N", help="sample up to N channels per niche from recent YouTube uploads")
+    ap.add_argument("--tiktok-batch", action="store_true", help="TikTok: measure accounts for the bands that still need them and stage them")
+    ap.add_argument("--per-band", type=int, default=20, help="target number of staged TikTok accounts per follower band (default 20)")
+    ap.add_argument("--max-credits", type=int, default=45, help="hard cap on SociaVault credits one batch may spend (default 45)")
+    ap.add_argument("--max-search", type=int, default=12, help="most credits one batch spends on discovery searches (default 12)")
+    ap.add_argument("--reserve", type=int, default=0, help="credits to leave in the account (default 0)")
+    ap.add_argument("--staging-report", action="store_true", help="print the staged TikTok accounts per follower band")
+    ap.add_argument("--publish", action="store_true", help="turn the staged TikTok accounts into the live benchmark")
     ap.add_argument("--niches", help="comma-separated niches to limit YouTube discovery to (each niche costs about 200 units)")
     ap.add_argument("--accounts", help="JSON file of handles per platform and niche")
     ap.add_argument("--dry-run", action="store_true", help="print the aggregates, write nothing")
     a = ap.parse_args()
+    if a.staging_report:
+        staging_report()
+        return 0
+    if a.publish:
+        print(f"published {peer.publish_staged('tiktok')} TikTok benchmark groups (source 'seed')")
+        return 0
+    if a.tiktok_batch:
+        tiktok_batch(sociavault.resolve_server_key(), a.per_band, a.max_credits, a.max_search, a.reserve)
+        return 0
     if not a.youtube_discover and not a.accounts:
-        ap.error("give --youtube-discover and/or --accounts")
+        ap.error("give --youtube-discover, --tiktok-batch, --staging-report, --publish and/or --accounts")
 
     jobs: list = []        # (platform, niche, kind, ref)
     if a.youtube_discover:

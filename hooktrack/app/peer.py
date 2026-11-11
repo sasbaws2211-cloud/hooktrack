@@ -171,6 +171,46 @@ def store_samples(source: str, samples: list) -> int:
     return wrote
 
 
+def _handle_hash(platform: str, handle: str) -> str:
+    import hashlib
+    return hashlib.sha256(f"{platform}:{handle.lstrip('@').strip().lower()}".encode()).hexdigest()
+
+
+def staged_hashes(platform: str) -> set:
+    return {r["handle_hash"] for r in db.query("SELECT handle_hash FROM peer_seed_samples WHERE platform=%s", (platform,))}
+
+
+def stage_sample(platform: str, handle: str, fmt: str, niche: str, followers: int, median_views: float, n_posts: int) -> bool:
+    """Remember one measured seed account (by handle hash, never the handle). False if it was already staged."""
+    row = db.one(
+        """INSERT INTO peer_seed_samples(platform, handle_hash, fmt, niche, followers, median_views, n_posts)
+           VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (platform, handle_hash) DO NOTHING RETURNING handle_hash""",
+        (platform, _handle_hash(platform, handle), fmt, niche, int(followers), round(median_views), n_posts))
+    return row is not None
+
+
+def staged_samples(platform: str) -> list:
+    return [{"platform": r["platform"], "fmt": r["fmt"], "niche": r["niche"], "followers": r["followers"],
+             "median_views": r["median_views"], "n_posts": r["n_posts"]}
+            for r in db.query("SELECT platform, fmt, niche, followers, median_views, n_posts FROM peer_seed_samples WHERE platform=%s",
+                              (platform,))]
+
+
+def staged_counts(platform: str) -> dict:
+    out = {b[0]: 0 for b in BANDS}
+    for s in staged_samples(platform):
+        b = band_for(s["followers"])
+        if b:
+            out[b] += 1
+    return out
+
+
+def publish_staged(platform: str) -> int:
+    """Turn the staged accounts into the published seed benchmark for that platform. Returns groups written."""
+    samples = staged_samples(platform)
+    return store_samples("seed", samples) if samples else 0
+
+
 def refresh_from_users() -> int:
     """Rebuild the user-derived groups from the workspaces on this platform. Each account counts once, only accounts with
     enough older posts count, and a group is used only when it has MIN_USERS accounts (see _pick). Sample accounts are excluded."""
