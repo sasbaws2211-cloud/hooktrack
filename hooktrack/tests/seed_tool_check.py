@@ -34,6 +34,8 @@ page_no = {"n": 0}
 
 
 def fake_get(path, params, key):
+    if path == "instagram/search/hashtag":
+        return ig_search(params)
     assert path == "tiktok/search/keyword"
     calls["search"] += 1
     page_no["n"] += 1
@@ -128,5 +130,72 @@ ok("publish runs", seed.main() == 0)
 rows = db.query("SELECT platform, source, band, n_accounts, median FROM peer_benchmarks")
 ok("publishing writes TikTok seed groups only", rows and all(r["platform"] == "tiktok" and r["source"] == "seed" and r["median"] == 106 for r in rows))
 ok("the live lookup now answers for a beginner", peer.lookup("TikTok", "main", "fitness", 500) is not None)
+
+# ======================= Instagram =======================
+ig = {"search": 0, "profile": 0, "reels": 0, "n": 0}
+SIZES = [40, 600, 3000, 7000, 25000, 80000, 300000, 1500000]
+
+
+def ig_search(params):
+    ig["search"] += 1
+    ig["n"] += 1
+    n = ig["n"]
+    posts = {str(i): {"owner": {"username": f"ig{n % 5}_{i}_{SIZES[(i + n) % 8]}"}, "like_count": SIZES[(i + n) % 8] // 20,
+                      "video_play_count": None} for i in range(10)}
+    return {"data": {"posts": posts, "cursor": str(n + 1)}}
+
+
+def ig_profile(handle, key):
+    ig["profile"] += 1
+    return {"data": {"user": {"edge_followed_by": {"count": int(handle.rsplit("_", 1)[1])}}}}
+
+
+def ig_reels(handle, key, max_id=None):
+    ig["reels"] += 1
+    measured_handles.append(handle)
+    items = [{"media": {"taken_at": NOW - 3600, "play_count": 999_999}}]                                  # too new: ignored
+    items += [{"media": {"taken_at": NOW - (4 + i) * 86400, "play_count": 200 + i}} for i in range(9)]
+    return {"data": {"items": {str(i): it for i, it in enumerate(items)}}}
+
+
+sociavault.instagram_profile = ig_profile
+sociavault.instagram_reels = ig_reels
+vaultwatch._fetch_credits = lambda key: 50
+cr = seed.Credits(100)
+cand = seed.instagram_discover_candidates("k", cr, max_search=4, want=500, skip=set())
+ok("hashtag discovery finds usernames with a like count, within its search budget", len(cand) >= 10 and cr.used == 4 == ig["search"])
+done = {peer._handle_hash("instagram", h) for h in list(cand)[:5]}
+cand2 = seed.instagram_discover_candidates("k", seed.Credits(100), max_search=4, want=500, skip=done)
+ok("accounts measured in an earlier batch are not offered again", not (set(cand2) & set(list(cand)[:5])))
+cr = seed.Credits(10)
+ok("a profile call costs one credit and returns the follower count", seed.instagram_followers("ig0_0_600", "k", cr) == 600 and cr.used == 1)
+cr = seed.Credits(10)
+r = seed.instagram_measure("ig0_0_600", 600, "k", cr)
+ok("a reels call costs one credit; brand-new reels are ignored", cr.used == 1 and r["n"] == 9 and r["median"] == 204)
+
+tt_before = peer.staged_counts("tiktok")
+ig.update(search=0, profile=0, reels=0, n=0); measured_handles.clear()
+out = seed.instagram_batch("k", per_band=4, cap=45, max_search=10, reserve=0)
+ok("an Instagram batch never spends more than its cap", out["credits"] <= 45 and ig["search"] + ig["profile"] + ig["reels"] == out["credits"])
+ic = peer.staged_counts("instagram")
+ok("it stages Instagram accounts without touching TikTok's", out["measured"] == sum(ic.values()) > 0 and peer.staged_counts("tiktok") == tt_before)
+ok("full bands are never paid for: reels calls equal accounts staged plus empties, not profiles looked at",
+   ig["reels"] <= ig["profile"] and all(v <= 4 for v in ic.values()))
+ok("the small bands, which need the most help, are filled first", ic["under-1k"] > 0)
+first = list(measured_handles)
+ig["n"] = 0
+seed.instagram_batch("k", per_band=4, cap=45, max_search=10, reserve=0)
+ok("the next batch resumes without measuring anyone twice", not set(first) & set(measured_handles[len(first):]))
+for _ in range(5):
+    ig["n"] = 0
+    seed.instagram_batch("k", per_band=4, cap=45, max_search=10, reserve=0)
+ok("over several batches every band is reached and no target is exceeded", all(v == 4 for v in peer.staged_counts("instagram").values()))
+ig_staged = peer.staged_samples("instagram")
+ok("staged Instagram samples are general-niche and use the account's own median", ig_staged and all(x["niche"] == "general" and x["median_views"] == 204 for x in ig_staged))
+db.execute("DELETE FROM peer_benchmarks"); peer.forget()
+sys.argv = ["seed_benchmarks.py", "--publish", "--platform", "instagram"]
+ok("publishing Instagram works", seed.main() == 0)
+rows = db.query("SELECT DISTINCT platform FROM peer_benchmarks")
+ok("and writes Instagram groups only", [r["platform"] for r in rows] == ["instagram"])
 db.execute("DELETE FROM peer_seed_samples"); db.execute("DELETE FROM peer_benchmarks"); peer.forget()
 print("ALL OK")
