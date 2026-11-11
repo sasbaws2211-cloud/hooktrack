@@ -1,4 +1,5 @@
-/* HookTrack free hook scorer. Runs entirely in the visitor's browser, with no AI and nothing sent anywhere.
+/* HookTrack free hook scorer. The score runs entirely in the visitor's browser, with no AI and nothing sent anywhere.
+   The separate, optional "Rewrite it with AI" button sends that one hook to /api/free/hook-rewrite (see app/freeai.py).
 
    It scores the first line of a short video against seven plain checks (length, a weak opener, a clear pattern, specifics,
    speaking to the viewer, an open question, simple words). The checks are common advice about what holds attention in the first
@@ -121,26 +122,55 @@
       return '<li class="' + (c.pass ? 'hk-pass' : 'hk-fail') + '"><b>' + (c.pass ? '✓' : '✕') + ' ' + esc(c.label) + '</b> <span class="muted small">' + c.points + '/' + c.max + '</span><div>' + esc(c.text) + '</div></li>';
     }).join('');
     var tries = r.tryThese.length ? '<div class="hk-try"><b>Try this</b><ul>' + r.tryThese.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>' : '';
+    var rewrite = '<div class="hk-rw-wrap"><button type="button" class="btn sm" data-rw="' + i + '">Rewrite it with AI</button> ' +
+      '<span class="muted small">Sends this hook to our AI provider. Not stored.</span><div class="hk-rw" data-rwout="' + i + '"></div></div>';
     return '<div class="hk-card ' + r.label + '">' +
       '<div class="hk-top"><div class="hk-score" aria-label="Score ' + r.score + ' out of 100"><b>' + r.score + '</b><span>/100</span></div>' +
       '<div><div class="hk-verdict">' + LABEL[r.label] + (many && i === 0 ? ' · your strongest' : '') + '</div><div class="hk-text">“' + esc(r.text) + '”</div></div></div>' +
-      '<ul class="hk-checks">' + checks + '</ul>' + tries + '</div>';
+      '<ul class="hk-checks">' + checks + '</ul>' + tries + rewrite + '</div>';
   }
 
   function init() {
     var box = document.getElementById('hooklab');
     if (!box) return;
-    var ta = box.querySelector('#hk-text'), out = box.querySelector('#hk-out');
+    var ta = box.querySelector('#hk-text'), out = box.querySelector('#hk-out'), lastRanked = [];
     function run() {
       var lines = ta.value.split(/\n+/).map(function (l) { return l.trim(); }).filter(Boolean).slice(0, 10);
       if (!lines.length) { out.hidden = false; out.innerHTML = '<div class="tool-err" role="alert">Type or paste a hook first. Use one line per hook to compare up to 10.</div>'; return; }
-      var ranked = rank(lines), many = ranked.length > 1;
+      var ranked = rank(lines), many = ranked.length > 1; lastRanked = ranked;
       out.hidden = false;
       out.innerHTML = (many ? '<p class="small muted">Ranked from highest to lowest, with the reason for every point.</p>' : '') +
         ranked.map(function (r, i) { return card(r, i, many); }).join('') +
         '<p class="muted small">This is a checklist of patterns that tend to hold attention, not a prediction. A high score does not mean a video will get views, and a low score does not mean it will fail. The only way to know is to post it and compare the result with your own normal.</p>' +
         '<div class="tool-actions">' + (window.HTCta ? HTCta.html('See which hooks actually worked for your accounts') : '<a class="btn primary" href="/#pricing">See which hooks actually worked</a>') + '</div>';
     }
+    out.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('[data-rw]');
+      if (!b || !window.HTAi) return;
+      var i = +b.getAttribute('data-rw'), r = lastRanked[i], target = out.querySelector('[data-rwout="' + i + '"]');
+      b.disabled = true; var label = b.textContent; b.textContent = 'Writing\u2026';
+      target.innerHTML = '<div class="muted small" role="status">Writing five versions. This can take up to a minute.</div>';
+      HTAi.post('/api/free/hook-rewrite', { hook: r.text }).then(function (d) {
+        var vs = d.items.map(function (x) { return { hook: x.hook, why: x.why, s: score(x.hook) }; }).filter(function (x) { return x.s; })
+          .sort(function (a, c) { return c.s.score - a.s.score; });
+        target.innerHTML = '<div class="hk-try"><b>Five rewrites, scored</b> <span class="muted small">(' + d.remaining + ' free use' + (d.remaining === 1 ? '' : 's') + ' left today)</span><ul class="hk-rwlist">' +
+          vs.map(function (x) {
+            var diff = x.s.score - r.score;
+            return '<li><div><b>' + esc(x.hook) + '</b></div><div class="small"><span class="pill ' + (diff > 0 ? 'SCALE' : '') + '">' + x.s.score + '/100</span> ' +
+              '<span class="muted">' + (diff > 0 ? '+' + diff + ' from your original' : diff < 0 ? diff + ' from your original' : 'same as your original') + (x.why ? ' \u00b7 ' + esc(x.why) : '') + '</span> ' +
+              '<button type="button" class="btn sm" data-copyhook="' + esc(x.hook) + '">Copy</button></div></li>';
+          }).join('') + '</ul><div class="muted small">Written by AI. Edit it so it sounds like you, and say it aloud before you film.</div></div>';
+      }).catch(function (err) {
+        target.innerHTML = '<div class="tool-err" role="alert">' + esc(err.message) + (err.status === 429 ? ' <a href="/app#/signup">Create a free account</a>' : '') + '</div>';
+      }).then(function () { b.disabled = false; b.textContent = label; });
+    });
+    out.addEventListener('click', function (e) {
+      var c = e.target.closest && e.target.closest('[data-copyhook]');
+      if (!c) return;
+      var t = c.getAttribute('data-copyhook');
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t);
+      var o = c.textContent; c.textContent = 'Copied \u2713'; setTimeout(function () { c.textContent = o; }, 1400);
+    });
     box.querySelector('#hk-go').addEventListener('click', run);
     box.querySelector('#hk-sample').addEventListener('click', function () { ta.value = SAMPLE.join('\n'); run(); });
     box.querySelector('#hk-clear').addEventListener('click', function () { ta.value = ''; out.hidden = true; });

@@ -86,14 +86,60 @@ LENGTH_BOX = (
 HOOK_BOX = (
     '<div class="tool" id="hooklab">'
     '<label for="hk-text">Type or paste your hook: the first line you say or show</label>'
-    '<p class="hint">One hook per line compares up to 10 and ranks them. It runs in your browser, uses no AI, and sends nothing anywhere.</p>'
+    '<p class="hint">One hook per line compares up to 10 and ranks them. The score runs in your browser and sends nothing anywhere. The optional AI rewrite sends one hook to our AI provider, and it is not stored.</p>'
     '<textarea id="hk-text" rows="6" spellcheck="false" maxlength="3000" placeholder="Stop doing this at the gym if you want to build muscle&#10;3 mistakes ruining your sleep"></textarea>'
     '<div class="tool-row"><button type="button" class="btn primary" id="hk-go">Score my hook</button>'
     '<button type="button" class="btn" id="hk-sample">Try examples</button>'
     '<button type="button" class="btn" id="hk-clear">Clear</button></div>'
     '<div class="tool-out" id="hk-out" aria-live="polite" hidden></div></div>'
-    '<script src="/tool-cta.js" defer></script><script src="/tool-hook.js" defer></script>')
-TOOL_RE = re.compile(r"\{\{(tool|besttime|repurpose|specs|length|hook):([A-Za-z -]+)\}\}")
+    '<script src="/tool-cta.js" defer></script><script src="/tool-hook.js" defer></script><script src="/tool-aigen.js" defer></script>')
+_PLAT_SELECT = ('<select id="ai-platform" name="platform"><option value="tiktok">TikTok</option>'
+                '<option value="instagram">Instagram Reels</option><option value="youtube">YouTube Shorts</option></select>')
+_TONE_SELECT = ('<select id="ai-tone" name="tone"><option value="">Friendly</option><option value="funny">Funny</option>'
+                '<option value="energetic">Energetic</option><option value="calm">Calm</option><option value="serious">Serious</option>'
+                '<option value="bold">Bold</option></select>')
+AI_NOTICE = ('<p class="hint">This tool uses AI. What you type is sent to our AI provider to write the answer, and we do not store it. '
+             '<b id="ai-left"></b></p>')
+AI_FIELDS = {
+    "script": ('<label for="ai-topic">What is the video about?</label>'
+               '<input id="ai-topic" name="topic" maxlength="200" autocomplete="off" placeholder="e.g. 3 mistakes beginners make at the gym">'
+               '<div class="tool-row"><label for="ai-platform">Platform</label>' + _PLAT_SELECT +
+               '<label for="ai-seconds">Length</label><select id="ai-seconds" name="seconds"><option value="15">15 seconds</option>'
+               '<option value="30" selected>30 seconds</option><option value="45">45 seconds</option><option value="60">60 seconds</option></select>'
+               '<label for="ai-tone">Tone</label>' + _TONE_SELECT + '</div>'),
+    "bio": ('<label for="ai-about">What is your account about?</label>'
+            '<textarea id="ai-about" name="about" rows="3" maxlength="300" placeholder="e.g. Home workouts for busy parents, 20 minutes or less"></textarea>'
+            '<div class="tool-row"><label for="ai-audience">Who is it for? (optional)</label>'
+            '<input id="ai-audience" name="audience" maxlength="120" placeholder="e.g. new parents"></div>'
+            '<div class="tool-row"><label for="ai-platform">Platform</label>' + _PLAT_SELECT + '<label for="ai-tone">Tone</label>' + _TONE_SELECT + '</div>'),
+    "caption": ('<label for="ai-about">What is the video about?</label>'
+                '<textarea id="ai-about" name="about" rows="3" maxlength="300" placeholder="e.g. A 5 minute stretch routine to fix desk posture"></textarea>'
+                '<div class="tool-row"><label for="ai-cta">Call to action (optional)</label>'
+                '<input id="ai-cta" name="cta" maxlength="80" placeholder="e.g. Save this for later"></div>'
+                '<div class="tool-row"><label for="ai-platform">Platform</label>' + _PLAT_SELECT + '<label for="ai-tone">Tone</label>' + _TONE_SELECT + '</div>'),
+    "ideas": ('<label for="ai-niche">Your niche or account</label>'
+              '<input id="ai-niche" name="niche" maxlength="80" autocomplete="off" value="__N__" placeholder="e.g. home workouts for busy dads">'
+              '<div class="tool-row"><label for="ai-audience">Who is it for? (optional)</label>'
+              '<input id="ai-audience" name="audience" maxlength="120" placeholder="e.g. beginners over 40"></div>'
+              '<div class="tool-row"><label for="ai-platform">Platform</label>' + _PLAT_SELECT + '</div>'),
+}
+AI_BUTTON = {"script": "Write my script", "bio": "Write my bio", "caption": "Write my captions", "ideas": "Give me ideas for my account"}
+AI_NICHE = {"comedy": "comedy skits", "fitness": "home workouts", "beauty": "makeup and skincare", "food": "easy home cooking",
+            "tech": "tech and business tips", "education": "study tips", "gaming": "gaming", "lifestyle": "daily life vlogs", "music": "cover songs"}
+
+
+def _ai_box(arg: str) -> str:
+    kind, _, niche = arg.partition("-")
+    if kind not in AI_FIELDS:
+        return ""
+    fields = AI_FIELDS[kind].replace("__N__", AI_NICHE.get(niche, ""))
+    return (f'<div class="tool" id="aigen" data-kind="{kind}">' + AI_NOTICE + '<form id="ai-form" novalidate>' + fields +
+            f'<div class="tool-row"><button type="submit" class="btn primary" id="ai-go">{AI_BUTTON[kind]}</button></div></form>'
+            '<div class="tool-out" id="ai-out" aria-live="polite" hidden></div></div>'
+            '<script src="/tool-cta.js" defer></script><script src="/tool-hook.js" defer></script><script src="/tool-aigen.js" defer></script>')
+
+
+TOOL_RE = re.compile(r"\{\{(tool|besttime|repurpose|specs|length|hook|ai):([A-Za-z -]+)\}\}")
 
 
 def _load(path: Path) -> Optional[tuple[dict, str]]:
@@ -133,7 +179,16 @@ TOOL_META = {   # slug -> (platform class, platform label, kind)
     "tiktok-to-youtube-shorts-checklist": ("all", "TikTok, Reels, Shorts", "Checklist"),
     "short-form-video-length-and-specs": ("all", "All platforms", "Spec checker"),
     "video-hook-scorer": ("all", "TikTok, Reels, Shorts", "Scorer"),
+    "video-script-generator": ("all", "TikTok, Reels, Shorts", "AI tool"),
+    "social-media-bio-generator": ("all", "TikTok, Instagram, YouTube", "AI tool"),
+    "caption-and-hashtag-generator": ("all", "TikTok, Reels, Shorts", "AI tool"),
+    **{f"content-ideas-for-{n}-creators": ("all", "TikTok, Reels, Shorts", "Ideas") for n in
+       ("comedy", "fitness", "beauty", "food", "tech", "education", "gaming", "lifestyle", "music")},
 }
+AI_BAR = ('<div class="tool-bar"><b>Free tool</b>'
+          '<span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>No sign-up</span>'
+          '<span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg>Uses AI: your text is sent to our AI provider, not stored</span></div>'
+          '<div class="tool-body">')
 TOOL_BAR = ('<div class="tool-bar"><b>Free tool</b>'
             '<span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>No sign-up</span>'
             '<span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Private: runs in your browser</span></div>'
@@ -195,6 +250,8 @@ def _wrap(meta: dict, body: str, path: str, request: Request, trail: list[tuple[
             return SPECS_BOX
         if kind == "hook":
             return HOOK_BOX
+        if kind == "ai":
+            return _ai_box(arg)
         if kind == "length":
             return LENGTH_BOX.replace("__P__", arg)
         if kind == "repurpose":
@@ -204,7 +261,7 @@ def _wrap(meta: dict, body: str, path: str, request: Request, trail: list[tuple[
 
     def _decorate(box: str) -> str:
         head = box.index(">") + 1                              # after the opening <div class="tool" ...>
-        box = box[:head] + TOOL_BAR + box[head:]
+        box = box[:head] + (AI_BAR if 'id="aigen"' in box else TOOL_BAR.replace("Private: runs in your browser", "Private: the score runs in your browser") if 'id="hooklab"' in box else TOOL_BAR) + box[head:]
         return box.replace("</div><script", "</div></div><script", 1)  # close the tool-body that the bar opened
 
     body = TOOL_RE.sub(lambda m: _decorate(_box(m)), body)

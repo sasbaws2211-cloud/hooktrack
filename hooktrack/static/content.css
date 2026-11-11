@@ -209,3 +209,14 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 20px;margin-bottom:10px}footer a{
 .hk-checks{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}.hk-checks li{font-size:14.5px;max-width:none;margin:0}
 .hk-checks .hk-pass b{color:var(--good)}.hk-checks .hk-fail b{color:var(--bad)}.hk-checks li div{color:var(--text-2,inherit)}
 .hk-try{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--surface)}.hk-try ul{margin:6px 0 0;padding-left:18px}.hk-try li{font-size:14.5px;max-width:none;margin:4px 0}
+
+.hk-rw-wrap{margin-top:12px}.hk-rwlist{list-style:none;margin:8px 0;padding:0;display:grid;gap:10px}.hk-rwlist li{max-width:none;margin:0}
+.ai-card{border:1px solid var(--border);border-radius:14px;padding:14px 16px;background:var(--bg);margin-top:12px}
+.ai-hook{font-size:17px;font-weight:650;overflow-wrap:anywhere}.ai-label{font-size:12.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:10px 0 4px}
+.ai-beats{margin:4px 0 0;padding-left:20px}.ai-beats li{margin:6px 0;max-width:none}
+.row-between{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px}
+#aigen input,#aigen select,#aigen textarea{padding:10px 12px;border-radius:11px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;max-width:100%}
+#aigen input,#aigen textarea{width:100%}#aigen textarea{min-height:88px;resize:vertical;line-height:1.5}
+#aigen .tool-row{align-items:center}#aigen .tool-row label{display:inline-block;margin:0;font-weight:600}
+#aigen .tool-row select{width:auto}#aigen .tool-row input{width:auto;flex:1;min-width:200px}
+#aigen #ai-form>label{margin-top:4px}

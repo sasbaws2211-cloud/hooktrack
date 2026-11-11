@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import activation, auth, backup, billing, db, digest, emailguard, legal, mailer, sociavault, vaultwatch, youtube_api
+from app import activation, auth, backup, billing, db, digest, emailguard, freeai, legal, mailer, sociavault, vaultwatch, youtube_api
 
 log = logging.getLogger("hooktrack.admin")
 STATIC = Path(__file__).parent / "static"
@@ -567,6 +567,7 @@ def settings(_a: Admin = Depends(require_admin)):
         "youtube": {**youtube_api.status(), "free_plan": billing.free_plan_config(), "free_on": billing.free_plan_on(),
                     "free_workspaces": db.one("SELECT COUNT(*) AS n FROM workspaces w LEFT JOIN workspace_subscriptions s ON s.workspace_id = w.id "
                                               "WHERE s.plan_code IS NULL OR s.plan_code = 'free'")["n"]},
+        "free_ai": {**freeai.config(), "usage": freeai.usage_today(), "signed_in_multiplier": freeai.SIGNED_IN_MULTIPLIER},
         "late": __import__("app.latehub", fromlist=["x"]).key_status(),
         "ai": __import__("app.ai", fromlist=["x"]).platform_status(),
         "signup_protection": _signup_protection(),
@@ -615,6 +616,23 @@ def settings_youtube(b: YouTubeSettingsIn, _a: Admin = Depends(require_admin)):
         sociavault.platform_set(youtube_api.BUDGET_SETTING, b.daily_budget)
     billing.save_free_plan(enabled=b.free_enabled, max_accounts=b.free_accounts, max_members=b.free_members, max_ai_calls=b.free_ai)
     return {"youtube": youtube_api.status(), "free_plan": billing.free_plan_config()}
+
+
+class FreeAIIn(BaseModel):
+    enabled: Optional[bool] = None
+    per_visitor_daily: Optional[int] = Field(None, ge=1, le=100)
+    global_daily: Optional[int] = Field(None, ge=0, le=100000)
+    model: Optional[str] = Field(None, max_length=100)
+
+
+@app.put("/api/settings/free-ai")
+def settings_free_ai(b: FreeAIIn, _a: Admin = Depends(require_admin)):
+    """The public AI tools (hook rewriter, script, bio, caption and idea generators): the switch and the daily limits."""
+    try:
+        cfg = freeai.save_config(enabled=b.enabled, per_visitor_daily=b.per_visitor_daily, global_daily=b.global_daily, model=b.model)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {**cfg, "usage": freeai.usage_today()}
 
 
 @app.post("/api/settings/youtube/test")

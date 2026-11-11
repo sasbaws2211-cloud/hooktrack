@@ -339,6 +339,16 @@ pages.settings = async app => {
       </div>
       <div class="actions"><button class="btn" id="aitest" ${s.ai.available ? '' : 'disabled'}>Test</button>
         ${s.ai.has_key ? '<button class="btn danger" id="aiclear">Remove key</button>' : ''}<button class="btn primary" id="aisave">Save</button></div></div>
+    ${(() => { const F = s.free_ai; return `<div class="card" style="margin-top:12px"><h2>Free AI tools</h2>
+      <p class="small muted" style="margin:0 0 6px">The public hook rewriter, script, bio, caption and content-idea generators use the AI connection above and need no sign-up, so each call costs money. Visitors get a daily allowance (signed-in users get ${F.signed_in_multiplier}x), and one platform-wide cap stops a spike from running up the bill. Repeated identical requests are cached and cost nothing. Nothing visitors type is stored.</p>
+      <label class="check" style="margin-top:0"><input type="checkbox" id="fai-on" ${F.enabled ? 'checked' : ''}> The free AI tools are on</label>
+      <div class="fields">
+        <div><label class="f">Free uses per visitor per day</label><input id="fai-v" type="number" min="1" max="100" value="${esc(F.per_visitor_daily)}"></div>
+        <div><label class="f">All visitors together, per day (0 = off)</label><input id="fai-g" type="number" min="0" max="100000" value="${esc(F.global_daily)}"></div>
+        <div class="full"><label class="f">Model override (Anthropic only; blank = the model above)</label><input id="fai-m" value="${esc(F.model)}" placeholder="e.g. claude-haiku-5-5"></div>
+      </div>
+      <p class="small muted" style="margin:6px 0 0">Used in the last 24 hours: <b>${fmt(F.usage.calls)}</b> of ${fmt(F.usage.cap)}.</p>
+      <div class="actions"><button class="btn primary" id="faisave">Save</button></div></div>`; })()}
     <div class="card" style="margin-top:12px"><h2>Publishing (Late)</h2>
       <p class="small muted" style="margin:0 0 6px">One Late account that publishes for customers who do not bring their own key. Each workspace gets its own profile, so a customer can only ever post to accounts they connected themselves.</p>
       <label class="f">Late API key ${s.late.configured ? `<span class="badge good">set: ${esc(s.late.key_hint)} (${esc(s.late.source)})</span>` : '<span class="badge warn">not set</span>'}</label>
@@ -435,6 +445,10 @@ pages.settings = async app => {
     const r = await api('PUT', '/settings/billing', { enabled: $('#ben').checked, paystack_key: $('#psk').value || null });
     if (r.currency_check && !r.currency_check.ok) { toast('Saved, but customers cannot pay yet: ' + r.currency_check.message, true); return route(); }
     toast('Billing settings saved'); route();
+  });
+  $('#faisave').onclick = guard(async () => {
+    await api('PUT', '/settings/free-ai', { enabled: $('#fai-on').checked, per_visitor_daily: +$('#fai-v').value, global_daily: +$('#fai-g').value, model: $('#fai-m').value });
+    toast('Free AI tool settings saved'); route();
   });
   $('#ytsave').onclick = guard(async () => {
     await api('PUT', '/settings/youtube', { api_key: $('#ytk').value || null, daily_budget: +$('#ytb').value, free_enabled: $('#fpen').checked,

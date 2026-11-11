@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, discover, legal, logic, media, pages, peer, publish, seo, sociavault, vaultwatch, youtube_api
+from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, discover, freeai, legal, logic, media, pages, peer, publish, seo, sociavault, vaultwatch, youtube_api
 from . import backup, digest, reports
 from .auth import Ctx, admin, current
 from .import_xlsx import import_workbook
@@ -204,7 +204,7 @@ async def trial_paywall(request: Request, call_next):
     """Once billing is on, a workspace with no trial and no paid plan can look but not change anything."""
     path = request.url.path
     if (request.method in ("POST", "PUT", "PATCH", "DELETE") and path.startswith("/api/")
-            and not path.startswith(("/api/auth/", "/api/billing"))
+            and not path.startswith(("/api/auth/", "/api/billing", "/api/free/"))
             and path not in ("/api/workspaces", "/api/workspace")):      # create / rename / delete a workspace
         try:
             ctx = await asyncio.to_thread(auth.session_ctx, request)
@@ -217,6 +217,7 @@ async def trial_paywall(request: Request, call_next):
 app.include_router(auth.router)
 app.include_router(billing.router)
 app.include_router(discover.router)
+app.include_router(freeai.router)
 app.include_router(baseline.router)
 app.include_router(media.router)
 app.include_router(reports.router)
