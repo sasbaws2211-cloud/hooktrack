@@ -391,6 +391,9 @@ function sectionStrip(tab) {
   } else if (['pipeline', 'calendar', 'scheduled'].includes(tab)) {
     label = 'Posts';
     links = [['pipeline', 'Board & calendar', '#/pipeline'], ['scheduled', n ? `Scheduled (${n})` : 'Scheduled', '#/scheduled']];
+  } else if (['discover', 'inspiration'].includes(tab)) {
+    label = 'Ideas';
+    links = [['discover', 'Discover', '#/discover'], ['inspiration', 'Saved', '#/inspiration']];
   } else if (['settings', 'billing'].includes(tab)) {
     label = 'Account';
     links = [['settings', 'Settings', '#/settings'], ['billing', 'Plan & billing', '#/billing']];
@@ -468,7 +471,7 @@ async function route() {
   document.body.classList.remove('anon'); renderChrome();
   const tab = (hash || 'dashboard').split('?')[0];
   const page = pages[tab] || pages.dashboard;
-  const NAV_HOME = { today: 'accounts', views: 'accounts', calendar: 'pipeline', scheduled: 'pipeline', billing: 'settings' };
+  const NAV_HOME = { today: 'accounts', views: 'accounts', calendar: 'pipeline', scheduled: 'pipeline', billing: 'settings', inspiration: 'discover' };
   const navTab = NAV_HOME[tab] || (pages[tab] ? tab : 'dashboard');
   $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.tab === navTab));
   const myLoad = startRouteLoading(tab);
@@ -868,7 +871,7 @@ pages.dashboard = async app => {
       <ul class="next-list">
         <li><a href="#/pipeline">Plan posts</a> on the board or calendar</li>
         <li><a href="#/discover">See what is working</a> for creators like you</li>
-        <li><a href="#/inspiration">Save inspiration</a> from competitors (optional)</li>
+        <li><a href="#/inspiration">Keep saved ideas</a> from competitors (optional)</li>
         <li><a href="#/settings">Settings</a> — connect your TikTok, Instagram and YouTube accounts to publish</li>
       </ul>
     </div>
@@ -1331,14 +1334,14 @@ function postModal(post, defaults, onDone) {
     const clones = b.clones || [];
     const inspBlock = () => {
       const items = b.inspiration || [];
-      return `<div class="sig-row"><div class="sig-title">Inspiration</div>
+      return `<div class="sig-row"><div class="sig-title">Saved ideas</div>
         ${items.length ? items.map(x => `<div class="small" data-insp-item="${x.id}" style="margin:6px 0 8px"><b>“${esc(x.hook || x.title || 'Untitled')}”</b>
           ${x.platform ? `<span class="muted"> · ${esc(x.platform)}</span>` : ''}
           ${x.notes ? `<div class="muted">${esc(short(x.notes, 160))}</div>` : ''}
           ${embedHtml(x.embed, x.source_url)}
           <button class="btn sm" type="button" data-insp-detach="${x.id}" style="margin-top:4px">Remove</button></div>`).join('')
           : '<div class="small muted">Nothing attached. Attach something that has the move you want to try, then make it yours.</div>'}
-        <div class="row" style="margin-top:6px"><button class="btn sm" id="insp-add" type="button">+ Add inspiration</button></div></div>`;
+        <div class="row" style="margin-top:6px"><button class="btn sm" id="insp-add" type="button">+ Add a saved idea</button></div></div>`;
     };
     const wireInsp = () => {
       (b.inspiration || []).forEach(x => { const box = $(`[data-insp-item="${x.id}"]`, el); if (box) wireEmbeds(box, x.embed); });
@@ -1350,11 +1353,11 @@ function postModal(post, defaults, onDone) {
         const lib = await api('GET', '/api/inspiration');
         const have = new Set((b.inspiration || []).map(i => i.id));
         const pick = lib.filter(i => !have.has(i.id));
-        const mm = openModal(`<h2>Attach inspiration</h2>${pick.length ? `<ul class="list">${pick.map(i => `<li>
+        const mm = openModal(`<h2>Attach a saved idea</h2>${pick.length ? `<ul class="list">${pick.map(i => `<li>
             <span style="flex:1;min-width:0"><b>${esc(short(i.hook_text || i.title || 'Untitled', 70))}</b>
               <div class="small muted">${esc(i.platform || '')}${i.notes ? ' · ' + esc(short(i.notes, 60)) : ''}</div></span>
             <button class="btn sm primary" data-att="${i.id}" type="button">Attach</button></li>`).join('')}</ul>`
-          : '<p class="muted">Nothing left to attach. Save references on the <a href="#/inspiration">Inspiration</a> page first.</p>'}
+          : '<p class="muted">Nothing left to attach. Save references on the <a href="#/inspiration">Saved</a> page first.</p>'}
           <div class="actions"><button class="btn" data-close>Close</button></div>`);
         $$('[data-att]', mm).forEach(y => (y.onclick = guard(async () => {
           await api('POST', `/api/posts/${post.id}/inspiration`, { inspiration_id: +y.dataset.att });
@@ -1362,7 +1365,7 @@ function postModal(post, defaults, onDone) {
         })));
       });
     };
-    if (!post.external_id && !b.brief) {   // an own card with no hook behind it (say, from Inspiration): its brief is the inspiration
+    if (!post.external_id && !b.brief) {   // an own card with no hook behind it (say, from Saved): its brief is the inspiration
       el.innerHTML = inspBlock();
       wireInsp();
       return;
@@ -1997,7 +2000,7 @@ pages.pipeline = async app => {
         <option value="">Move selected to…</option>
         ${stages.map(s => `<option value="${s}">${PIPE_LABEL[s] || s}</option>`).join('')}
       </select>
-      <button class="btn ai" id="ideas" title="AI suggests new Idea cards from your winners and your inspiration">✨ Ideas</button>
+      <button class="btn ai" id="ideas" title="AI suggests new Idea cards from your winners and your saved ideas">✨ Ideas</button>
       <button class="btn primary" id="new">+ Post</button>
     </div></div>
     <div id="bulk-bar" class="bulk-bar" hidden><span id="bulk-count">0 selected</span>
@@ -2236,7 +2239,7 @@ pages.calendar = async app => {
 };
 
 
-/* ---------------- inspiration library ---------------- */
+/* ---------------- saved ideas (the inspiration library; routes, tables and API paths keep that name) ---------------- */
 /* ---------------- discover: what is working for similar creators ---------------- */
 const PLAT_NAME = { youtube: 'YouTube', tiktok: 'TikTok', instagram: 'Instagram' };
 pages.discover = async app => {
@@ -2274,7 +2277,7 @@ pages.discover = async app => {
         <div class="small muted">${esc(x.pattern)}. ${esc(x.note)}.</div>
         <div class="actions row">
           <button class="btn sm primary" data-mk="${i}" title="Write your own take, with AI">Make my version</button>
-          <button class="btn sm" data-sv="${i}" title="Keep it on your Inspiration page">Save</button>
+          <button class="btn sm" data-sv="${i}" title="Keep it on your Saved page">Save</button>
           <a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">Watch ↗</a>
         </div></div></div>`).join('')}</div>`
       : `<div class="empty card"><h2>Nothing to show yet</h2><p>${esc(empty)}</p></div>`}`;
@@ -2298,8 +2301,8 @@ pages.discover = async app => {
 
 pages.inspiration = async app => {
   const rows = await api('GET', '/api/inspiration');
-  app.innerHTML = `<div class="page-head"><div><h1>Inspiration</h1>
-    <div class="sub">Save competitor hooks (URL, screenshot, notes). Items marked for AI are used as few-shot examples when generating hooks.</div></div>
+  app.innerHTML = `<div class="page-head"><div><h1>Saved</h1>
+    <div class="sub">Ideas you keep: hooks from Discover, or a competitor's URL, screenshot and notes. Items marked for AI are used as examples when generating hooks.</div></div>
     <button class="btn primary" id="add">+ Add</button></div>
     ${rows.length ? `<div class="insp-grid">${rows.map(r => `
       <div class="insp-card" data-id="${r.id}">
@@ -2320,7 +2323,7 @@ pages.inspiration = async app => {
           </div>
         </div>
       </div>`).join('')}</div>`
-      : `<div class="empty card"><h2>No inspiration yet</h2><p>Paste a competitor URL, note the hook text, or drop a screenshot. AI ideas will pull these in as style references.</p></div>`}`;
+      : `<div class="empty card"><h2>Nothing saved yet</h2><p>Paste a competitor URL, note the hook text, or drop a screenshot. AI ideas will pull these in as style references.</p></div>`}`;
 
   $('#add').onclick = () => inspirationModal(route);
   $$('[data-use]', app).forEach(b => (b.onclick = guard(async () => {
@@ -2337,7 +2340,7 @@ pages.inspiration = async app => {
     $('#ig', mm).onclick = guard(async () => { const v = +$('#ia', mm).value; mm.close(); await send(v); });
   })));
   $$('[data-del]', app).forEach(b => b.onclick = guard(async () => {
-    if (!await askConfirm('Delete this inspiration item?')) return;
+    if (!await askConfirm('Delete this saved idea?')) return;
     await api('DELETE', `/api/inspiration/${b.dataset.del}`);
     toast('Deleted'); route();
   }));
@@ -2349,7 +2352,7 @@ pages.inspiration = async app => {
 };
 
 function inspirationModal(onDone) {
-  const m = openModal(`<h2>Add inspiration</h2>
+  const m = openModal(`<h2>Add a saved idea</h2>
     <p class="muted">Competitor or reference hook. Text is what the AI uses; screenshot is for you.</p>
     <div class="fields">
       <div class="full"><label class="f">Hook text (on-screen / spoken)</label><input id="hook" maxlength="1000" placeholder="Stop scrolling if you still text your ex at 2am"></div>
@@ -2642,7 +2645,7 @@ function simulateThresholdsModal() {
 }
 
 function ideasModal(onDone, pre = {}) {
-  const m = openModal(`<h2>✨ AI hook ideas</h2>${aiNotice()}<p class="muted small">Uses your best and worst posts plus Inspiration items marked for AI as style references. Nothing is added until you press <b>Add to Posts</b>.</p>
+  const m = openModal(`<h2>✨ AI hook ideas</h2>${aiNotice()}<p class="muted small">Uses your best and worst posts plus saved ideas marked for AI as style references. Nothing is added until you press <b>Add to Posts</b>.</p>
     <div class="fields"><div><label class="f">For account</label><select id="acc">${accountOptions(pre.account || state.hookAccount, 'Choose…')}</select></div>
     <div><label class="f">How many</label><input type="number" id="n" value="5" min="1" max="12"></div>
     <div class="full"><label class="f">Direction (optional)</label><input id="brief" maxlength="500" value="${esc(pre.brief || '')}" placeholder="e.g. lean into long-distance anxiety, slideshow format"></div></div>

@@ -6,7 +6,7 @@
 
   var PAGE_NAMES = {
     dashboard: 'Dashboard', accounts: 'Accounts', views: 'Views', today: 'Today', hooks: 'Hooks', pipeline: 'Posts',
-    calendar: 'Posts calendar', scheduled: 'Scheduled', clients: 'Clients', inspiration: 'Inspiration',
+    calendar: 'Posts calendar', scheduled: 'Scheduled', clients: 'Clients', discover: 'Discover', inspiration: 'Saved',
     settings: 'Settings', billing: 'Billing'
   };
   // starter questions a lay person is likely to have on each page: tapping one is easier than typing
@@ -20,7 +20,8 @@
     calendar: ['How do I move a post to another day?', 'What does the 📅 mean?'],
     scheduled: ['How do I change the time?', 'Why hasn’t it posted yet?'],
     clients: ['What is a client report?', 'How do I share a report?'],
-    inspiration: ['What is Inspiration for?'],
+    discover: ['What is this page?', 'What does 9x their usual mean?', 'How do I use one of these?'],
+    inspiration: ['What is Saved for?'],
     settings: ['How do I connect my TikTok?', 'What are the decision rules?', 'How do I invite a teammate?'],
     billing: ['What does my plan include?', 'What happens when my trial ends?']
   };

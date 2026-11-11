@@ -648,7 +648,8 @@ def _palette_pages(q: str = ""):
         {"id": "pipeline", "label": "Posts (board)", "href": "#/pipeline"},
         {"id": "accounts", "label": "Accounts", "href": "#/accounts"},
         {"id": "settings", "label": "Settings", "href": "#/settings"},
-        {"id": "inspiration", "label": "Inspiration", "href": "#/inspiration"},
+        {"id": "discover", "label": "Discover (what's working in your niche)", "href": "#/discover"},
+        {"id": "inspiration", "label": "Saved ideas", "href": "#/inspiration"},
         {"id": "scheduled", "label": "Scheduled publishes", "href": "#/scheduled"},
     ]
     if not q:
