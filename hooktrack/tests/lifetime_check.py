@@ -42,7 +42,10 @@ p = billing.get_plan("lifetime")
 ok("the plan exists with the agreed limits", p and p["interval"] == "lifetime" and p["price_minor"] == 14900 and p["max_accounts"] == 4
    and p["max_connected"] == 1 and p["max_credits"] == 60 and p["max_members"] == 1 and p["max_ai_calls"] == -1 and p["max_reports"] == 0)
 ok("it is never listed with the monthly and yearly plans", "lifetime" not in [x["code"] for x in billing.list_plans()] and "lifetime" not in [x["code"] for x in billing.list_plans(only_active=True)])
-ok("it is off by default", billing.lifetime_offer() is None and billing.public_pricing()["lifetime_offer"] is None)
+db.execute("DELETE FROM platform_settings WHERE key = 'lifetime_deal'")
+ok("with nothing set it is on, capped at 200", billing.lifetime_config() == {"enabled": True, "cap": 200} and billing.lifetime_offer() is not None)
+billing._pset("lifetime_deal", {"enabled": False, "cap": 200})
+ok("an admin can switch it off, and then it is not offered anywhere", billing.lifetime_offer() is None and billing.public_pricing()["lifetime_offer"] is None)
 
 ca, wa, ea = user("a")
 ok("nobody can buy it while it is off", ca.post("/api/billing/checkout", json={"plan_code": "lifetime"}).status_code == 404)

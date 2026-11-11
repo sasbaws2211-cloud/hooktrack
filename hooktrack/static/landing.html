@@ -455,7 +455,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
     var lowest = Math.min.apply(null, plans.filter(function (x) { return x.interval === 'month' && x.price_minor > 0; }).map(function (x) { return x.price_minor; }));
     if (fp) {
       $('#pricing-sub').textContent = 'Start free with YouTube. Upgrade when you want TikTok, Instagram or publishing.';
-      if (isFinite(lowest)) $('#hero-fine').textContent = 'Free for YouTube. Paid plans from ' + money(lowest, plans[0].currency) + ' a month.';
+      if (isFinite(lowest)) $('#hero-fine').textContent = 'Free for YouTube. Paid plans from ' + money(lowest, plans[0].currency) + ' a month' + (lt ? ', or ' + money(lt.price_minor, lt.currency) + ' once for lifetime access.' : '.');
       $('#faq-trial').parentNode.querySelector('summary').textContent = 'Is there a free plan or trial?';
       $('#faq-trial').textContent = 'There is no free trial, but there is a free plan. It lets you track up to ' + fp.max_accounts + ' YouTube channel' + (fp.max_accounts === 1 ? '' : 's') + ' and see what to scale, tweak or stop, with no card. TikTok and Instagram tracking and publishing need a paid plan. Every paid plan is month to month, so you can stop any time by turning off renewal, and nothing you saved is deleted.';
     }

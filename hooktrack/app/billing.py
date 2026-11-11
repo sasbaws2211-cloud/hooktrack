@@ -241,7 +241,7 @@ def get_plan(code: str) -> Optional[dict]:
 # AI every month for as long as it lives, so every limit is finite and extras are add-ons.
 LIFETIME = "lifetime"
 LIFETIME_SETTING = "lifetime_deal"
-LIFETIME_DEFAULTS = {"enabled": False, "cap": 200}
+LIFETIME_DEFAULTS = {"enabled": True, "cap": 200}
 LIFETIME_OTHER_ACCOUNTS = 1      # TikTok or Instagram accounts: each costs credits every month
 LIFETIME_YT_ACCOUNTS = 3         # YouTube channels are read through Google's free API, so they cost nothing
 _YT_SQL = "lower(platform) LIKE 'youtube%%' OR lower(platform) IN ('yt', 'shorts')"      # %% because it is used with query parameters

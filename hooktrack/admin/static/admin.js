@@ -340,7 +340,7 @@ pages.settings = async app => {
       <div class="actions"><button class="btn" id="aitest" ${s.ai.available ? '' : 'disabled'}>Test</button>
         ${s.ai.has_key ? '<button class="btn danger" id="aiclear">Remove key</button>' : ''}<button class="btn primary" id="aisave">Save</button></div></div>
     ${(() => { const L = s.lifetime, pl = L.plan; return `<div class="card" style="margin-top:12px"><h2>Lifetime deal</h2>
-      <p class="small muted" style="margin:0 0 6px">A one-time plan sold on your own site through Paystack: 1 TikTok or Instagram account, up to 3 YouTube channels, 1 publishing account, about ${esc(pl ? pl.max_credits : 60)} data credits a month and no limit on AI. Extras are add-ons. It costs you data, publishing and AI every month for as long as the buyer stays, so keep the cap you are comfortable with. It stays off until you tick the box.</p>
+      <p class="small muted" style="margin:0 0 6px">A one-time plan sold on your own site through Paystack: 1 TikTok or Instagram account, up to 3 YouTube channels, 1 publishing account, about ${esc(pl ? pl.max_credits : 60)} data credits a month and no limit on AI. Extras are add-ons. It costs you data, publishing and AI every month for as long as the buyer stays, so keep the cap you are comfortable with. It is on by default; untick the box to stop selling it.</p>
       <label class="check" style="margin-top:0"><input type="checkbox" id="lt-on" ${L.enabled ? 'checked' : ''}> Sell the lifetime deal</label>
       <div class="fields">
         <div><label class="f">Price (USD, one time)</label><input id="lt-p" type="number" min="1" step="1" value="${esc(pl ? (pl.price_minor / 100) : 149)}"></div>
