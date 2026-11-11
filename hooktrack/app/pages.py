@@ -83,7 +83,17 @@ LENGTH_BOX = (
     '<button type="button" class="btn" id="ln-clear">Clear</button></div>'
     '<div class="tool-out" id="ln-out" aria-live="polite" hidden></div></div>'
     '<script src="/tool-cta.js" defer></script><script src="/tool-length.js" defer></script>')
-TOOL_RE = re.compile(r"\{\{(tool|besttime|repurpose|specs|length):([A-Za-z -]+)\}\}")
+HOOK_BOX = (
+    '<div class="tool" id="hooklab">'
+    '<label for="hk-text">Type or paste your hook: the first line you say or show</label>'
+    '<p class="hint">One hook per line compares up to 10 and ranks them. It runs in your browser, uses no AI, and sends nothing anywhere.</p>'
+    '<textarea id="hk-text" rows="6" spellcheck="false" maxlength="3000" placeholder="Stop doing this at the gym if you want to build muscle&#10;3 mistakes ruining your sleep"></textarea>'
+    '<div class="tool-row"><button type="button" class="btn primary" id="hk-go">Score my hook</button>'
+    '<button type="button" class="btn" id="hk-sample">Try examples</button>'
+    '<button type="button" class="btn" id="hk-clear">Clear</button></div>'
+    '<div class="tool-out" id="hk-out" aria-live="polite" hidden></div></div>'
+    '<script src="/tool-cta.js" defer></script><script src="/tool-hook.js" defer></script>')
+TOOL_RE = re.compile(r"\{\{(tool|besttime|repurpose|specs|length|hook):([A-Za-z -]+)\}\}")
 
 
 def _load(path: Path) -> Optional[tuple[dict, str]]:
@@ -122,6 +132,7 @@ TOOL_META = {   # slug -> (platform class, platform label, kind)
     "best-video-length-for-youtube-shorts": ("youtube", "YouTube Shorts", "Analyzer"),
     "tiktok-to-youtube-shorts-checklist": ("all", "TikTok, Reels, Shorts", "Checklist"),
     "short-form-video-length-and-specs": ("all", "All platforms", "Spec checker"),
+    "video-hook-scorer": ("all", "TikTok, Reels, Shorts", "Scorer"),
 }
 TOOL_BAR = ('<div class="tool-bar"><b>Free tool</b>'
             '<span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>No sign-up</span>'
@@ -182,6 +193,8 @@ def _wrap(meta: dict, body: str, path: str, request: Request, trail: list[tuple[
         kind, arg = m.group(1), m.group(2)
         if kind == "specs":
             return SPECS_BOX
+        if kind == "hook":
+            return HOOK_BOX
         if kind == "length":
             return LENGTH_BOX.replace("__P__", arg)
         if kind == "repurpose":

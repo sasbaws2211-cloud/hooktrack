@@ -199,3 +199,13 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 20px;margin-bottom:10px}footer a{
 
 .tools-hub .tcard h3{margin:12px 0 0}
 .tools-hub .tcard p{margin:4px 0 0}
+
+.hk-card{border:1px solid var(--border);border-left:6px solid var(--warn);border-radius:14px;padding:14px 16px;background:var(--bg);margin-top:14px}
+.hk-card.strong{border-left-color:var(--good)}.hk-card.weak{border-left-color:var(--bad)}
+.hk-top{display:flex;gap:14px;align-items:center}
+.hk-score{display:flex;align-items:baseline;gap:2px;min-width:78px;font-variant-numeric:tabular-nums}.hk-score b{font-size:34px;line-height:1}.hk-score span{color:var(--muted);font-size:14px}
+.hk-verdict{font-weight:700}.hk-card.strong .hk-verdict{color:var(--good)}.hk-card.okay .hk-verdict{color:var(--warn)}.hk-card.weak .hk-verdict{color:var(--bad)}
+.hk-text{font-size:15.5px;margin-top:2px;overflow-wrap:anywhere}
+.hk-checks{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}.hk-checks li{font-size:14.5px;max-width:none;margin:0}
+.hk-checks .hk-pass b{color:var(--good)}.hk-checks .hk-fail b{color:var(--bad)}.hk-checks li div{color:var(--text-2,inherit)}
+.hk-try{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--surface)}.hk-try ul{margin:6px 0 0;padding-left:18px}.hk-try li{font-size:14.5px;max-width:none;margin:4px 0}
