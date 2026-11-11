@@ -67,7 +67,7 @@ const state = {
   me: null, accounts: [], phones: [], settings: {}, ai: { available: false }, sv: { configured: false },
   weekStart: null,   // set lazily from the workspace time zone
   calMonth: null,
-  calAccount: '', hookStatus: '', hookAccount: '', postsView: 'board', discNiche: null, discBand: '',
+  calAccount: '', hookStatus: '', hookAccount: '', postsView: 'board', discNiche: null, discBand: '', discPlatform: '',
 };
 
 async function api(method, path, body) {
@@ -2240,6 +2240,7 @@ pages.calendar = async app => {
 /* ---------------- discover: what is working for similar creators ---------------- */
 pages.discover = async app => {
   const q = new URLSearchParams();
+  if (state.discPlatform) q.set('platform', state.discPlatform);
   if (state.discNiche === null) q.set('mine', '1');           // first visit: start on the niche and size that fit this workspace
   else {
     if (state.discNiche) q.set('niche', state.discNiche);
@@ -2252,8 +2253,10 @@ pages.discover = async app => {
     ? 'This feed is built from YouTube data, which is not switched on for this platform yet.'
     : 'Nothing here yet. The feed is rebuilt every couple of days for each niche, so check back soon, or try another niche.';
   app.innerHTML = `<div class="page-head"><div><h1>What's working in your niche</h1>
-    <div class="sub">YouTube Shorts that did far better than their own channel usually does. ${esc(d.rule)}</div></div></div>
+    <div class="sub">Short videos that did far better than their own channel usually does. ${esc(d.rule)}</div></div></div>
     <div class="card" style="margin-bottom:14px"><div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
+      ${d.platforms.length > 1 ? `<label class="small muted">Platform</label>
+      <select id="dp" style="width:auto"><option value="">All</option>${d.platforms.map(p => `<option value="${esc(p.key)}" ${state.discPlatform === p.key ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select>` : ''}
       <label class="small muted">Niche</label>
       <select id="dn" style="width:auto"><option value="">All niches</option>${d.niches.map(n => `<option value="${esc(n.key)}" ${state.discNiche === n.key ? 'selected' : ''}>${esc(n.label)}${n.count ? ` (${n.count})` : ''}</option>`).join('')}</select>
       <label class="small muted">Creator size</label>
@@ -2261,10 +2264,10 @@ pages.discover = async app => {
     </div>
     <div class="small muted" style="margin-top:8px">${esc(d.caution)}</div></div>
     ${d.items.length ? `<div class="insp-grid disc-grid">${d.items.map((x, i) => `<div class="insp-card disc-card">
-      <a href="${esc(x.url)}" target="_blank" rel="noopener" title="Watch it on YouTube"><img src="${esc(x.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer"></a>
+      <a href="${esc(x.url)}" target="_blank" rel="noopener" title="Watch it on ${x.platform === 'tiktok' ? 'TikTok' : 'YouTube'}">${x.thumb ? `<img src="${esc(x.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<div class="disc-tile">${x.platform === 'tiktok' ? 'TikTok' : 'Video'}</div>`}</a>
       <div class="body">
         <div class="row" style="gap:6px;flex-wrap:wrap"><span class="pill SCALE" title="${esc(x.note)}">${esc(x.multiple_label.replace('x', '×'))} their usual</span>
-          <span class="pill" title="Creator size">${esc(x.band_label)}</span></div>
+          <span class="pill" title="Creator size">${esc(x.band_label)}</span>${x.platform === 'tiktok' ? '<span class="pill">TikTok</span>' : ''}</div>
         <div class="hook">${esc(x.title)}</div>
         <div class="small muted">${esc(x.channel)} · ${fmtViews(x.views)} views · ${x.days_ago === 0 ? 'today' : x.days_ago + ' day' + (x.days_ago === 1 ? '' : 's') + ' ago'}</div>
         <div class="small muted">${esc(x.pattern)}. ${esc(x.note)}.</div>
@@ -2274,6 +2277,7 @@ pages.discover = async app => {
           <a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">Watch ↗</a>
         </div></div></div>`).join('')}</div>`
       : `<div class="empty card"><h2>Nothing to show yet</h2><p>${esc(empty)}</p></div>`}`;
+  if ($('#dp', app)) $('#dp', app).onchange = e => { state.discPlatform = e.target.value; route(); };
   $('#dn', app).onchange = e => { state.discNiche = e.target.value; route(); };
   $('#db', app).onchange = e => { state.discBand = e.target.value; route(); };
   $$('[data-mk]', app).forEach(b => (b.onclick = guard(async () => {
@@ -2284,7 +2288,7 @@ pages.discover = async app => {
   $$('[data-sv]', app).forEach(b => (b.onclick = guard(async () => {
     const x = d.items[+b.dataset.sv];
     const f = new FormData();
-    f.set('title', x.title); f.set('hook_text', x.title); f.set('source_url', x.url); f.set('platform', 'YouTube');
+    f.set('title', x.title); f.set('hook_text', x.title); f.set('source_url', x.url); f.set('platform', x.platform === 'tiktok' ? 'TikTok' : 'YouTube');
     f.set('notes', `${x.note}. ${x.pattern}.`); f.set('use_in_ai', 'true');
     await api('POST', '/api/inspiration', f);
     b.textContent = 'Saved ✓'; b.disabled = true;

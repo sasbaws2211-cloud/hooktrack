@@ -187,5 +187,90 @@ os.environ.pop("YOUTUBE_API_KEY"); yt._http = yt._http
 ok("with no YouTube key nothing is attempted", discover.refresh_due() is None)
 os.environ["YOUTUBE_API_KEY"] = KEY
 
+# ======================= TikTok =======================
+from app import sociavault, vaultwatch
+import time as _t
+TNOW = int(_t.time())
+day = 86400
+tt_calls = {"search": 0, "videos": 0}
+
+
+def tv(author, vid_, views, days, desc="my workout today", followers=800, nick=None):
+    return {"aweme_info": {"aweme_id": vid_, "desc": desc, "create_time": TNOW - days * day, "statistics": {"play_count": views},
+                           "author": {"unique_id": author, "nickname": nick or author.upper(), "follower_count": followers}}}
+
+
+TT_SEARCH = [tv("a1", "t1", 12000, 4), tv("a1", "t2", 4000, 5), tv("a1", "t3", 3000, 6),
+             tv("a2", "t4", 900000, 4, followers=5_000_000), tv("a3", "t5", 800, 4, followers=2000),
+             tv("a4", "t6", 9000, 4, desc="makeup haul", followers=3000), tv("a5", "t7", 5000, 1, followers=1500),
+             tv("a6", "t8", 20000, 4, followers=900), tv("a7", "t9", 9000, 4, followers=500)]
+
+
+def tt_get(path, params, key):
+    assert path == "tiktok/search/keyword"
+    tt_calls["search"] += 1
+    return {"search_item_list": {str(i): x for i, x in enumerate(TT_SEARCH)}, "cursor": 30, "has_more": 0}
+
+
+def tt_videos(handle, key, **kw):
+    tt_calls["videos"] += 1
+    mine = [x["aweme_info"] for x in TT_SEARCH if x["aweme_info"]["author"]["unique_id"] == handle]
+    base = {"a1": (10, 300), "a6": (10, 8000), "a7": (4, 300)}.get(handle, (10, 300))
+    items = [{"aweme_id": f"old{handle}{i}", "statistics": {"play_count": base[1]}, "create_time": TNOW - (20 + i) * day} for i in range(base[0])]
+    items.append({"aweme_id": f"pin{handle}", "is_top": True, "statistics": {"play_count": 9_999_999}, "create_time": TNOW - 400 * day})
+    items += [{"aweme_id": m["aweme_id"], "statistics": m["statistics"], "create_time": m["create_time"]} for m in mine]
+    return {"aweme_list": items}
+
+
+sociavault._get = tt_get
+sociavault.tiktok_videos = tt_videos
+db.execute("DELETE FROM discover_items")
+res = discover.refresh_niche_tiktok("fitness", "k")
+rows = {r["video_id"]: r for r in db.query("SELECT * FROM discover_items WHERE platform='tiktok'")}
+ok("TikTok keeps only real outliers: the two best from the account whose own normal they beat", set(rows) == {"t1", "t2"})
+ok("a huge account, tiny numbers, an off-topic video, a too-new one, a flat account and one with no baseline are left out",
+   all(v not in rows for v in ("t3", "t4", "t5", "t6", "t7", "t8", "t9")))
+r = rows["t1"]
+ok("the stored numbers are right and the pinned post never counts toward the normal", r["views"] == 12000 and r["channel_median"] == 300 and abs(r["multiple"] - 40.0) < 0.01 and r["band"] == "under-1k" and r["subscribers"] == 800)
+ok("the run reports what it spent: one search plus one credit per account measured", res["credits"] == 4 == tt_calls["search"] + tt_calls["videos"] and res["accounts_measured"] == 3 and res["outliers"] == 2)
+tt_calls.update(search=0, videos=0)
+db.execute("DELETE FROM discover_items")
+capped = discover.refresh_niche_tiktok("fitness", "k", max_credits=2)
+ok("the credit cap is a hard limit and stops quietly", capped["credits"] == 2 and tt_calls["search"] + tt_calls["videos"] == 2 and capped["accounts_measured"] == 1)
+
+app.dependency_overrides[auth.current] = lambda: auth.Ctx(user_id=1, email="a@example.com", name="A", workspace_id=1, role="owner")
+db.execute("DELETE FROM discover_items")
+discover.refresh_niche_tiktok("fitness", "k")
+db.execute("DELETE FROM youtube_quota")
+discover.refresh_niche("fitness")
+body = c.get("/api/discover").json()
+tk = [i for i in body["items"] if i["platform"] == "tiktok"]
+ok("a TikTok item links to the video on TikTok and keeps no thumbnail", tk and tk[0]["url"].startswith("https://www.tiktok.com/@a1/video/") and tk[0]["thumb"] == "")
+ok("a YouTube item still has its thumbnail", any(i["platform"] == "youtube" and i["thumb"].startswith("https://i.ytimg.com") for i in body["items"]))
+ok("the page is offered a platform filter once TikTok items exist", [p["key"] for p in body["platforms"]] == ["youtube", "tiktok"])
+ok("the platform filter works", {i["platform"] for i in c.get("/api/discover?platform=tiktok").json()["items"]} == {"tiktok"}
+   and {i["platform"] for i in c.get("/api/discover?platform=youtube").json()["items"]} == {"youtube"})
+app.dependency_overrides.clear()
+
+# ---- the scheduler never spends credits on its own unless asked, and only with a healthy balance
+db.execute("DELETE FROM platform_settings WHERE key IN ('discover_tiktok','discover_tiktok_state')")
+sociavault.resolve_server_key = lambda: "k"
+vaultwatch.scheduled_paused = lambda: False
+vaultwatch.state = lambda: {"credits": 5000}
+ok("TikTok discovery is off by default", discover.tiktok_enabled() is False and discover.refresh_due_tiktok() is None)
+discover.set_tiktok_enabled(True)
+vaultwatch.state = lambda: {"credits": 120}
+ok("when switched on it still waits for a comfortable balance", discover.refresh_due_tiktok() is None)
+vaultwatch.state = lambda: {"credits": 5000}
+vaultwatch.scheduled_paused = lambda: True
+ok("and does nothing while account syncs are paused for lack of credits", discover.refresh_due_tiktok() is None)
+vaultwatch.scheduled_paused = lambda: False
+tt_calls.update(search=0, videos=0)
+first = discover.refresh_due_tiktok()
+ok("with a healthy balance it refreshes one niche within its credit cap", first and first["platform"] == "tiktok" and first["credits"] <= discover.TT_MAX_CREDITS)
+ok("the next call waits out the gap", discover.refresh_due_tiktok() is None)
+discover.set_tiktok_enabled(False)
+db.execute("DELETE FROM platform_settings WHERE key IN ('discover_tiktok','discover_tiktok_state')")
+
 db.execute("DELETE FROM discover_items"); db.execute("DELETE FROM youtube_quota"); db.execute("DELETE FROM platform_settings WHERE key = 'discover_state'")
 print("ALL OK")

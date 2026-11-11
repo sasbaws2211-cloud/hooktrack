@@ -61,6 +61,10 @@ async def _sync_scheduler_loop():
             await asyncio.to_thread(discover.refresh_due)     # the shared "what's working in your niche" feed: one niche at a time
         except Exception:
             log.exception("discover refresh failed")
+        try:
+            await asyncio.to_thread(discover.refresh_due_tiktok)    # paid data: does nothing unless switched on and the balance is healthy
+        except Exception:
+            log.exception("tiktok discover refresh failed")
         await asyncio.sleep(300)
 
 
