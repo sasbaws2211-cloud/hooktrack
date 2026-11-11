@@ -50,7 +50,7 @@ with sync_playwright() as p:
     errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.click("#hero-demo"); pg.wait_for_timeout(1200)
     ok("clicking the demo link opens the player and stays on the page", pg.url.rstrip("/") == BASE and pg.locator(".htd-overlay:not([hidden])").count() == 1)
-    ok("the video frame is requested only after the click", "/fake-embed/SAprelI0bJ8" in pg.get_attribute(".htd-frame iframe", "src") and "enablejsapi=1" in pg.get_attribute(".htd-frame iframe", "src") and "controls=0" in pg.get_attribute(".htd-frame iframe", "src"))
+    ok("the video frame is requested only after the click", "/fake-embed/R4SvZlUu6P8" in pg.get_attribute(".htd-frame iframe", "src") and "enablejsapi=1" in pg.get_attribute(".htd-frame iframe", "src") and "controls=0" in pg.get_attribute(".htd-frame iframe", "src"))
     ok("the video starts by itself and the loading spinner goes away", pg.locator(".htd-spin[hidden]").count() == 1 and "playVideo" in cmds(pg))
     ok("nothing sits in front of the video: every point of it belongs to the YouTube frame", pg.evaluate("""() => { const r = document.querySelector('.htd-stage').getBoundingClientRect(); const f = document.querySelector('.htd-frame iframe'); let bad = 0;
         for (const fx of [0.02, 0.25, 0.5, 0.75, 0.98]) for (const fy of [0.02, 0.25, 0.5, 0.75, 0.98]) { const e = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy); if (e !== f) bad++; } return bad === 0; }"""))
@@ -174,6 +174,6 @@ with sync_playwright() as p:
     except Exception: pass
     pg.evaluate("HTDemo.configure({embedBase: location.origin + '/fake-embed/'})")
     pg.click("#hero-demo"); pg.wait_for_timeout(9800)
-    ok("if the video cannot load, a link to YouTube is shown", pg.locator(".htd-err:not([hidden])").count() == 1 and pg.get_attribute(".htd-err a", "href") == "https://youtu.be/SAprelI0bJ8")
+    ok("if the video cannot load, a link to YouTube is shown", pg.locator(".htd-err:not([hidden])").count() == 1 and pg.get_attribute(".htd-err a", "href") == "https://youtu.be/R4SvZlUu6P8")
     pg.close(); b.close()
 print("ALL OK (%d)" % len(results))

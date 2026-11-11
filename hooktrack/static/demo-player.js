@@ -11,7 +11,7 @@
    Without JavaScript, or if the video cannot load, every "Watch the demo" link still goes to YouTube. */
 (function (root) {
   'use strict';
-  var VIDEO_ID = 'SAprelI0bJ8';
+  var VIDEO_ID = 'R4SvZlUu6P8';
   var WATCH_URL = 'https://youtu.be/' + VIDEO_ID;
   var cfg = { embedBase: 'https://www.youtube-nocookie.com/embed/' };
   var SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];

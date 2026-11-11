@@ -2,7 +2,7 @@
    The ?ref= tag is the page the visitor was on, so a signup can be traced back to the tool that brought it. */
 (function (root) {
   'use strict';
-  var DEMO = 'https://youtu.be/SAprelI0bJ8';
+  var DEMO = 'https://youtu.be/R4SvZlUu6P8';
 
   function ref() {
     var path = (root.location && root.location.pathname) || '';

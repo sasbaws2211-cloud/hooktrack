@@ -9,6 +9,6 @@ ok('hub and unknown paths get a safe tag', load('/tools').ref() === 'tools' && l
 ok('odd characters are stripped from the tag', load('/tools/a b<script>').ref() === 'tools-abscript');
 const h = load('/tools/best-video-length-for-tiktok').html('Track it');
 ok('primary link goes to tagged pricing', h.includes('href="/?ref=tools-best-video-length-for-tiktok#pricing"') && h.includes('>Track it</a>'));
-ok('demo link opens the YouTube demo safely', h.includes('href="https://youtu.be/SAprelI0bJ8"') && h.includes('target="_blank"') && h.includes('rel="noopener"'));
+ok('demo link opens the YouTube demo safely', h.includes('href="https://youtu.be/R4SvZlUu6P8"') && h.includes('target="_blank"') && h.includes('rel="noopener"'));
 ok('default label is used when none is given', load('/tools/x').html().includes('Track every post across all your accounts'));
 console.log('ALL OK (' + n + ')');

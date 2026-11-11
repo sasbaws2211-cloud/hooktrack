@@ -834,7 +834,7 @@ pages.dashboard = async app => {
           <li>${pill('KILL')} Not working after several posts — stop or rework the account</li>
         </ul></div>` : ''}`;
     const wd = $('#watch-demo');
-    if (wd) wd.onclick = () => { if (window.HTDemo) HTDemo.open(wd); else window.open('https://youtu.be/SAprelI0bJ8', '_blank', 'noopener'); };
+    if (wd) wd.onclick = () => { if (window.HTDemo) HTDemo.open(wd); else window.open('https://youtu.be/R4SvZlUu6P8', '_blank', 'noopener'); };
     const seedBtn = $('#seed-demo');
     if (seedBtn) seedBtn.onclick = guard(async () => {
       busy(seedBtn, true, 'Loading…');
@@ -940,7 +940,7 @@ pages.dashboard = async app => {
   const hd = $('#help-dash');
   if (hd) hd.onclick = () => openHelpGlossary();
   const dd = $('#demo-dash');
-  if (dd) dd.onclick = () => { if (window.HTDemo) HTDemo.open(dd); else window.open('https://youtu.be/SAprelI0bJ8', '_blank', 'noopener'); };
+  if (dd) dd.onclick = () => { if (window.HTDemo) HTDemo.open(dd); else window.open('https://youtu.be/R4SvZlUu6P8', '_blank', 'noopener'); };
   const cs = $('#copy-summary');
   if (cs) cs.onclick = guard(async () => {
     const r = await api('GET', '/api/workspace/summary');
