@@ -226,13 +226,112 @@ def charge_for(plan: dict) -> tuple[int, str]:
 
 def list_plans(only_active: bool = False) -> list[dict]:
     """Sellable plans. The old 'free' row is kept only as an internal marker and is never listed."""
-    sql = "SELECT * FROM plans WHERE code <> 'free'" + (" AND active" if only_active else "") \
+    sql = "SELECT * FROM plans WHERE code NOT IN ('free', 'lifetime')" + (" AND active" if only_active else "") \
           + " ORDER BY position, price_minor, code"
     return db.query(sql)
 
 
 def get_plan(code: str) -> Optional[dict]:
     return db.one("SELECT * FROM plans WHERE code=%s", (code,))
+
+
+# ---------- the lifetime deal ----------
+# One plan row ("lifetime", migration 0050), sold once per workspace through the normal Paystack checkout, with a cap on how many
+# can ever be sold. A lifetime workspace never lapses (no period end) and never auto-renews. It costs data credits, publishing and
+# AI every month for as long as it lives, so every limit is finite and extras are add-ons.
+LIFETIME = "lifetime"
+LIFETIME_SETTING = "lifetime_deal"
+LIFETIME_DEFAULTS = {"enabled": False, "cap": 200}
+LIFETIME_OTHER_ACCOUNTS = 1      # TikTok or Instagram accounts: each costs credits every month
+LIFETIME_YT_ACCOUNTS = 3         # YouTube channels are read through Google's free API, so they cost nothing
+_YT_SQL = "lower(platform) LIKE 'youtube%%' OR lower(platform) IN ('yt', 'shorts')"      # %% because it is used with query parameters
+
+
+def lifetime_config() -> dict:
+    c = dict(LIFETIME_DEFAULTS)
+    v = _pget(LIFETIME_SETTING)
+    if isinstance(v, dict):
+        c.update({k: v[k] for k in LIFETIME_DEFAULTS if k in v})
+    return c
+
+
+def lifetime_sold() -> int:
+    return db.one("SELECT COUNT(*) AS n FROM lifetime_grants WHERE revoked_at IS NULL")["n"]
+
+
+def lifetime_pending(excluding_ws: Optional[int] = None) -> int:
+    """Checkouts started in the last hour and not finished yet: they hold a spot so the last ones are not oversold."""
+    return db.one("SELECT COUNT(DISTINCT workspace_id) AS n FROM payments WHERE plan_code=%s AND status='pending' "
+                  "AND created_at > now() - interval '1 hour' AND (%s::int IS NULL OR workspace_id <> %s::int)",
+                  (LIFETIME, excluding_ws, excluding_ws))["n"]
+
+
+def lifetime_left(excluding_ws: Optional[int] = None) -> int:
+    return max(0, int(lifetime_config()["cap"]) - lifetime_sold() - lifetime_pending(excluding_ws))
+
+
+def save_lifetime_config(enabled: Optional[bool] = None, cap: Optional[int] = None) -> dict:
+    c = lifetime_config()
+    if enabled is not None:
+        c["enabled"] = bool(enabled)
+    if cap is not None:
+        if not (1 <= int(cap) <= 100000):
+            raise HTTPException(400, "The cap must be between 1 and 100,000")
+        if int(cap) < lifetime_sold():
+            raise HTTPException(400, f"{lifetime_sold()} have already been sold, so the cap cannot be lower than that")
+        c["cap"] = int(cap)
+    _pset(LIFETIME_SETTING, c)
+    return lifetime_config()
+
+
+def has_lifetime(ws: int) -> bool:
+    return bool(db.one("SELECT 1 FROM workspace_subscriptions s JOIN lifetime_grants g ON g.workspace_id = s.workspace_id "
+                       "WHERE s.workspace_id=%s AND s.plan_code=%s AND g.revoked_at IS NULL", (ws, LIFETIME)))
+
+
+def lifetime_offer(ws: Optional[int] = None) -> Optional[dict]:
+    """What the pricing page and the billing page show, or None when the deal is off, not set up, or billing is off."""
+    if not enabled() or not lifetime_config()["enabled"]:
+        return None
+    plan = get_plan(LIFETIME)
+    if not plan or not plan["active"]:
+        return None
+    try:
+        charge_minor, charge_cur = charge_for(plan)
+    except HTTPException:
+        charge_minor, charge_cur = plan["price_minor"], plan["currency"]
+    cap = int(lifetime_config()["cap"])
+    left = lifetime_left(ws)
+    return {"code": LIFETIME, "name": plan["name"], "description": plan["description"], "price_minor": plan["price_minor"],
+            "currency": plan["currency"], "charge_minor": charge_minor, "charge_currency": charge_cur,
+            "cap": cap, "sold": lifetime_sold(), "left": left, "sold_out": left <= 0,
+            "includes": {"other_accounts": LIFETIME_OTHER_ACCOUNTS, "youtube_accounts": LIFETIME_YT_ACCOUNTS,
+                         "connected": plan["max_connected"], "credits": plan["max_credits"], "ai_calls": plan["max_ai_calls"],
+                         "members": plan["max_members"]}}
+
+
+def require_account_mix(ws: int, platform: str, replacing_id: Optional[int] = None) -> None:
+    """A lifetime workspace tracks 1 TikTok or Instagram account (each costs credits every month) plus YouTube channels (free).
+    The total is capped by require_capacity; this caps the paid-data share. Extra tracked-account add-ons raise both."""
+    if not enabled() or not has_lifetime(ws):
+        return
+    if str(platform or "").strip().lower().startswith(("youtube", "yt", "shorts")):
+        return
+    others = db.one("SELECT COUNT(*) AS n FROM accounts WHERE workspace_id=%s AND NOT (" + _YT_SQL + ") AND (%s::int IS NULL OR id <> %s::int)",
+                    (ws, replacing_id, replacing_id))["n"]
+    allowed = LIFETIME_OTHER_ACCOUNTS + _extras(ws).get("accounts", 0)
+    if others >= allowed:
+        raise HTTPException(402, f"The lifetime plan tracks {LIFETIME_OTHER_ACCOUNTS} TikTok or Instagram account and up to "
+                                 f"{LIFETIME_YT_ACCOUNTS} YouTube channels. Add more tracked accounts under Billing.")
+
+
+def _lifetime_checkout_guard(ws: int) -> None:
+    if lifetime_offer(ws) is None:
+        raise HTTPException(404, "The lifetime deal is not available")
+    if has_lifetime(ws):
+        raise HTTPException(400, "This workspace already has the lifetime plan")
+    if lifetime_left(ws) <= 0:
+        raise HTTPException(409, "The lifetime deal has sold out")
 
 
 def _unlimited(plan: dict) -> dict:
@@ -401,11 +500,13 @@ ADDONS = {
                   "what": "Another TikTok, Instagram or YouTube account you can publish to."},
     "accounts": {"label": "25 more tracked accounts", "price_minor": 1000, "unit": 25, "lasts": "30 days",
                  "what": "Track 25 more accounts for views and decisions."},
+    "accounts5": {"label": "5 more tracked accounts", "price_minor": 300, "unit": 5, "lasts": "30 days",
+                  "what": "Track 5 more accounts for views and decisions."},
     "credits": {"label": "1,000 data credits", "price_minor": 800, "unit": 1000, "lasts": "this month",
                 "what": "More syncing and reading of videos and comments this month."},
 }
 ADDON_MAX_QTY = 20
-RENEWABLE = ("connected", "accounts")        # credits are for one month and are bought again when needed
+RENEWABLE = ("connected", "accounts", "accounts5")        # credits are for one month and are bought again when needed
 ADDON_RENEW_MAX_FAILURES = 3
 
 
@@ -424,6 +525,7 @@ def _extras(ws: int) -> dict:
     for p in db.query("SELECT kind, COALESCE(SUM(units), 0)::int AS n FROM addon_purchases "
                       "WHERE workspace_id=%s AND starts_at <= now() AND expires_at > now() GROUP BY kind", (ws,)):
         out[p["kind"]] = out.get(p["kind"], 0) + int(p["n"])
+    out["accounts"] += out.pop("accounts5", 0)        # the small pack counts toward tracked accounts like the big one
     return out
 
 
@@ -603,6 +705,8 @@ def plan_change_quote(ws: int, plan: dict) -> dict:
     amount, currency = charge_for(plan)
     out = {"amount_minor": amount, "currency": currency, "credit_minor": 0, "charge_minor": amount,
            "remaining_days": 0, "covers_all": False, "extra_days": 0, "from_plan": None}
+    if plan.get("interval") == "lifetime":
+        return out
     sub = subscription(ws)
     end = sub.get("current_period_end")
     now = datetime.now(timezone.utc)
@@ -667,6 +771,8 @@ def _receipt(pay: dict, period_end: Optional[datetime]) -> None:
         what = (plan["name"] + " plan") if plan else what
     amount = f"{int(pay['amount_minor']) / 100:,.2f} {pay['currency']}"
     until = f" Your plan is active until {period_end.strftime('%d %b %Y')}." if period_end and what.endswith("plan") else ""
+    if pay["plan_code"] == LIFETIME:
+        until = " Your lifetime access is active now, for as long as we run HookTrack."
     link = f"\n\nSee your plan and payment history: {mailer.public_url()}/#/billing" if mailer.public_url() else ""
     _notify(pay["payer_email"], f"Payment received: {what}",
             f"Thank you! We received your payment of {amount} for the {what}.{until}\n\nReference: {pay['reference']}{link}")
@@ -696,6 +802,23 @@ def _apply_payment_tx(reference: str, paid_amount_minor: Optional[int], paid_cur
             return {"applied": False, "already": False, "payment": pay}
         cur.execute("SELECT * FROM workspace_subscriptions WHERE workspace_id=%s FOR UPDATE", (pay["workspace_id"],))
         cur_sub = cur.fetchone()
+        if plan["interval"] == "lifetime":
+            # paid once: no period end, no renewal, and any saved card for an earlier plan stops being charged
+            cur.execute(
+                """INSERT INTO workspace_subscriptions(workspace_id, plan_code, status, current_period_end, note, updated_at)
+                   VALUES (%s,%s,'active',NULL,'', now())
+                   ON CONFLICT (workspace_id) DO UPDATE SET plan_code=EXCLUDED.plan_code, status='active',
+                     current_period_end=NULL, note='', updated_at=now(), auto_renew=FALSE, trial_ends_at=NULL""",
+                (pay["workspace_id"], plan["code"]))
+            cur.execute(
+                """INSERT INTO lifetime_grants(workspace_id, reference) VALUES (%s,%s)
+                   ON CONFLICT (workspace_id) DO UPDATE SET reference=EXCLUDED.reference, granted_at=now(),
+                     revoked_at=NULL, revoked_reason=''""", (pay["workspace_id"], pay["reference"]))
+            cur.execute("UPDATE payments SET status='success', paid_at=now() WHERE id=%s", (pay["id"],))
+            cur.execute("SELECT COUNT(*) AS n FROM lifetime_grants WHERE revoked_at IS NULL")
+            if cur.fetchone()["n"] > int(lifetime_config()["cap"]):
+                log.warning("lifetime deal oversold: payment %s was honoured past the cap", pay["reference"])
+            return {"applied": True, "already": False, "payment": pay, "period_end": None, "lifetime": True}
         now = datetime.now(timezone.utc)
         base = now
         if cur_sub and cur_sub["plan_code"] == plan["code"] and cur_sub["current_period_end"] \
@@ -1095,6 +1218,8 @@ def billing_status(request: Request, ctx: Ctx = Depends(current)):
     out["paywalled"] = out["state"] == "expired"
     out["can_manage"] = ctx.role in ("owner", "admin")
     out["free_plan"] = free_plan() if free_plan_on() else None
+    out["has_lifetime"] = has_lifetime(ctx.workspace_id)
+    out["lifetime_offer"] = None if out["has_lifetime"] else lifetime_offer(ctx.workspace_id)
     out["fx_usd"] = usd_rates()          # {"GHS": 15.5} means 1 USD = 15.5 GHS (display only)
     pays = db.query("SELECT plan_code, amount_minor, currency, status, created_at, paid_at, reference "
                     "FROM payments WHERE workspace_id=%s ORDER BY created_at DESC LIMIT 20", (ctx.workspace_id,))
@@ -1128,7 +1253,7 @@ def public_pricing() -> dict:
                 "max_connected": p.get("max_connected", -1), "max_credits": p.get("max_credits", -1),
                 "max_reports": p.get("max_reports", -1),
                 "charge_minor": charge_minor, "charge_currency": charge_cur})
-    out = {"billing_enabled": on, "trial_days": trial_config()["days"] if on else 0, "plans": plans}
+    out = {"billing_enabled": on, "trial_days": trial_config()["days"] if on else 0, "plans": plans, "lifetime_offer": lifetime_offer()}
     if on and free_plan_on():
         fp = free_plan()
         out["free_plan"] = {"name": fp["name"], "description": fp["description"], "max_accounts": fp["max_accounts"],
@@ -1164,6 +1289,11 @@ def checkout(b: CheckoutIn, ctx: Ctx = Depends(auth.admin)):
         raise HTTPException(404, "That plan is not available")
     if plan["price_minor"] <= 0:
         raise HTTPException(400, "That plan is free: there is nothing to pay")
+    if plan["code"] == LIFETIME:
+        _lifetime_checkout_guard(ctx.workspace_id)
+        b.save_card = False                                   # one payment, nothing to renew
+    elif has_lifetime(ctx.workspace_id):
+        raise HTTPException(400, "This workspace has the lifetime plan. To add more, buy add-ons under Billing.")
     quote = plan_change_quote(ctx.workspace_id, plan)
     amount, currency = quote["charge_minor"], quote["currency"]
     ws = db.one("SELECT name FROM workspaces WHERE id=%s", (ctx.workspace_id,))

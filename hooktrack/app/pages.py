@@ -206,7 +206,7 @@ def _tool_chips(path: str) -> str:
 
 
 def _tokens(site: str) -> dict:
-    low, trial = "$19", 7
+    low, trial = "$12", 7
     try:
         from . import billing
         data = billing.public_pricing()

@@ -339,6 +339,19 @@ pages.settings = async app => {
       </div>
       <div class="actions"><button class="btn" id="aitest" ${s.ai.available ? '' : 'disabled'}>Test</button>
         ${s.ai.has_key ? '<button class="btn danger" id="aiclear">Remove key</button>' : ''}<button class="btn primary" id="aisave">Save</button></div></div>
+    ${(() => { const L = s.lifetime, pl = L.plan; return `<div class="card" style="margin-top:12px"><h2>Lifetime deal</h2>
+      <p class="small muted" style="margin:0 0 6px">A one-time plan sold on your own site through Paystack: 1 TikTok or Instagram account, up to 3 YouTube channels, 1 publishing account, about ${esc(pl ? pl.max_credits : 60)} data credits and ${esc(pl ? pl.max_ai_calls : 200)} AI requests a month. Extras are add-ons. It costs you data, publishing and AI every month for as long as the buyer stays, so keep the cap you are comfortable with. It stays off until you tick the box.</p>
+      <label class="check" style="margin-top:0"><input type="checkbox" id="lt-on" ${L.enabled ? 'checked' : ''}> Sell the lifetime deal</label>
+      <div class="fields">
+        <div><label class="f">Price (USD, one time)</label><input id="lt-p" type="number" min="1" step="1" value="${esc(pl ? (pl.price_minor / 100) : 149)}"></div>
+        <div><label class="f">Spots to sell in total</label><input id="lt-c" type="number" min="1" value="${esc(L.cap)}"></div>
+      </div>
+      <p class="small" style="margin:6px 0 0"><b>${fmt(L.sold)}</b> sold, <b>${fmt(L.left)}</b> left${L.pending ? ` (${fmt(L.pending)} checkout${L.pending === 1 ? '' : 's'} in progress)` : ''}.</p>
+      <div class="actions"><button class="btn primary" id="ltsave">Save</button></div>
+      ${L.grants.length ? `<div class="table-wrap" style="margin-top:10px"><table><thead><tr><th>Workspace</th><th>Owner</th><th>Bought</th><th>Status</th><th></th></tr></thead><tbody>${L.grants.map(g => `<tr><td>${esc(g.workspace || '')}</td><td>${esc(g.owner_email || '')}</td><td>${esc(String(g.granted_at).slice(0, 10))}</td>
+        <td>${g.revoked_at ? `<span class="badge warn">refunded</span> <span class="small muted">${esc(g.revoked_reason)}</span>` : '<span class="badge good">active</span>'}</td>
+        <td>${g.revoked_at ? '' : `<button class="btn sm danger" data-ltrevoke="${g.workspace_id}">Record a refund</button>`}</td></tr>`).join('')}</tbody></table></div>
+      <p class="small muted" style="margin:6px 0 0">"Record a refund" removes the lifetime plan from that workspace and frees the spot. Send the money back from your Paystack dashboard.</p>` : ''}</div>`; })()}
     ${(() => { const F = s.free_ai; return `<div class="card" style="margin-top:12px"><h2>Free AI tools</h2>
       <p class="small muted" style="margin:0 0 6px">The public hook rewriter, script, bio, caption and content-idea generators use the AI connection above and need no sign-up, so each call costs money. Visitors get a daily allowance (signed-in users get ${F.signed_in_multiplier}x), and one platform-wide cap stops a spike from running up the bill. Repeated identical requests are cached and cost nothing. Nothing visitors type is stored.</p>
       <label class="check" style="margin-top:0"><input type="checkbox" id="fai-on" ${F.enabled ? 'checked' : ''}> The free AI tools are on</label>
@@ -446,6 +459,16 @@ pages.settings = async app => {
     if (r.currency_check && !r.currency_check.ok) { toast('Saved, but customers cannot pay yet: ' + r.currency_check.message, true); return route(); }
     toast('Billing settings saved'); route();
   });
+  $('#ltsave').onclick = guard(async () => {
+    await api('PUT', '/settings/lifetime', { enabled: $('#lt-on').checked, price_usd: +$('#lt-p').value, cap: +$('#lt-c').value });
+    toast('Lifetime deal settings saved'); route();
+  });
+  $$('[data-ltrevoke]').forEach(btn => (btn.onclick = guard(async () => {
+    const reason = prompt('Why is this being refunded? (kept in your records)', 'refunded');
+    if (reason === null) return;
+    await api('POST', `/lifetime/${btn.dataset.ltrevoke}/revoke`, { reason });
+    toast('Lifetime plan removed and the spot freed. Now refund the payment in Paystack.'); route();
+  })));
   $('#faisave').onclick = guard(async () => {
     await api('PUT', '/settings/free-ai', { enabled: $('#fai-on').checked, per_visitor_daily: +$('#fai-v').value, global_daily: +$('#fai-g').value, model: $('#fai-m').value });
     toast('Free AI tool settings saved'); route();

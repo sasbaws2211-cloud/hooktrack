@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, discover, freeai, legal, logic, media, pages, peer, publish, seo, sociavault, vaultwatch, youtube_api
+from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, discover, freeai, inquiry, legal, logic, media, pages, peer, publish, seo, sociavault, vaultwatch, youtube_api
 from . import backup, digest, reports
 from .auth import Ctx, admin, current
 from .import_xlsx import import_workbook
@@ -204,7 +204,7 @@ async def trial_paywall(request: Request, call_next):
     """Once billing is on, a workspace with no trial and no paid plan can look but not change anything."""
     path = request.url.path
     if (request.method in ("POST", "PUT", "PATCH", "DELETE") and path.startswith("/api/")
-            and not path.startswith(("/api/auth/", "/api/billing", "/api/free/"))
+            and not path.startswith(("/api/auth/", "/api/billing", "/api/free/", "/api/public/"))
             and path not in ("/api/workspaces", "/api/workspace")):      # create / rename / delete a workspace
         try:
             ctx = await asyncio.to_thread(auth.session_ctx, request)
@@ -218,6 +218,7 @@ app.include_router(auth.router)
 app.include_router(billing.router)
 app.include_router(discover.router)
 app.include_router(freeai.router)
+app.include_router(inquiry.router)
 app.include_router(baseline.router)
 app.include_router(media.router)
 app.include_router(reports.router)
@@ -464,6 +465,7 @@ def account_create(b: AccountIn, ctx: Ctx = Depends(current)):
     b.handle, b.platform = _clean_handle(b.handle, b.platform)
     billing.require_platform(ws, b.platform)                      # the free plan covers YouTube only
     billing.require_capacity(ws, "accounts")
+    billing.require_account_mix(ws, b.platform)                   # a lifetime plan tracks 1 TikTok/Instagram account plus YouTube
     _own_phone(ws, b.phone_id)
     _own_client(ws, b.client_id)
     if db.one("SELECT 1 FROM accounts WHERE workspace_id=%s AND handle=%s", (ws, b.handle)):
@@ -487,6 +489,9 @@ def account_update(aid: int, b: AccountPatch, ctx: Ctx = Depends(current)):
         if cur is None:
             raise HTTPException(404, "Not found")
         d["handle"], d["platform"] = _clean_handle(d.get("handle", cur["handle"]), d.get("platform", cur["platform"]))
+        if d["platform"] != cur["platform"]:
+            billing.require_platform(ctx.workspace_id, d["platform"])
+            billing.require_account_mix(ctx.workspace_id, d["platform"], replacing_id=aid)
     if d.get("phone_id") is not None:
         _own_phone(ctx.workspace_id, d["phone_id"])
     _own_client(ctx.workspace_id, d.get("client_id"))

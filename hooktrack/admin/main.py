@@ -286,7 +286,7 @@ def workspace_subscription(wid: int, b: SubscriptionIn, _a: Admin = Depends(requ
         raise HTTPException(400, "status must be active or comp")
     plan = billing.get_plan(b.plan_code)
     if plan is not None and plan["interval"] == "lifetime":
-        raise HTTPException(400, "Lifetime plans are no longer offered; pick a subscription plan")
+        raise HTTPException(400, "The lifetime plan is bought through checkout; it cannot be assigned by hand")
     if plan is None or b.plan_code == billing.FREE:
         raise HTTPException(400, f"Unknown plan '{b.plan_code}'. There is no free plan: pick a paid plan, or extend the trial.")
     end = None
@@ -567,6 +567,13 @@ def settings(_a: Admin = Depends(require_admin)):
         "youtube": {**youtube_api.status(), "free_plan": billing.free_plan_config(), "free_on": billing.free_plan_on(),
                     "free_workspaces": db.one("SELECT COUNT(*) AS n FROM workspaces w LEFT JOIN workspace_subscriptions s ON s.workspace_id = w.id "
                                               "WHERE s.plan_code IS NULL OR s.plan_code = 'free'")["n"]},
+        "lifetime": {**billing.lifetime_config(), "sold": billing.lifetime_sold(), "pending": billing.lifetime_pending(),
+                     "left": billing.lifetime_left(), "plan": billing.get_plan(billing.LIFETIME),
+                     "grants": db.query(
+                         """SELECT g.workspace_id, w.name AS workspace, g.granted_at, g.revoked_at, g.revoked_reason, g.reference,
+                                   (SELECT u.email FROM memberships m JOIN users u ON u.id = m.user_id
+                                    WHERE m.workspace_id = g.workspace_id ORDER BY m.created_at LIMIT 1) AS owner_email
+                            FROM lifetime_grants g LEFT JOIN workspaces w ON w.id = g.workspace_id ORDER BY g.granted_at DESC LIMIT 50""")},
         "free_ai": {**freeai.config(), "usage": freeai.usage_today(), "signed_in_multiplier": freeai.SIGNED_IN_MULTIPLIER},
         "late": __import__("app.latehub", fromlist=["x"]).key_status(),
         "ai": __import__("app.ai", fromlist=["x"]).platform_status(),
@@ -616,6 +623,39 @@ def settings_youtube(b: YouTubeSettingsIn, _a: Admin = Depends(require_admin)):
         sociavault.platform_set(youtube_api.BUDGET_SETTING, b.daily_budget)
     billing.save_free_plan(enabled=b.free_enabled, max_accounts=b.free_accounts, max_members=b.free_members, max_ai_calls=b.free_ai)
     return {"youtube": youtube_api.status(), "free_plan": billing.free_plan_config()}
+
+
+class LifetimeIn(BaseModel):
+    enabled: Optional[bool] = None
+    cap: Optional[int] = Field(None, ge=1, le=100000)
+    price_usd: Optional[float] = Field(None, ge=1, le=100000)
+
+
+@app.put("/api/settings/lifetime")
+def settings_lifetime(b: LifetimeIn, _a: Admin = Depends(require_admin)):
+    """The one-time lifetime plan: the switch, the cap on how many can be sold, and its price."""
+    if b.price_usd is not None:
+        plan = billing.get_plan(billing.LIFETIME)
+        if plan is None:
+            raise HTTPException(400, "The lifetime plan is missing: run the latest migration")
+        db.execute("UPDATE plans SET price_minor=%s WHERE code=%s", (int(round(b.price_usd * 100)), billing.LIFETIME))
+    cfg = billing.save_lifetime_config(enabled=b.enabled, cap=b.cap)
+    return {**cfg, "sold": billing.lifetime_sold(), "left": billing.lifetime_left()}
+
+
+class LifetimeRevokeIn(BaseModel):
+    reason: str = Field("", max_length=200)
+
+
+@app.post("/api/lifetime/{wid}/revoke")
+def lifetime_revoke(wid: int, b: LifetimeRevokeIn, _a: Admin = Depends(require_admin)):
+    """Record a refund: the workspace loses the lifetime plan and the spot is freed. Refund the money itself in Paystack."""
+    row = db.one("SELECT 1 FROM lifetime_grants WHERE workspace_id=%s AND revoked_at IS NULL", (wid,))
+    if not row:
+        raise HTTPException(404, "That workspace has no active lifetime plan")
+    db.execute("UPDATE lifetime_grants SET revoked_at=now(), revoked_reason=%s WHERE workspace_id=%s", (b.reason.strip() or "refunded", wid))
+    billing.set_subscription(wid, billing.FREE, note="lifetime plan refunded")
+    return {"ok": True, "sold": billing.lifetime_sold(), "left": billing.lifetime_left()}
 
 
 class FreeAIIn(BaseModel):

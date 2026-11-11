@@ -2739,6 +2739,25 @@ async function pollPayment(ref, { everyMs = 3000, maxMs = 5 * 60 * 1000, closed 
   }
 }
 // One path for every "pay for a plan" button: quote (credit for unused time), Paystack popup, confirmation.
+// The one-time lifetime deal. `attr` is the button attribute the page's click handler listens for (data-buy or data-pick).
+function lifetimeCard(b, attr) {
+  const o = b.lifetime_offer;
+  if (!o) return '';
+  const money = (minor, cur) => { try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(minor / 100); } catch { return `${minor / 100} ${cur}`; } };
+  const inc = o.includes || {};
+  const local = o.charge_currency && o.charge_currency !== o.currency ? `<div class="muted small" style="margin-top:-2px">charged as about ${money(o.charge_minor, o.charge_currency)} at today's rate</div>` : '';
+  return `<div class="card" style="border-color:var(--accent);margin:0 0 14px">
+    <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><h2 style="margin:0">Lifetime deal</h2>
+      <span class="pill ${o.sold_out ? '' : 'SCALE'}">${o.sold_out ? 'sold out' : `${o.left} of ${o.cap} spots left`}</span></div>
+    <div style="font-size:26px;font-weight:700;margin:6px 0">${money(o.price_minor, o.currency)} <span class="muted small" style="font-weight:400">one time</span></div>${local}
+    <ul style="padding-left:18px;margin:8px 0;font-size:14px">
+      <li>${inc.other_accounts} TikTok or Instagram account and up to ${inc.youtube_accounts} YouTube channels</li>
+      <li>${inc.connected} publishing account</li><li>Discover, AI help and all the free tools</li>
+      <li>About ${inc.credits} data credits and ${inc.ai_calls} AI requests a month</li></ul>
+    <button type="button" class="btn primary" ${attr}="lifetime" ${b.can_manage && b.payments_ready && !o.sold_out ? '' : 'disabled'}>${o.sold_out ? 'Sold out' : 'Get the lifetime deal'}</button>
+    <div class="muted small" style="margin-top:6px">Pay once and keep it for as long as we run HookTrack. 60-day money-back guarantee. Need more accounts or another publishing account? They are add-ons.${b.can_manage ? '' : ' Only a workspace owner or admin can buy.'}</div></div>`;
+}
+
 async function payForPlan(planCode, { saveCard = false, banner = () => {}, alive = () => true, onDone = () => route() } = {}) {
   const q = await api('GET', `/api/billing/quote?plan_code=${encodeURIComponent(planCode)}`);
   if (q.credit_minor > 0) {
@@ -2792,6 +2811,7 @@ async function openPlanPicker(opts = {}) {
       <div id="pp-banner" class="notice" style="margin-bottom:10px" hidden></div>
       ${!b.can_manage ? '<div class="notice" style="margin-bottom:10px">Only a workspace owner or admin can pay. Ask one of them to open this window.</div>' : ''}
       ${!b.payments_ready ? '<div class="notice" style="margin-bottom:10px">Payments are not available right now. Please try again later or contact support.</div>' : ''}
+      ${lifetimeCard(b, 'data-pick')}
       ${hasYear && hasMonth ? `<div class="row" style="gap:6px;margin:0 0 12px" role="group" aria-label="Billing period">
         <button type="button" class="btn sm ${iv === 'month' ? 'primary' : ''}" data-iv="month" aria-pressed="${iv === 'month'}">Monthly</button>
         <button type="button" class="btn sm ${iv === 'year' ? 'primary' : ''}" data-iv="year" aria-pressed="${iv === 'year'}">Yearly${bestSave ? ` · save up to ${bestSave}%` : ''}</button></div>` : ''}
@@ -2860,6 +2880,7 @@ pages.billing = async app => {
       <span style="flex:1;min-width:0"><b>${fmt(p.units)} × ${esc((b.addons.find(a => a.kind === p.kind) || {}).label || p.kind)}</b>
         <div class="small muted">${p.renew_state === 'renewed' ? 'Renewed: continues after' : p.auto_renew ? 'Renews automatically on' : 'Ends on'} ${new Date(p.expires_at).toLocaleDateString()}${p.renew_state === 'failed' ? ' · the last renewal was declined' : ''}</div></span>
       ${p.renewable && b.can_manage && p.renew_state !== 'renewed' ? `<button class="btn sm" data-renew="${p.id}" data-on="${p.auto_renew ? 0 : 1}" type="button">${p.auto_renew ? 'Turn off auto-renew' : 'Renew automatically'}</button>` : ''}</li>`).join('')}</ul>` : ''}` : ''}
+    ${b.has_lifetime ? `<div class="notice" style="margin:20px 0 8px"><b>You have the lifetime plan.</b> You paid once and it does not renew. For more tracked accounts, another publishing account or more data credits, use the add-ons above.</div>` : `${lifetimeCard(b, 'data-buy')}
     <h2 style="margin:20px 0 8px">Plans</h2>
     ${b.can_manage ? `<label class="check" style="margin:0 0 10px;display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="savecard" ${b.card.auto_renew || !b.card.has_card ? 'checked' : ''} style="width:auto;margin-top:3px">
       <span>Renew automatically with my card <span class="muted small">(pay by card in the next step: we keep it securely with Paystack and charge it a day before your plan ends. Turn it off any time. Mobile money cannot be saved.)</span></span></label>` : ''}
@@ -2876,7 +2897,7 @@ pages.billing = async app => {
       <ul style="padding-left:18px;margin:8px 0"><li>${lim(p.max_accounts)} accounts</li><li>${lim(p.max_members)} team members</li><li>${lim(p.max_ai_calls)} AI requests / month</li><li>${lim(p.max_connected)} connected publishing account${p.max_connected === 1 ? '' : 's'}</li><li>${lim(p.max_credits)} data credits / month</li><li>${p.max_reports === 0 ? 'No shareable client reports' : lim(p.max_reports) + ' shareable client report' + (p.max_reports === 1 ? '' : 's')}</li></ul>
       ${p.code === b.plan.code && b.state !== 'trial' ? (p.price_minor && b.can_manage ? `<button class="btn" data-buy="${esc(p.code)}" ${b.payments_ready ? '' : 'disabled'}>Renew</button>` : '<span class="badge">Current</span>')
         : (p.price_minor ? `<button class="btn primary" data-buy="${esc(p.code)}" ${b.can_manage && b.payments_ready ? '' : 'disabled'} title="${b.can_manage ? (b.payments_ready ? '' : 'Payments are not set up yet') : 'Only workspace admins can change the plan'}">Choose ${esc(p.name)}</button>` : '')}
-    </div>`; }).join('')}</div>
+    </div>`; }).join('')}</div>`}
     ${b.payments.length ? `<h2 style="margin:20px 0 8px">Payment history</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Plan</th><th class="num">Amount</th><th>Status</th></tr></thead><tbody>
       ${b.payments.map(p => `<tr><td>${new Date(p.created_at).toLocaleDateString()}</td><td>${esc(p.plan_code)}</td><td class="num">${money(p.amount_minor, p.currency)}</td><td>${esc(p.status)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
   const rerender = () => route();
@@ -2918,9 +2939,11 @@ pages.billing = async app => {
     else toast('Checkout closed. No payment was made.');
   };
   $$('[data-buy]', app).forEach(btn => (btn.onclick = guard(async () => {
+    if (btn.dataset.buy === 'lifetime' && b.state === 'paid' && b.plan && b.plan.code !== 'lifetime' && b.plan.price_minor
+        && !await askConfirm(`Buying the lifetime deal replaces your ${b.plan.name} plan, and any time you have left on it is not refunded or carried over.\n\nContinue?`, { danger: false, ok: 'Buy lifetime' })) return;
     busy(btn, true, 'Opening checkout…');
     try {
-      await payForPlan(btn.dataset.buy, { saveCard: !!($('#savecard') && $('#savecard').checked), banner, alive: onBilling, onDone: rerender });
+      await payForPlan(btn.dataset.buy, { saveCard: btn.dataset.buy !== 'lifetime' && !!($('#savecard') && $('#savecard').checked), banner, alive: onBilling, onDone: rerender });
     } finally { if (btn.isConnected) busy(btn, false); }
   })));
   $$('[data-renew]', app).forEach(btn => (btn.onclick = guard(async () => {

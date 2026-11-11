@@ -16,7 +16,7 @@ if (location.hash.indexOf('#/') === 0) location.replace('/app' + location.search
   document.addEventListener('DOMContentLoaded', function () { Array.prototype.forEach.call(document.querySelectorAll('a[href^="/app"]'), fix); });
 })();</script>
 <title>HookTrack: Short-Form Video Analytics &amp; Winning Hook Finder</title>
-<meta name="description" content="Track every TikTok, Instagram Reels and YouTube Shorts account in one dashboard. See which hooks beat each account's normal, then scale the winners. Plans from $19 a month.">
+<meta name="description" content="Track every TikTok, Instagram Reels and YouTube Shorts account in one dashboard. See which hooks beat each account's normal, then scale the winners. Plans from $12 a month.">
 <link rel="canonical" href="__SITE__/">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta name="theme-color" content="#4f46e5">
@@ -146,6 +146,16 @@ section.alt .card{background:var(--bg)}
 .plan.pop{border-color:var(--accent-strong);box-shadow:0 0 0 1px var(--accent-strong)}
 .badge{display:inline-block;margin-left:8px;padding:2px 10px;border-radius:99px;background:var(--accent-strong);color:#fff;font-size:12px;font-weight:700;vertical-align:middle}
 .price-note{text-align:center;color:var(--muted);margin-top:22px;font-size:14px}
+.plans.four{max-width:1180px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+.plan.life{border-style:dashed}.plan .badge.alt{background:var(--good,#16a34a)}
+.need-more{max-width:820px;margin:26px auto 0;text-align:center;color:var(--muted);font-size:15px}
+.need-more .linkbtn{background:none;border:0;padding:0;color:var(--accent-strong,var(--accent));font:inherit;font-weight:700;cursor:pointer;text-decoration:underline}
+.need-form{text-align:left;margin-top:16px;padding:18px 20px;border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--text)}
+.need-form label{display:block;font-weight:650;font-size:14px;margin:0 0 10px}
+.need-form input,.need-form select,.need-form textarea{display:block;width:100%;margin-top:4px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;font-weight:400}
+.nm-grid{display:grid;gap:0 14px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.nm-hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+.nm-actions{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
 .side-offer{max-width:820px;margin:26px auto 0;padding:16px 20px;border:1px dashed var(--border);border-radius:14px;background:var(--surface);display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;justify-content:space-between}.side-offer b{font-size:16px}.side-offer small{display:block;color:var(--muted);font-size:13px;margin-top:2px}
 
 /* faq */
@@ -197,7 +207,7 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
       <a class="btn big" href="#how">See how it works</a>
       <a class="btn big" href="https://youtu.be/SAprelI0bJ8" id="hero-demo"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" style="fill:currentColor;vertical-align:-2px;margin-right:6px"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>Watch the demo</a>
     </div>
-    <p class="fine"><span id="hero-fine">Plans from $19 a month.</span> By signing up you agree to the <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+    <p class="fine"><span id="hero-fine">Plans from $12 a month.</span> By signing up you agree to the <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
 
     <div class="shots" role="group" aria-label="The Hooks page and the Posts board, shown with sample data">
       <figure class="shot shot-hooks">
@@ -273,8 +283,22 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
     <div class="head"><h2>Simple pricing</h2><p id="pricing-sub">Pick a plan and start. Monthly plans can be stopped any time.</p></div>
     <div class="interval" id="interval" role="group" aria-label="Billing period" hidden></div>
     <div class="plans" id="plans" aria-live="polite"><div class="card muted" style="grid-column:1/-1;text-align:center">Loading prices…</div></div>
-    <div class="side-offer" id="free-offer" hidden></div>
     <p class="price-note" id="price-note"></p>
+    <div class="need-more" id="need-more" hidden>
+      <p>Tracking more than a few accounts, or running a team? <button type="button" class="linkbtn" id="nm-open" aria-expanded="false" aria-controls="nm-form">Tell us what you need</button> and we will reply with a plan that fits.</p>
+      <form id="nm-form" class="need-form" hidden novalidate>
+        <div class="nm-grid">
+          <label>Your email<input type="email" id="nm-email" autocomplete="email" maxlength="254" required placeholder="you@example.com"></label>
+          <label>How many accounts?<input type="number" id="nm-accounts" min="0" max="100000" inputmode="numeric" placeholder="e.g. 25"></label>
+          <label>Team size<input type="number" id="nm-team" min="0" max="10000" inputmode="numeric" placeholder="e.g. 3"></label>
+          <label>Platforms<input id="nm-platforms" maxlength="100" placeholder="TikTok, Instagram, YouTube"></label>
+          <label>Rough monthly budget<select id="nm-budget"><option value="">Not sure yet</option><option>Under $20</option><option>$20 to $50</option><option>$50 to $150</option><option>More than $150</option></select></label>
+        </div>
+        <label>What do you need? <textarea id="nm-message" rows="3" maxlength="1000" placeholder="e.g. 40 client accounts, reports for each client, 2 people on the team"></textarea></label>
+        <input type="text" id="nm-website" class="nm-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <div class="nm-actions"><button type="submit" class="btn primary" id="nm-send">Send</button><span id="nm-msg" role="status"></span></div>
+      </form>
+    </div>
   </div>
 </section>
 
@@ -351,58 +375,110 @@ footer nav{display:flex;gap:18px;flex-wrap:wrap}
     });
     var interval = hasMonth ? 'month' : 'year';
 
+    var fp = p.free_plan, lt = p.lifetime_offer && !p.lifetime_offer.sold_out ? p.lifetime_offer : null;
+    var popularKey = tiers.solo ? 'solo' : (order.length >= 3 ? order[1] : (order.length > 1 ? order[0] : null));
+    var tick = '<span class="check">\u2713</span>';
+
+    function freeCard() {
+      return '<div class="card plan">' +
+        '<h3>Free</h3><p>' + esc(fp.description || 'Track and judge your YouTube channels.') + '</p>' +
+        '<div class="price">$0<small> / month</small></div><div class="charged">No card needed</div>' +
+        '<ul><li>' + tick + 'Up to ' + fp.max_accounts + ' YouTube channel' + (fp.max_accounts === 1 ? '' : 's') + '</li>' +
+        '<li>' + tick + 'Winner detection and decisions</li><li>' + tick + 'The Discover feed</li>' +
+        '<li>' + tick + esc(lim(fp.max_ai_calls, 'AI request', 'AI requests')) + ' a month</li>' +
+        '<li>' + tick + 'All the free tools</li></ul>' +
+        '<a class="btn" href="/app#/signup">Start free</a></div>';
+    }
+    function lifeCard() {
+      var inc = lt.includes || {}, local = lt.charge_currency && lt.charge_currency !== lt.currency;
+      return '<div class="card plan life">' +
+        '<h3>Lifetime<span class="badge alt">Early supporter</span></h3>' +
+        '<p>Pay once and keep it for as long as we run HookTrack.</p>' +
+        '<div class="price">' + money(lt.price_minor, lt.currency) + '<small> once</small></div>' +
+        (local ? '<div class="local-price">\u2248 ' + money(lt.charge_minor, lt.charge_currency) + '</div>' : '') +
+        '<div class="charged">One payment, no renewals · ' + lt.left + ' of ' + lt.cap + ' spots left</div>' +
+        '<ul><li>' + tick + inc.other_accounts + ' TikTok or Instagram account</li>' +
+        '<li>' + tick + 'Up to ' + inc.youtube_accounts + ' YouTube channels</li>' +
+        '<li>' + tick + inc.connected + ' publishing account</li>' +
+        '<li>' + tick + 'Discover feed and AI help</li>' +
+        '<li>' + tick + '60-day money-back guarantee</li>' +
+        '<li>' + tick + 'More accounts any time as add-ons</li></ul>' +
+        '<a class="btn" href="/app#/signup">Get the lifetime deal</a></div>';
+    }
+    function paidCard(k) {
+      var t = tiers[k], pl = t[interval] || t.month || t.year, exact = !!t[interval], pop = k === popularKey;
+      var local = (pl.charge_currency && pl.charge_currency !== pl.currency);
+      var charged = local ? 'Charged at checkout at today\u2019s rate' : '';
+      var name = (pl.interval === 'year' && t.month ? t.month.name : pl.name).replace(/\s*\((yearly|annual|annually)\)\s*$/i, '');
+      var perMonth = (pl.interval === 'year' && pl.price_minor)
+        ? money(Math.round(pl.price_minor / 12), pl.currency) + (local ? ' (\u2248 ' + money(Math.round(pl.charge_minor / 12), pl.charge_currency) + ')' : '') + ' / month, billed yearly' + (t.save > 0 ? ' \u00b7 save ' + t.save + '%' : '') : '';
+      var only = exact ? '' : (interval === 'year' ? 'Billed monthly only' : 'Billed yearly only');
+      return '<div class="card plan' + (pop ? ' pop' : '') + '">' +
+        '<h3>' + esc(name) + (pop ? '<span class="badge">Most popular</span>' : '') + '</h3>' +
+        '<p>' + esc(pl.description) + '</p>' +
+        '<div class="price">' + money(pl.price_minor, pl.currency) + '<small> / ' + esc(pl.interval) + '</small></div>' +
+        (local ? '<div class="local-price">\u2248 ' + money(pl.charge_minor, pl.charge_currency) + '<small> / ' + esc(pl.interval) + '</small></div>' : '') +
+        '<div class="charged">' + esc([perMonth || only, charged].filter(Boolean).join(' \u00b7 ')) + '</div>' +
+        '<ul>' +
+        '<li>' + tick + esc(lim(pl.max_accounts, 'tracked account', 'tracked accounts')) + '</li>' +
+        '<li>' + tick + esc(lim(pl.max_connected, 'publishing account', 'publishing accounts')) + '</li>' +
+        '<li>' + tick + esc(lim(pl.max_members, 'team member', 'team members')) + '</li>' +
+        '<li>' + tick + esc(lim(pl.max_credits, 'data credit', 'data credits')) + ' a month</li>' +
+        '<li>' + tick + esc(lim(pl.max_ai_calls, 'AI request', 'AI requests')) + ' a month</li>' +
+        (pl.max_reports !== 0 ? '<li>' + tick + (pl.max_reports === -1 ? 'Unlimited client reports' : pl.max_reports + ' client report' + (pl.max_reports === 1 ? '' : 's')) + '</li>' : '') +
+        '<li>' + tick + 'Discover feed, winner detection and decisions</li>' +
+        '</ul>' +
+        '<a class="btn ' + (pop ? 'primary' : '') + '" href="/app#/signup">Get started</a></div>';
+    }
+
     function draw() {
       var intervalHost = $('#interval');
       if (hasYear && hasMonth) {
         intervalHost.hidden = false;
         intervalHost.innerHTML =
           '<button type="button" data-iv="month" aria-pressed="' + (interval === 'month') + '">Monthly</button>' +
-          '<button type="button" data-iv="year" aria-pressed="' + (interval === 'year') + '">Yearly' + (best > 0 ? ' · save up to ' + best + '%' : '') + '</button>';
+          '<button type="button" data-iv="year" aria-pressed="' + (interval === 'year') + '">Yearly' + (best > 0 ? ' \u00b7 save up to ' + best + '%' : '') + '</button>';
         intervalHost.querySelectorAll('button').forEach(function (btn) {
           btn.onclick = function () { interval = btn.getAttribute('data-iv'); draw(); };
         });
       } else { intervalHost.hidden = true; }
-      var popular = order.length >= 3 ? 1 : (order.length > 1 ? 0 : -1);   // the middle tier of three
-      host.innerHTML = order.map(function (k, i) {
-        var t = tiers[k], pl = t[interval] || t.month || t.year, exact = !!t[interval];
-        var local = (pl.charge_currency && pl.charge_currency !== pl.currency);
-        var charged = local ? 'Charged at checkout at today\u2019s rate' : '';
-        var name = (pl.interval === 'year' && t.month ? t.month.name : pl.name).replace(/\s*\((yearly|annual|annually)\)\s*$/i, '');
-        var perMonth = (pl.interval === 'year' && pl.price_minor)
-          ? money(Math.round(pl.price_minor / 12), pl.currency) + (local ? ' (≈ ' + money(Math.round(pl.charge_minor / 12), pl.charge_currency) + ')' : '') + ' / month, billed yearly' + (t.save > 0 ? ' · save ' + t.save + '%' : '') : '';
-        var only = exact ? '' : (interval === 'year' ? 'Billed monthly only' : 'Billed yearly only');
-        return '<div class="card plan' + (i === popular ? ' pop' : '') + '">' +
-          '<h3>' + esc(name) + (i === popular ? '<span class="badge">Most popular</span>' : '') + '</h3>' +
-          '<p>' + esc(pl.description) + '</p>' +
-          '<div class="price">' + money(pl.price_minor, pl.currency) + '<small> / ' + esc(pl.interval) + '</small></div>' +
-          (local ? '<div class="local-price">≈ ' + money(pl.charge_minor, pl.charge_currency) + '<small> / ' + esc(pl.interval) + '</small></div>' : '') +
-          '<div class="charged">' + esc([perMonth || only, charged].filter(Boolean).join(' · ')) + '</div>' +
-          '<ul>' +
-          '<li><span class="check">✓</span>' + esc(lim(pl.max_accounts, 'account', 'accounts')) + '</li>' +
-          '<li><span class="check">✓</span>' + esc(lim(pl.max_members, 'team member', 'team members')) + '</li>' +
-          '<li><span class="check">✓</span>' + esc(lim(pl.max_ai_calls, 'AI request', 'AI requests')) + ' a month</li>' +
-          '<li><span class="check">✓</span>' + esc(lim(pl.max_connected, 'connected publishing account', 'connected publishing accounts')) + '</li>' +
-          '<li><span class="check">✓</span>' + esc(lim(pl.max_credits, 'data credit', 'data credits')) + ' a month</li>' +
-          '<li><span class="check">✓</span>Winner detection, decisions and calendar</li>' +
-          '</ul>' +
-          '<a class="btn ' + (i === popular ? 'primary' : '') + '" href="/app#/signup">' + 'Get started' + '</a></div>';
-      }).join('');
+      var cards = [];
+      if (fp) cards.push(freeCard());
+      order.forEach(function (k) { cards.push(paidCard(k)); });
+      if (lt) cards.push(lifeCard());
+      host.classList.toggle('four', cards.length >= 4);
+      if (cards.length === 3) host.style.maxWidth = '1040px';
+      host.innerHTML = cards.join('');
     }
-    if (order.length >= 3) host.style.maxWidth = '1040px';
     draw();
-    var fp = p.free_plan, freeEl = $('#free-offer');
-    if (fp && freeEl) {
-      var lowest = Math.min.apply(null, plans.filter(function (x) { return x.interval === 'month' && x.price_minor > 0; }).map(function (x) { return x.price_minor; }));
-      freeEl.hidden = false;
-      freeEl.innerHTML = '<div><b>Just want YouTube? Start free</b><small>Track up to ' + fp.max_accounts + ' YouTube channel' + (fp.max_accounts === 1 ? '' : 's') + ' and see what to scale, tweak or stop. No card needed. TikTok, Instagram and publishing are on the paid plans.</small></div>' +
-        '<a class="btn primary" href="/app#/signup">Start free</a>';
+    var lowest = Math.min.apply(null, plans.filter(function (x) { return x.interval === 'month' && x.price_minor > 0; }).map(function (x) { return x.price_minor; }));
+    if (fp) {
       $('#pricing-sub').textContent = 'Start free with YouTube. Upgrade when you want TikTok, Instagram or publishing.';
       if (isFinite(lowest)) $('#hero-fine').textContent = 'Free for YouTube. Paid plans from ' + money(lowest, plans[0].currency) + ' a month.';
       $('#faq-trial').parentNode.querySelector('summary').textContent = 'Is there a free plan or trial?';
-      $('#faq-trial').textContent = 'There is no free trial, but there is a free plan. It lets you track up to ' + fp.max_accounts + ' YouTube channel' + (fp.max_accounts === 1 ? '' : 's') + ' and see what to scale, tweak or stop, with no card. TikTok and Instagram tracking, publishing and add-ons are on the paid plans, which are month to month so you can stop any time.';
+      $('#faq-trial').textContent = 'There is no free trial, but there is a free plan. It lets you track up to ' + fp.max_accounts + ' YouTube channel' + (fp.max_accounts === 1 ? '' : 's') + ' and see what to scale, tweak or stop, with no card. TikTok and Instagram tracking and publishing need a paid plan. Every paid plan is month to month, so you can stop any time by turning off renewal, and nothing you saved is deleted.';
     }
+    $('#need-more').hidden = false;
     $('#price-note').textContent = 'Prices are per workspace. Pay by card or mobile money; save a card to renew automatically, or turn it off any time.';
   }
+
+  (function () {
+    var open = $('#nm-open'), form = $('#nm-form'), msg = $('#nm-msg');
+    if (!open || !form) return;
+    open.addEventListener('click', function () { form.hidden = !form.hidden; open.setAttribute('aria-expanded', String(!form.hidden)); if (!form.hidden) $('#nm-email').focus(); });
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var email = $('#nm-email').value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) { msg.textContent = 'Please enter a valid email so we can reply.'; return; }
+      var num = function (id) { var v = parseInt($(id).value, 10); return isNaN(v) ? null : v; };
+      var btn = $('#nm-send'); btn.disabled = true; msg.textContent = 'Sending\u2026';
+      fetch('/api/public/need-more', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'omit',
+        body: JSON.stringify({ email: email, accounts: num('#nm-accounts'), team: num('#nm-team'), platforms: $('#nm-platforms').value, budget: $('#nm-budget').value, message: $('#nm-message').value, website: $('#nm-website').value }) })
+        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'Something went wrong. Please try again.'); return d; }); })
+        .then(function () { form.innerHTML = '<p><b>Thank you.</b> We read every message and will reply to ' + esc(email) + '.</p>'; })
+        .catch(function (err) { msg.textContent = err.message; btn.disabled = false; });
+    });
+  })();
 
   fetch('/api/public/pricing', { credentials: 'omit' })
     .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
