@@ -3160,18 +3160,22 @@ pages.inbox = async app => {
           <div>${esc(c.body)}</div>
           ${c.replied_at ? `<div class="small muted">You replied: ${esc(short(c.reply_body, 140))}</div>`
             : `<div class="row" style="width:100%;gap:8px"><input type="text" class="reply-in" data-comment="${c.id}" placeholder="Write a reply…" style="flex:1">
-               <button class="btn sm primary" data-reply="${c.id}">Reply</button></div>`}
+               <button class="btn sm primary" data-reply="${c.id}">Reply</button></div>
+               <div class="small" id="reply-err-${c.id}" style="color:var(--bad);display:none"></div>`}
         </li>`).join('')}</ul>`
         : `<div class="empty card"><h2>No comments yet</h2><p>Press Refresh to check for new comments on your connected accounts' videos.</p></div>`}`;
     $('#irefresh').onclick = guard(async () => { await api('GET', `/api/inbox/comments?refresh=true${acctFilter ? '&account_id=' + acctFilter : ''}`); route(); });
-    $$('[data-reply]', app).forEach(b => (b.onclick = guard(async () => {
+    $$('[data-reply]', app).forEach(b => (b.onclick = async () => {
       const input = $(`.reply-in[data-comment="${b.dataset.reply}"]`, app);
+      const errBox = $(`#reply-err-${b.dataset.reply}`, app);
+      errBox.style.display = 'none';
       const body = input.value.trim();
-      if (!body) throw new Error('Write a reply first');
+      if (!body) { errBox.textContent = 'Write a reply first'; errBox.style.display = ''; return; }
       busy(b, true, 'Sending…');
       try { await api('POST', `/api/inbox/comments/${b.dataset.reply}/reply`, { body }); toast('Reply sent'); route(); }
+      catch (e) { errBox.textContent = e.message; errBox.style.display = ''; }
       finally { busy(b, false); }
-    })));
+    }));
   }
   $('#ia', app).onchange = e => { state.inboxAccount = e.target.value; route(); };
   $$('[data-view]', app).forEach(b => (b.onclick = () => { state.inboxView = b.dataset.view; route(); }));
@@ -3180,6 +3184,7 @@ pages.inbox = async app => {
 function conversationModal(conversationId) {
   const m = openModal(`<h2>Conversation</h2><div id="cv-msgs" class="muted small">Loading…</div>
     <div class="row" style="gap:8px;margin-top:14px"><input type="text" id="cv-send" placeholder="Write a message…" style="flex:1"><button class="btn primary" id="cv-go">Send</button></div>
+    <div class="small" id="cv-err" style="color:var(--bad);display:none;margin-top:6px"></div>
     <div class="actions"><button class="btn" data-close>Close</button></div>`, true);
   const load = async () => {
     const msgs = await api('GET', `/api/inbox/conversations/${conversationId}/messages`);
@@ -3189,13 +3194,16 @@ function conversationModal(conversationId) {
       : '<p class="muted">No messages yet.</p>';
   };
   load();
-  $('#cv-go', m).onclick = guard(async () => {
+  $('#cv-go', m).onclick = async () => {
+    const errBox = $('#cv-err', m);
+    errBox.style.display = 'none';
     const body = $('#cv-send', m).value.trim();
-    if (!body) throw new Error('Write a message first');
+    if (!body) { errBox.textContent = 'Write a message first'; errBox.style.display = ''; return; }
     const btn = $('#cv-go', m); busy(btn, true, 'Sending…');
     try { await api('POST', `/api/inbox/conversations/${conversationId}/messages`, { body }); $('#cv-send', m).value = ''; await load(); }
+    catch (e) { errBox.textContent = e.message; errBox.style.display = ''; }
     finally { busy(btn, false); }
-  });
+  };
 }
 
 function clientModal(c) {
