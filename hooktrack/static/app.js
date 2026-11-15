@@ -3114,6 +3114,83 @@ pages.clients = async app => {
   })));
 };
 
+/* ---------------- inbox: comments and DMs on a connected account (yours or a client's) ---------------- */
+pages.inbox = async app => {
+  const view = state.inboxView === 'messages' ? 'messages' : 'comments';
+  const accounts = await api('GET', '/api/inbox/accounts');
+  const toggle = `<div class="seg" role="tablist">
+      <button type="button" class="seg-btn ${view === 'comments' ? 'on' : ''}" data-view="comments">Comments</button>
+      <button type="button" class="seg-btn ${view === 'messages' ? 'on' : ''}" data-view="messages">Messages</button>
+    </div>`;
+  if (!accounts.length) {
+    app.innerHTML = `<div class="page-head"><div><h1>Inbox</h1><div class="sub">Comments and messages on a connected account, yours or a client's.</div></div></div>
+      <div class="empty card"><h2>No connected accounts yet</h2><p>Inbox only works on an account connected for publishing. Connect your own account, or send a client a one-time link to connect theirs, under <a href="#/settings">Settings</a> or <a href="#/clients">Clients</a>.</p></div>`;
+    return;
+  }
+  const acctFilter = state.inboxAccount || '';
+  const acctSelect = `<select id="ia" style="width:auto"><option value="">All connected accounts</option>${accounts.map(a =>
+    `<option value="${a.id}" ${String(acctFilter) === String(a.id) ? 'selected' : ''}>${esc(a.handle)}</option>`).join('')}</select>`;
+
+  if (view === 'messages') {
+    const convos = await api('GET', `/api/inbox/conversations${acctFilter ? '?account_id=' + acctFilter : ''}`);
+    app.innerHTML = `<div class="page-head"><div><h1>Inbox</h1><div class="sub">Comments and messages on a connected account, yours or a client's.</div></div>
+        <div class="row">${toggle}${acctSelect}<button class="btn sm" id="irefresh">Refresh</button></div></div>
+      ${convos.length ? `<ul class="list">${convos.map(c => `<li data-open-convo="${c.id}" style="cursor:pointer">
+          <div style="flex:1;min-width:0"><b>${esc(c.participant_name || 'Someone')}</b> <span class="muted small">· ${esc(c.handle)} · ${esc((c.platform || '').replace(/^\w/, s => s.toUpperCase()))}</span>
+            ${c.unread ? '<span class="pill hot" style="margin-left:6px">New</span>' : ''}
+            <div class="small muted">${esc(short(c.last_message_preview || '', 100))}</div></div>
+          <span class="small muted">${c.last_message_at ? esc(String(c.last_message_at).slice(0, 10)) : ''}</span></li>`).join('')}</ul>`
+        : `<div class="empty card"><h2>No conversations yet</h2><p>Press Refresh to check for new DMs on your connected accounts. Instagram and TikTok DMs only: there's no direct-message inbox for YouTube.</p></div>`}`;
+    $('#irefresh').onclick = guard(async () => { await api('GET', `/api/inbox/conversations?refresh=true${acctFilter ? '&account_id=' + acctFilter : ''}`); route(); });
+    $$('[data-open-convo]', app).forEach(li => (li.onclick = () => conversationModal(+li.dataset.openConvo)));
+  } else {
+    const comments = await api('GET', `/api/inbox/comments${acctFilter ? '?account_id=' + acctFilter : ''}`);
+    app.innerHTML = `<div class="page-head"><div><h1>Inbox</h1><div class="sub">Comments and messages on a connected account, yours or a client's.</div></div>
+        <div class="row">${toggle}${acctSelect}<button class="btn sm" id="irefresh">Refresh</button></div></div>
+      ${comments.length ? `<ul class="list">${comments.map(c => `<li style="align-items:flex-start;flex-direction:column;gap:6px">
+          <div class="row" style="width:100%"><b>${esc(c.author_name || 'Someone')}</b> <span class="muted small">on "${esc(short(c.post_title || 'your video', 60))}" · ${esc(c.handle)}</span>
+            <span class="spacer"></span><span class="small muted">${c.posted_at ? esc(String(c.posted_at).slice(0, 10)) : ''}</span></div>
+          <div>${esc(c.body)}</div>
+          ${c.replied_at ? `<div class="small muted">You replied: ${esc(short(c.reply_body, 140))}</div>`
+            : `<div class="row" style="width:100%;gap:8px"><input type="text" class="reply-in" data-comment="${c.id}" placeholder="Write a reply…" style="flex:1">
+               <button class="btn sm primary" data-reply="${c.id}">Reply</button></div>`}
+        </li>`).join('')}</ul>`
+        : `<div class="empty card"><h2>No comments yet</h2><p>Press Refresh to check for new comments on your connected accounts' videos.</p></div>`}`;
+    $('#irefresh').onclick = guard(async () => { await api('GET', `/api/inbox/comments?refresh=true${acctFilter ? '&account_id=' + acctFilter : ''}`); route(); });
+    $$('[data-reply]', app).forEach(b => (b.onclick = guard(async () => {
+      const input = $(`.reply-in[data-comment="${b.dataset.reply}"]`, app);
+      const body = input.value.trim();
+      if (!body) throw new Error('Write a reply first');
+      busy(b, true, 'Sending…');
+      try { await api('POST', `/api/inbox/comments/${b.dataset.reply}/reply`, { body }); toast('Reply sent'); route(); }
+      finally { busy(b, false); }
+    })));
+  }
+  $('#ia', app).onchange = e => { state.inboxAccount = e.target.value; route(); };
+  $$('[data-view]', app).forEach(b => (b.onclick = () => { state.inboxView = b.dataset.view; route(); }));
+};
+
+function conversationModal(conversationId) {
+  const m = openModal(`<h2>Conversation</h2><div id="cv-msgs" class="muted small">Loading…</div>
+    <div class="row" style="gap:8px;margin-top:14px"><input type="text" id="cv-send" placeholder="Write a message…" style="flex:1"><button class="btn primary" id="cv-go">Send</button></div>
+    <div class="actions"><button class="btn" data-close>Close</button></div>`, true);
+  const load = async () => {
+    const msgs = await api('GET', `/api/inbox/conversations/${conversationId}/messages`);
+    $('#cv-msgs', m).className = '';
+    $('#cv-msgs', m).innerHTML = msgs.length ? msgs.map(x => `<div style="margin:6px 0;text-align:${x.direction === 'out' ? 'right' : 'left'}">
+        <span class="pill ${x.direction === 'out' ? 'win' : 'avg'}">${esc(x.body)}</span></div>`).join('')
+      : '<p class="muted">No messages yet.</p>';
+  };
+  load();
+  $('#cv-go', m).onclick = guard(async () => {
+    const body = $('#cv-send', m).value.trim();
+    if (!body) throw new Error('Write a message first');
+    const btn = $('#cv-go', m); busy(btn, true, 'Sending…');
+    try { await api('POST', `/api/inbox/conversations/${conversationId}/messages`, { body }); $('#cv-send', m).value = ''; await load(); }
+    finally { busy(btn, false); }
+  });
+}
+
 function clientModal(c) {
   const m = openModal(`<h2>${c ? 'Edit client' : 'New client'}</h2><div class="fields">
     <div><label class="f">Name</label><input id="cn" value="${esc(c ? c.name : '')}" maxlength="80" placeholder="Brand or client name"></div>

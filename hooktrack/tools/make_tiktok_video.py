@@ -58,7 +58,6 @@ h1 span{background:linear-gradient(90deg,#a5b4fc,#5eead4);-webkit-background-cli
 .big{font-size:110px;font-weight:800;color:#5eead4}.pill{display:inline-block;padding:8px 22px;border-radius:999px;background:linear-gradient(90deg,#6366f1,#8b5cf6);font-size:36px;font-weight:800}
 .cta{margin-top:30px;padding:16px 30px;border-radius:999px;background:linear-gradient(90deg,#6366f1,#8b5cf6);font-size:30px;font-weight:700;box-shadow:0 10px 30px rgba(99,102,241,.5)}
 p{font-size:22px;color:#b9c2db;margin:16px 0 0}
-body>*{zoom:.74}
 """
 LOGO = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 18c4 0 5-4 7-8s4-4 7-4"/><circle cx="19" cy="6" r="1.6" fill="#fff"/></svg>'
 
@@ -268,7 +267,7 @@ def main() -> int:
     url = demo.build_database()
     env = {**os.environ, "DATABASE_URL": url, "HOOKTRACK_SECRET": "demo-secret", "HOOKTRACK_SYNC_INTERVAL_HOURS": "0", "HOOKTRACK_BACKUP": "0",
            "YOUTUBE_API_KEY": "AIzaDEMOKEYNOTREAL00000000000000000000", "SOCIAVAULT_API_KEY": ""}
-    for k in ("HOOKTRACK_PUBLIC_URL", "RESEND_API_KEY", "HOOKTRACK_EMAIL_FROM"):
+    for k in ("HOOKTRACK_PUBLIC_URL", "RESEND_API_KEY", "HOOKTRACK_EMAIL_FROM", "HOOKTRACK_LATE_API_KEY", "HOOKTRACK_LATE_BASE_URL"):
         env[k] = ""         # present but empty: the app only reads .env for variables that are absent, so no real email can be sent
     env["HOOKTRACK_ALLOW_LOCAL_EMAIL"] = "0"
     server = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(demo.PORT)], cwd=demo.ROOT, env=env,

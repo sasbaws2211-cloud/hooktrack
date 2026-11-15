@@ -15,24 +15,24 @@ if (location.hash.indexOf('#/') === 0) location.replace('/app' + location.search
   document.addEventListener('click', function (e) { var a = e.target.closest && e.target.closest('a[href^="/app"]'); if (a) fix(a); }, true);
   document.addEventListener('DOMContentLoaded', function () { Array.prototype.forEach.call(document.querySelectorAll('a[href^="/app"]'), fix); });
 })();</script>
-<title>HookTrack: Short-Form Video Analytics &amp; Winning Hook Finder</title>
-<meta name="description" content="Track every TikTok, Instagram Reels and YouTube Shorts account in one dashboard. See which hooks beat each account's normal, then scale the winners. Plans from $12 a month.">
+<title>HookTrack: The Short-Form Video Suite for Creators &amp; Agencies</title>
+<meta name="description" content="Track every TikTok, Instagram Reels and YouTube Shorts account, see which hooks beat each account's normal, find what's working for creators your size, then plan and schedule the next video, to your own account or a client's. Plans from $12 a month.">
 <link rel="canonical" href="__SITE__/">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta name="theme-color" content="#4f46e5">
 <meta property="og:site_name" content="HookTrack">
 <meta property="og:type" content="website">
 <meta property="og:url" content="__SITE__/">
-<meta property="og:title" content="HookTrack: Short-Form Video Analytics &amp; Winning Hook Finder">
-<meta property="og:description" content="Short-form video analytics for TikTok, Reels and Shorts: see which hooks beat each account's normal and make more of them.">
+<meta property="og:title" content="HookTrack: The Short-Form Video Suite for Creators &amp; Agencies">
+<meta property="og:description" content="Track, find winning hooks, plan and schedule short-form video, across your own accounts or a client's, in one place.">
 <meta property="og:image" content="__SITE__/og.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="HookTrack: which hooks beat each account's normal, with Scale, Tweak and Hold decisions">
 <meta property="og:locale" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="HookTrack: Short-Form Video Analytics &amp; Winning Hook Finder">
-<meta name="twitter:description" content="Short-form video analytics for TikTok, Reels and Shorts: see which hooks beat each account's normal and make more of them.">
+<meta name="twitter:title" content="HookTrack: The Short-Form Video Suite for Creators &amp; Agencies">
+<meta name="twitter:description" content="Track, find winning hooks, plan and schedule short-form video, across your own accounts or a client's, in one place.">
 <meta name="twitter:image" content="__SITE__/og.jpg">
 <!--JSONLD-->
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -85,6 +85,11 @@ header .actions{margin-left:auto;display:flex;gap:10px;align-items:center}
 .hero p.lead{max-width:680px;margin:22px auto 0;font-size:clamp(17px,2.2vw,20px);color:var(--muted)}
 .hero .cta{margin-top:30px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 .hero .fine{margin-top:14px;font-size:14px;color:var(--muted)}
+.pillars{margin:38px auto 0;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px 2px;max-width:900px}
+.pillars .p{display:flex;align-items:center;gap:8px;padding:9px 16px;border:1px solid var(--border);border-radius:99px;background:var(--surface);font-size:14px;font-weight:600;white-space:nowrap}
+.pillars .p b{font-weight:700}
+.pillars .arrow{color:var(--muted);font-size:14px;padding:0 2px}
+@media(max-width:700px){.pillars{gap:8px}.pillars .arrow{display:none}}
 
 /* product mock */
 
@@ -201,15 +206,23 @@ footer .partners img{display:block;height:auto;max-width:100%}
 <!-- hero -->
 <div class="hero">
   <div class="wrap">
-    <span class="eyebrow">For creators, brands and teams running many short-form accounts</span>
-    <h1>Find the hooks that <span class="hl">actually sell</span></h1>
-    <p class="lead">HookTrack follows every post across all your TikTok, Instagram and YouTube accounts, compares each one with <b>its own account's normal</b>, and shows you which hooks really worked, so you can make more of them.</p>
+    <span class="eyebrow">The short-form video suite for creators and agencies</span>
+    <h1>Everything you need to grow short-form video, <span class="hl">in one place</span></h1>
+    <p class="lead">HookTrack compares every video to your own account's normal (not raw views), finds what's working for creators your size, then helps you plan and schedule the next one, to your own account or a client's.</p>
     <div class="cta">
       <a class="btn primary big" href="/app#/signup" data-cta id="hero-cta">Get started</a>
       <a class="btn big" href="#how">See how it works</a>
       <a class="btn big" href="https://youtu.be/R4SvZlUu6P8" id="hero-demo"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" style="fill:currentColor;vertical-align:-2px;margin-right:6px"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>Watch the demo</a>
     </div>
     <p class="fine"><span id="hero-fine">Plans from $12 a month.</span> By signing up you agree to the <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+
+    <div class="pillars" role="list" aria-label="What HookTrack does, start to finish">
+      <span class="p" role="listitem"><b>Track</b> every account</span><span class="arrow">→</span>
+      <span class="p" role="listitem">Find the <b>winners</b></span><span class="arrow">→</span>
+      <span class="p" role="listitem"><b>Discover</b> what works for creators your size</span><span class="arrow">→</span>
+      <span class="p" role="listitem"><b>Plan</b> the next video</span><span class="arrow">→</span>
+      <span class="p" role="listitem"><b>Schedule</b> it, yours or a client's</span>
+    </div>
 
     <div class="shots" role="group" aria-label="The Hooks page and the Posts board, shown with sample data">
       <figure class="shot shot-hooks">
@@ -247,19 +260,24 @@ footer .partners img{display:block;height:auto;max-width:100%}
       <p class="muted" style="margin-top:18px;font-size:14px">Only one of those is worth repeating. HookTrack tells you which.</p>
     </div>
   </div>
+  <p class="wrap muted" style="margin-top:28px;font-size:16px">That's just the start. HookTrack also shows you what's working for creators your size, turns a winner into your next video, and schedules it, to your own account or a client's.</p>
 </section>
 
 <!-- how it works -->
 <section id="how">
   <div class="wrap">
-    <div class="head"><h2>From scattered numbers to your next video in three steps</h2></div>
+    <div class="head"><h2>From scattered numbers to a scheduled video, in five steps</h2></div>
     <div class="grid g3">
       <div class="card step"><div class="n">STEP 1</div><div class="icon">⎘</div><h3>Add your accounts</h3>
         <p>Type the handles. HookTrack pulls each account's public posts and numbers, or you enter views by hand, paste a screenshot, or import your existing spreadsheet.</p></div>
       <div class="card step"><div class="n">STEP 2</div><div class="icon">★</div><h3>See what really worked</h3>
         <p>Every hook gets a verdict against its own account, with the comments that show buying intent. The Scale / Refine / Drop call is made for you from the results.</p></div>
-      <div class="card step"><div class="n">STEP 3</div><div class="icon">✦</div><h3>Make more of the winners</h3>
-        <p>Generate fresh hooks from your own winners and duds, plan the week on a calendar, and schedule posts through your publishing provider.</p></div>
+      <div class="card step"><div class="n">STEP 3</div><div class="icon">◎</div><h3>See what's working elsewhere</h3>
+        <p>Discover shows recent videos that beat their own creator's usual, filtered to your niche and to creators your size, so you're never just guessing at what to try next.</p></div>
+      <div class="card step"><div class="n">STEP 4</div><div class="icon">✦</div><h3>Plan more of the winners</h3>
+        <p>Generate fresh hooks from your own winners and duds, or from what's working for others, and plan the week on a board and calendar.</p></div>
+      <div class="card step"><div class="n">STEP 5</div><div class="icon">☷</div><h3>Schedule it, yours or a client's</h3>
+        <p>Publish to your own account, or send a client a one-time link to connect theirs: sign in once, and you can schedule to it from HookTrack from then on.</p></div>
     </div>
   </div>
 </section>
@@ -269,11 +287,11 @@ footer .partners img{display:block;height:auto;max-width:100%}
   <div class="wrap">
     <div class="head"><h2>Everything a multi-account operator needs, nothing they don't</h2></div>
     <div class="grid g3">
-      <div class="card"><div class="icon">▦</div><h3>One grid for every account</h3><p>Daily views for all accounts and phones in one place, with a quick "Today" screen for fast entry.</p></div>
-      <div class="card"><div class="icon">⟳</div><h3>Automatic sync</h3><p>Public TikTok, Instagram and YouTube posts are kept up to date, including follower counts and per-post gains per day.</p></div>
       <div class="card"><div class="icon">✓</div><h3>Decisions you can trust</h3><p>Scale, Refine or Drop is based on recorded results. A post is never killed on a number that was never measured.</p></div>
-      <div class="card"><div class="icon">✎</div><h3>AI that uses your winners</h3><p>Hook ideas and a weekly plan written from your own best and worst posts. AI is included, with no key to set up.</p></div>
-      <div class="card"><div class="icon">☷</div><h3>Calendar and scheduling</h3><p>Plan posts on a calendar and publish through the provider you already use. Posts that might have gone out are never sent twice.</p></div>
+      <div class="card"><div class="icon">◎</div><h3>Discover: what's working in your niche</h3><p>Recent videos that beat their creator's usual by 3x or more, from creators your own size, not accounts with ten times your followers.</p></div>
+      <div class="card"><div class="icon">✎</div><h3>AI that uses your winners</h3><p>Hook ideas and a weekly plan written from your own best and worst posts, or from what's working in Discover. AI is included, with no key to set up.</p></div>
+      <div class="card"><div class="icon">☷</div><h3>Board, calendar and scheduling</h3><p>Plan posts from idea to posted, then publish through your own connected account. Posts that might have gone out are never sent twice.</p></div>
+      <div class="card"><div class="icon">👥</div><h3>Client accounts, not just your own</h3><p>Group tracked accounts under a client, send them a one-time connect link, and schedule to their account directly. Share a read-only report whenever they want to check in.</p></div>
       <div class="card"><div class="icon">☺</div><h3>Built for teams</h3><p>Invite teammates with owner, admin and member roles. Each workspace is private and never shared with another.</p></div>
     </div>
   </div>
@@ -311,7 +329,9 @@ footer .partners img{display:block;height:auto;max-width:100%}
     <div class="head"><h2>Questions</h2></div>
     <div class="faq">
       <details><summary>What counts as a "winner"?</summary><p>A post that beats the median of its own account's recent mature posts by a set multiple (2× by default). Shorts and long-form YouTube are compared separately, and a post younger than two days is "too early" instead of being judged on a half-finished number.</p></details>
-      <details><summary>Do I have to connect my TikTok, Instagram or YouTube login?</summary><p>No. HookTrack reads the public numbers for the handles you add. To publish, you connect your own publishing provider; HookTrack never asks for your social passwords.</p></details>
+      <details><summary>Do I have to connect my TikTok, Instagram or YouTube login?</summary><p>No, not for tracking. HookTrack reads the public numbers for the handles you add, with no login needed. To schedule and publish, you (or a client) sign in once with a one-time link; HookTrack never sees or asks for the password.</p></details>
+      <details><summary>Can I schedule to a client's own account?</summary><p>Yes. Group an account under a client, send them a one-time connect link, and they sign into their own TikTok, Instagram or YouTube to authorize it. From then on you can schedule and publish to it from HookTrack, and share them a read-only report whenever they want to check in.</p></details>
+      <details><summary>How is Discover different from just searching TikTok or YouTube?</summary><p>Discover only shows videos that beat their own creator's usual by a wide margin, filtered to your niche and to creators your own size, so you're not comparing yourself to accounts ten or a hundred times bigger.</p></details>
       <details><summary>Do I need AI to use it?</summary><p>No. Tracking, winner detection and decisions work without it. AI is included with your plan and there is nothing to set up: it reads screenshots, writes hook ideas, plans the week and answers questions about your data.</p></details>
       <details><summary>Is there a free trial?</summary><p id="faq-trial">No. There is no free trial. Every plan is month to month, so you can stop any time by turning off renewal, and nothing you saved is deleted.</p></details>
       <details><summary>Can I cancel or change plan?</summary><p>Yes. Each payment covers one period, and you can turn automatic renewal off at any time. If you let a plan lapse, your data stays and the workspace becomes view-only until you pay again.</p></details>
@@ -325,8 +345,8 @@ footer .partners img{display:block;height:auto;max-width:100%}
 <section class="final">
   <div class="wrap">
     <div class="card">
-      <h2>Stop guessing which hooks work</h2>
-      <p class="muted" style="margin:14px auto 26px;max-width:560px;font-size:18px">Add your accounts and see your real winners in minutes.</p>
+      <h2>Track it, plan it, schedule it, in one place</h2>
+      <p class="muted" style="margin:14px auto 26px;max-width:560px;font-size:18px">Add your accounts and see your real winners in minutes, then take it all the way to a scheduled video, yours or a client's.</p>
       <a class="btn primary big" href="/app#/signup" data-cta>Get started</a>
     </div>
   </div>
