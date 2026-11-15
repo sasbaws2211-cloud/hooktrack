@@ -20,6 +20,12 @@ the real account key, read-only calls only: no real comment or message was ever 
 Platform limits that are real, not bugs if you hit them: Instagram DMs need a human-typed reply within 24h of the
 other person's last message (or a tagged message up to 7 days); TikTok DMs need a Business account outside the
 EEA/Switzerland/UK and are reply-only. None of that is enforced here; Zernio's own API returns the real error.
+
+X, LinkedIn and Facebook are uneven in a different way — not a transient error but a structural one, confirmed
+against Zernio's own platform enums for the comments and messaging endpoints: X has no comment management at all
+(DMs only), LinkedIn has no DM management at all (comments only), Facebook has both. Unlike the limits above,
+this is known in advance, so it is enforced here (COMMENT_PLATFORMS / DM_PLATFORMS below) rather than left to
+surface as a raw Zernio error on every refresh.
 """
 from __future__ import annotations
 
@@ -95,11 +101,27 @@ def _own_account(ws: int, account_id: int) -> dict:
     return row
 
 
+# HookTrack's account.platform (display casing, "X"/"LinkedIn"/...) -> Zernio's own slug. "x" -> "twitter" is not
+# a typo: Zernio's connect/account platform value for X has always been "twitter" (confirmed against its real
+# OpenAPI spec), the same slug publish.py uses.
+_LATE_PLATFORM_SLUGS = {
+    "tiktok": "tiktok", "instagram": "instagram", "youtube": "youtube",
+    "x": "twitter", "twitter": "twitter", "linkedin": "linkedin", "facebook": "facebook",
+}
+# Confirmed against Zernio's own comments/messaging platform enums, not guessed. Threads/Bluesky/Reddit also
+# appear in Zernio's comments enum but HookTrack neither tracks nor publishes to them, so they are left out here.
+COMMENT_PLATFORMS = {"tiktok", "instagram", "youtube", "linkedin", "facebook"}
+DM_PLATFORMS = {"tiktok", "instagram", "facebook", "twitter"}
+
+
+def _late_platform(account: dict) -> Optional[str]:
+    return _LATE_PLATFORM_SLUGS.get(str(account["platform"] or "").strip().lower())
+
+
 def _late_account_id(ws: int, account: dict) -> Optional[str]:
     """This HookTrack account's id on Zernio, matched by platform + handle (same convention as publish.py:
     nothing persists the mapping, since a disconnect/reconnect must not leave a stale id behind)."""
-    platform = str(account["platform"] or "").strip().lower()
-    key = {"youtube": "youtube", "tiktok": "tiktok", "instagram": "instagram"}.get(platform)
+    key = _late_platform(account)
     if not key:
         return None
     h = (account["handle"] or "").lstrip("@").lower()
@@ -108,11 +130,18 @@ def _late_account_id(ws: int, account: dict) -> Optional[str]:
     return pick["id"] if pick else None
 
 
-def connected_accounts(ws: int) -> list[dict]:
-    """This workspace's tracked accounts that are also connected for publishing, so the inbox has something to read."""
+def connected_accounts(ws: int, capability: Optional[str] = None) -> list[dict]:
+    """This workspace's tracked accounts that are also connected for publishing, so the inbox has something to
+    read. capability='comments'|'messages' narrows to accounts whose platform actually supports that feature on
+    Zernio (X has no comment management, LinkedIn has no DM management) — pass it whenever the caller is about
+    to use one specific feature, not just listing accounts in general."""
+    wanted = {"comments": COMMENT_PLATFORMS, "messages": DM_PLATFORMS}.get(capability)
     rows = db.query("SELECT id, handle, platform, client_id FROM accounts WHERE workspace_id=%s", (ws,))
     out = []
     for r in rows:
+        key = _late_platform(r)
+        if not key or (wanted is not None and key not in wanted):
+            continue
         lid = _late_account_id(ws, r)
         if lid:
             out.append({**r, "late_account_id": lid})
@@ -123,7 +152,7 @@ def connected_accounts(ws: int) -> list[dict]:
 def refresh_comments(ws: int, account_id: Optional[int] = None) -> int:
     """Pull recent posts-with-comments for one account (or every connected account), then each post's own comments.
     Returns how many comment rows were new or changed. Safe to call often: Zernio's own list is cached ~10 min."""
-    accts = [a for a in connected_accounts(ws) if (account_id is None or a["id"] == account_id)]
+    accts = [a for a in connected_accounts(ws, "comments") if (account_id is None or a["id"] == account_id)]
     changed = 0
     for a in accts:
         try:
@@ -226,7 +255,7 @@ def reply_to_comment(ws: int, comment_row_id: int, body: str) -> dict:
 
 # ---------------------------------------------------------------- DMs (phase 2)
 def refresh_conversations(ws: int, account_id: Optional[int] = None) -> int:
-    accts = [a for a in connected_accounts(ws) if (account_id is None or a["id"] == account_id)]
+    accts = [a for a in connected_accounts(ws, "messages") if (account_id is None or a["id"] == account_id)]
     changed = 0
     for a in accts:
         try:
@@ -438,10 +467,14 @@ def api_send_message(conversation_row_id: int, b: MessageIn, ctx: Ctx = Depends(
 
 
 @router.get("/inbox/accounts")
-def api_inbox_accounts(ctx: Ctx = Depends(current)):
-    """Which of this workspace's accounts actually have an inbox (connected for publishing)."""
+def api_inbox_accounts(capability: Optional[str] = None, ctx: Ctx = Depends(current)):
+    """Which of this workspace's accounts actually have an inbox (connected for publishing). Pass
+    capability=comments or capability=messages to narrow to accounts whose platform actually supports that
+    feature (an X account has no comments to show; a LinkedIn account has no messages)."""
+    if capability not in (None, "comments", "messages"):
+        raise HTTPException(400, "capability must be 'comments' or 'messages'")
     return [{"id": a["id"], "handle": a["handle"], "platform": a["platform"], "client_id": a["client_id"]}
-            for a in connected_accounts(ctx.workspace_id)]
+            for a in connected_accounts(ctx.workspace_id, capability)]
 
 
 @router.post("/webhook/zernio")

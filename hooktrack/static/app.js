@@ -3191,14 +3191,18 @@ pages.clients = async app => {
 /* ---------------- inbox: comments and DMs on a connected account (yours or a client's) ---------------- */
 pages.inbox = async app => {
   const view = state.inboxView === 'messages' ? 'messages' : 'comments';
-  const accounts = await api('GET', '/api/inbox/accounts');
+  const accounts = await api('GET', `/api/inbox/accounts?capability=${view}`);
   const toggle = `<div class="seg" role="tablist">
       <button type="button" class="seg-btn ${view === 'comments' ? 'on' : ''}" data-view="comments">Comments</button>
       <button type="button" class="seg-btn ${view === 'messages' ? 'on' : ''}" data-view="messages">Messages</button>
     </div>`;
   if (!accounts.length) {
+    const who = view === 'messages' ? 'TikTok, Instagram, Facebook or X' : 'TikTok, Instagram, YouTube, Facebook or LinkedIn';
+    const why = view === 'messages'
+      ? 'YouTube and LinkedIn have no direct-message inbox on Zernio — only X, TikTok, Instagram and Facebook do.'
+      : 'X has no comment inbox on Zernio — it only supports direct messages there.';
     app.innerHTML = `<div class="page-head"><div><h1>Inbox</h1><div class="sub">Comments and messages on a connected account, yours or a client's.</div></div></div>
-      <div class="empty card"><h2>No connected accounts yet</h2><p>Inbox only works on an account connected for publishing. Connect your own account, or send a client a one-time link to connect theirs, under <a href="#/settings">Settings</a> or <a href="#/clients">Clients</a>.</p></div>`;
+      <div class="empty card"><h2>No accounts connected for ${view} yet</h2><p>Connect a ${who} account under <a href="#/settings">Settings</a> or <a href="#/clients">Clients</a> to see them here. ${why}</p></div>`;
     return;
   }
   const acctFilter = state.inboxAccount || '';
@@ -3207,9 +3211,12 @@ pages.inbox = async app => {
 
   const dmNote = `<div class="notice small" style="margin-bottom:12px">
       <b>Platform rules for DMs, not a HookTrack limit:</b>
-      YouTube has no direct-message inbox at all.
+      YouTube and LinkedIn have no direct-message inbox at all.
       TikTok DMs only work on a Business account outside the EEA, Switzerland and the UK, and are reply-only — you can never send the first message, only reply to one someone sent you.
       Instagram allows a free reply within 24 hours of their last message to you (a limited message type works up to 7 days after that).
+    </div>`;
+  const commentsNote = `<div class="notice small" style="margin-bottom:12px">
+      <b>Platform rule for comments, not a HookTrack limit:</b> X has no comment inbox at all — only direct messages (under Messages).
     </div>`;
   if (view === 'messages') {
     const convos = await api('GET', `/api/inbox/conversations${acctFilter ? '?account_id=' + acctFilter : ''}`);
@@ -3228,6 +3235,7 @@ pages.inbox = async app => {
     const comments = await api('GET', `/api/inbox/comments${acctFilter ? '?account_id=' + acctFilter : ''}`);
     app.innerHTML = `<div class="page-head"><div><h1>Inbox</h1><div class="sub">Comments and messages on a connected account, yours or a client's.</div></div>
         <div class="row">${toggle}${acctSelect}<button class="btn sm" id="irefresh">Refresh</button></div></div>
+      ${commentsNote}
       ${comments.length ? `<ul class="list">${comments.map(c => `<li style="align-items:flex-start;flex-direction:column;gap:6px${c.parent_comment_id ? ';margin-left:28px;border-left:2px solid var(--border);padding-left:10px' : ''}">
           <div class="row" style="width:100%">${c.parent_comment_id ? '<span class="muted small">↳ reply ·</span>' : ''}<b>${esc(c.author_name || 'Someone')}</b> <span class="muted small">on "${esc(short(c.post_title || 'your video', 60))}" · ${esc(c.handle)}</span>
             <span class="spacer"></span><span class="small muted">${c.posted_at ? esc(String(c.posted_at).slice(0, 10)) : ''}</span></div>
