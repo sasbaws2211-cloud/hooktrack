@@ -204,9 +204,32 @@ def decide(token: str, action: str, note: str) -> dict:
             # publish_jobs row (addon off, account disconnected, no video...), so that is not somewhere this
             # failure would otherwise show up — recorded here instead, for the agency to see and fix.
             publish_error = str(e)[:500]
+    status = "approved" if action == "approve" else "rejected"
     db.execute("UPDATE post_approvals SET status=%s, decided_at=now(), client_note=%s, publish_error=%s WHERE id=%s",
-               ("approved" if action == "approve" else "rejected", note, publish_error, row["id"]))
-    return {"ok": True, "status": "approved" if action == "approve" else "rejected"}
+               (status, note, publish_error, row["id"]))
+    _notify_decision(row, status, note, publish_error)
+    return {"ok": True, "status": status}
+
+
+def _notify_decision(row: dict, status: str, note: str, publish_error: str) -> None:
+    """Tells whoever sent the request what the client decided — otherwise the only way to find out is to keep
+    checking the Clients page, and a decision that just sits there unnoticed defeats the point of asking."""
+    if not row.get("requested_by") or not mailer.configured():
+        return
+    user = db.one("SELECT email FROM users WHERE id=%s", (row["requested_by"],))
+    if not user or not user.get("email"):
+        return
+    post = db.one("SELECT hook, caption FROM posts WHERE id=%s", (row["post_id"],))
+    what = (post or {}).get("hook") or (post or {}).get("caption") or "Your post"
+    link = f"{mailer.public_url()}/app#/clients" if mailer.public_url() else "/app#/clients"
+    if status == "approved" and publish_error:
+        subject, body = f'"{what[:60]}" was approved, but didn\'t go out', (
+            f"The client approved it, but scheduling failed:\n\n{publish_error}\n\nOpen Clients to see it and fix it:\n{link}")
+    elif status == "approved":
+        subject, body = f'"{what[:60]}" was approved', f"It will go out as scheduled, no action needed.\n\n{link}"
+    else:
+        subject, body = f'"{what[:60]}": changes requested', f'The client asked for changes:\n\n"{note}"\n\nOpen Clients to review and resend:\n{link}'
+    mailer.send(user["email"], subject, body)
 
 
 @router.get("/public/approval/{token}")
