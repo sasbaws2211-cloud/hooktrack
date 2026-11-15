@@ -30,11 +30,15 @@ MAX_LISTED = 5
 class ClientIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     notes: str = Field("", max_length=500)
+    requires_approval: bool = True
+    contact_email: str = Field("", max_length=200)
 
 
 class ClientPatch(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=80)
     notes: Optional[str] = Field(None, max_length=500)
+    requires_approval: Optional[bool] = None
+    contact_email: Optional[str] = Field(None, max_length=200)
 
 
 def own_client(ws: int, client_id: int) -> dict:
@@ -47,7 +51,7 @@ def own_client(ws: int, client_id: int) -> dict:
 @router.get("/clients")
 def clients_list(ctx: Ctx = Depends(current)):
     rows = db.query(
-        """SELECT c.id, c.name, c.notes, c.created_at,
+        """SELECT c.id, c.name, c.notes, c.created_at, c.requires_approval, c.contact_email,
                   COUNT(a.id)::int AS accounts,
                   COALESCE(array_agg(a.handle ORDER BY a.handle) FILTER (WHERE a.id IS NOT NULL), '{}') AS handles
            FROM clients c LEFT JOIN accounts a ON a.client_id = c.id
@@ -62,8 +66,10 @@ def client_create(b: ClientIn, ctx: Ctx = Depends(admin)):
         raise HTTPException(400, "Give the client a name")
     if db.one("SELECT 1 FROM clients WHERE workspace_id=%s AND lower(name)=lower(%s)", (ctx.workspace_id, name)):
         raise HTTPException(409, "You already have a client with that name")
-    return db.one("INSERT INTO clients(workspace_id, name, notes) VALUES (%s,%s,%s) RETURNING id, name, notes",
-                  (ctx.workspace_id, name, b.notes.strip()))
+    return db.one(
+        """INSERT INTO clients(workspace_id, name, notes, requires_approval, contact_email)
+           VALUES (%s,%s,%s,%s,%s) RETURNING id, name, notes, requires_approval, contact_email""",
+        (ctx.workspace_id, name, b.notes.strip(), b.requires_approval, b.contact_email.strip()))
 
 
 @router.patch("/clients/{cid}")
@@ -79,6 +85,8 @@ def client_update(cid: int, b: ClientPatch, ctx: Ctx = Depends(admin)):
             raise HTTPException(409, "You already have a client with that name")
     if "notes" in d:
         d["notes"] = (d["notes"] or "").strip()
+    if "contact_email" in d:
+        d["contact_email"] = (d["contact_email"] or "").strip()
     if d:
         sets = ", ".join(f"{k}=%s" for k in d)
         db.execute(f"UPDATE clients SET {sets} WHERE id=%s AND workspace_id=%s", (*d.values(), cid, ctx.workspace_id))

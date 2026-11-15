@@ -33,3 +33,18 @@
 @media print { .rp-print { display: none; } .rp { padding: 0; max-width: none; } .rp-card, .rp-kpi { break-inside: avoid; } }
 body.rp-page { margin: 0; background: #f8fafc; }
 .rp-state { max-width: 520px; margin: 18vh auto; padding: 0 16px; text-align: center; color: #475569; font: 16px/1.5 system-ui, sans-serif; }
+
+/* shared with the client-approval page (/a/<token>) */
+.rp-btn { border: 1px solid var(--rp-line); background: #fff; color: var(--rp-ink); border-radius: 8px; padding: 10px 16px;
+  font: inherit; font-weight: 600; cursor: pointer; }
+.rp-btn.primary { background: var(--rp-accent); border-color: var(--rp-accent); color: #fff; }
+.rp-btn.danger { border-color: var(--rp-bad); color: var(--rp-bad); }
+.rp-btn:disabled { opacity: .6; cursor: default; }
+.rp-video { width: 100%; max-height: 480px; border-radius: 10px; background: #000; display: block; margin: 10px 0; }
+.rp-textarea { width: 100%; min-height: 90px; border: 1px solid var(--rp-line); border-radius: 8px; padding: 10px;
+  font: inherit; margin: 8px 0; box-sizing: border-box; }
+.rp-decision { border-radius: 12px; padding: 14px 16px; font-weight: 600; margin-bottom: 14px; }
+.rp-decision.approved { background: #f0fdf4; color: var(--rp-good); border: 1px solid #bbf7d0; }
+.rp-decision.rejected { background: #fef2f2; color: var(--rp-bad); border: 1px solid #fecaca; }
+.rp-decision.cancelled { background: #f8fafc; color: var(--rp-mute); border: 1px solid var(--rp-line); }
+.rp-err { color: var(--rp-bad); font-size: 13.5px; margin-top: 8px; }

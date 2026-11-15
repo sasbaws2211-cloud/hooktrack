@@ -243,12 +243,17 @@ def publish_post(
     schedule_at: Optional[str] = None,
     schedule_local: Optional[str] = None,
     dry_run: bool = False,
+    _approved: bool = False,
 ) -> dict:
     """Publish a HookTrack post via the configured provider. Explicit action only.
 
     schedule_local is a wall-clock time ("2026-10-21T19:00") in the WORKSPACE's time zone; schedule_at is an
     absolute ISO time. Either one schedules; the local form is what the editor sends, so a user in another
     browser time zone still gets the time they meant.
+
+    _approved is set only by approvals.decide(), once a client has actually approved this exact publish: it is
+    the one way past the client-approval gate below, so the gate holds for every other caller (the normal
+    /api/posts/{id}/publish route included) no matter what the UI shows.
     """
     if schedule_local and not schedule_at:
         schedule_at = local_to_utc_iso(workspace_id, schedule_local)
@@ -268,6 +273,13 @@ def publish_post(
             "SELECT * FROM accounts WHERE id=%s AND workspace_id=%s",
             (post["account_id"], workspace_id),
         )
+
+    if not dry_run and not _approved and account and account.get("client_id"):
+        client = db.one("SELECT requires_approval FROM clients WHERE id=%s", (account["client_id"],))
+        if client and client.get("requires_approval"):
+            raise PublishError(
+                "This account belongs to a client who approves posts before they go out. Send it for approval "
+                "instead of publishing directly.", 409)
 
     if not dry_run:
         open_job = db.one(

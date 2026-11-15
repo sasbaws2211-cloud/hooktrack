@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, discover, freeai, inquiry, legal, logic, media, pages, peer, publish, seo, sociavault, vaultwatch, youtube_api
-from . import backup, digest, reports, inbox
+from . import backup, digest, reports, inbox, approvals
 from .auth import Ctx, admin, current
 from .import_xlsx import import_workbook
 
@@ -224,6 +224,8 @@ app.include_router(media.router)
 app.include_router(reports.router)
 app.include_router(reports.pages)
 app.include_router(inbox.router)
+app.include_router(approvals.router)
+app.include_router(approvals.pages)
 
 
 @app.middleware("http")
@@ -321,7 +323,9 @@ def _get_post(ws: int, post_id: int) -> dict:
     row = db.one(POST_SELECT + "WHERE p.id = %s AND p.workspace_id = %s", (post_id, ws))
     if row is None:
         raise HTTPException(404, "Post not found")
-    return _post_out(row, logic.get_settings(ws))
+    out = _post_out(row, logic.get_settings(ws))
+    approvals.annotate(ws, [out])
+    return out
 
 
 # ---------- phones ----------
@@ -923,6 +927,8 @@ def posts(start: Optional[date] = None, end: Optional[date] = None, account_id: 
         for p in out:
             p["followup"] = made.get(p["id"])
             p["made_from"] = copies.get(p["id"])
+    else:
+        approvals.annotate(ws, out)
     return logic.apply_evidence(out, perf, st)
 
 
@@ -1225,6 +1231,7 @@ def pipeline_board(account_id: Optional[int] = None, ctx: Ctx = Depends(current)
         for c in col:
             if c["id"] in failed:
                 c["publish_failed"] = failed[c["id"]] or "The scheduled publish did not go out"
+    approvals.annotate(ws, [c for col in columns.values() for c in col])
     return {
         "stages": PIPELINE_ORDER,
         "columns": columns,

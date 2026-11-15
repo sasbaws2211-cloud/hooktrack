@@ -1245,7 +1245,8 @@ function postModal(post, defaults, onDone) {
       ${p.external_id ? '' : '<div class="row" style="gap:8px;margin:6px 0"><button class="btn primary" id="nextstage" type="button" hidden>Mark as scripted</button></div>'}
       <div id="vidupload" style="margin-top:6px">${post ? '' : '<div class="small muted">Create the post first, then drag your video in here.</div>'}</div>
       <div id="vidstatus" class="small" style="margin-top:6px">${p.video_url ? `🎬 <a href="${esc(p.video_url)}" target="_blank" rel="noopener">Video ready</a>` : ''}</div>
-      <div id="pubstatus" class="small" style="margin-top:4px">${p.external_post_id ? `📤 Published · ${esc(p.publish_platforms || '')} · id ${esc(p.external_post_id)}` : (p.scheduled_for ? `📅 Scheduled ${esc(fmtWhen(p.scheduled_for))} (${esc(wsTz())})` : '')}</div>
+      <div id="pubstatus" class="small" style="margin-top:4px">${p.external_post_id ? `📤 Published · ${esc(p.publish_platforms || '')} · id ${esc(p.external_post_id)}`
+        : approvalStatusLine(p.approval) || (p.scheduled_for ? `📅 Scheduled ${esc(fmtWhen(p.scheduled_for))} (${esc(wsTz())})` : '')}</div>
     ${p.external_id ? '' : `<div class="full" id="linkblock" ${['posted', 'analysed'].includes(normStatus(p.status)) || p.url || p.result_post_id ? '' : 'hidden'}><label for="posturl">Posted video link</label>
       <input id="posturl" type="url" inputmode="url" placeholder="https://www.tiktok.com/@you/video/…" value="${esc(p.url || '')}">
       ${!p.result_post_id && p.id ? '<div style="margin-top:6px"><button class="btn sm" id="findvid" type="button">🔎 Find it in synced videos</button></div>' : ''}
@@ -1758,6 +1759,12 @@ function postModal(post, defaults, onDone) {
         }
         if (onDone) onDone();
       },
+      onApprovalRequested: approval => {
+        post.approval = approval;
+        const el = $('#pubstatus', m);
+        if (el) el.textContent = `⏳ Waiting for client approval (sent ${fmtWhen(approval.created_at)})`;
+        if (onDone) onDone();
+      },
     });
   };
   if ($('#dopub', m)) $('#dopub', m).onclick = guard(startPublish);
@@ -1803,26 +1810,62 @@ if (post) $('#del', m).onclick = guard(async () => {
 
 /* ---------------- publish / schedule dialog ---------------- */
 const PLATFORM_LABEL = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube' };
+
+function fullLink(path) { return /^https?:\/\//.test(path) ? path : location.origin + path; }
+
+function approvalStatusLine(approval) {
+  if (!approval) return '';
+  if (approval.status === 'pending') return `⏳ Waiting for client approval (sent ${esc(fmtWhen(approval.created_at))})`;
+  if (approval.status === 'rejected') return `✎ Client asked for changes: "${esc(short(approval.client_note || '', 160))}"`;
+  if (approval.status === 'approved' && approval.publish_error) return `✓ Approved, but it didn't go out: ${esc(short(approval.publish_error, 160))}`;
+  return '';
+}
+
+// A client this post's account belongs to asked to approve posts first: show the request's state instead of a
+// scheduler, since there is nothing to pick until the client has decided.
+function pendingApprovalDialog(approval, opts) {
+  const link = fullLink(approval.link);
+  const m = openModal(`<h2>Waiting for client approval</h2>
+    <p class="muted small">Sent ${esc(fmtWhen(approval.created_at))} for ${esc((approval.platforms || []).map(p => PLATFORM_LABEL[p] || p).join(', '))},
+      to go out ${esc(fmtWhen(approval.schedule_at))} once approved.</p>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm" id="ap-copy">Copy link</button>
+      <a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener">Open link</a></div>
+    <div class="actions"><button class="btn" data-close>Close</button><button class="btn danger" id="ap-cancel">Cancel request</button></div>`, true);
+  $('#ap-copy', m).onclick = guard(async () => { await navigator.clipboard.writeText(link); toast('Link copied'); });
+  $('#ap-cancel', m).onclick = guard(async () => {
+    if (!await askConfirm('Cancel this approval request? The link will stop working.')) return;
+    await api('DELETE', `/api/approvals/${approval.id}`);
+    m.close(); toast('Request cancelled'); if (opts.onMoved) opts.onMoved({});
+  });
+  return m;
+}
+
 // mode 'publish': choose platforms and now/later. mode 'reschedule': move a queued publish to a new time.
 async function scheduleDialog(post, opts = {}) {
   const resched = opts.mode === 'reschedule';
-  const defaults = (state.publish && state.publish.config && state.publish.config.default_platforms) || ['tiktok'];
   const acct = state.accounts.find(a => a.id === post.account_id);
+  const client = !resched && acct && acct.client_id ? (state.clients || []).find(c => c.id === acct.client_id) : null;
+  const gated = !!(client && client.requires_approval);
+  if (gated && post.approval && post.approval.status === 'pending') {
+    return pendingApprovalDialog(post.approval, opts);
+  }
+  const defaults = (state.publish && state.publish.config && state.publish.config.default_platforms) || ['tiktok'];
   const own = acct && String(acct.platform || '').toLowerCase();
   const chosen = new Set(own && PLATFORM_LABEL[own] ? [own] : (Array.isArray(defaults) ? defaults : [String(defaults)]));
   const zone = wsTz();
-  const sm = openModal(`<h2>${resched ? 'Move to a new time' : 'Publish / schedule'}</h2>
+  const sm = openModal(`<h2>${resched ? 'Move to a new time' : gated ? 'Send for client approval' : 'Publish / schedule'}</h2>
+    ${gated ? `<p class="muted small">${esc(client.name)} approves posts before they go out. Pick a time and HookTrack will send them a link; it publishes automatically once they approve.</p>` : ''}
     ${resched ? '' : `<div class="fields"><div class="full"><label class="f">Publish to</label>
       <div class="row" style="gap:12px;flex-wrap:wrap;align-items:center" id="plats"></div>
       <div class="small" id="connnote" style="margin-top:6px"></div></div></div>`}
     <div class="fields">
-      ${resched ? '' : '<div class="full"><label class="f"><input type="radio" name="when" value="now"> Publish now</label></div>'}
-      <div class="full">${resched ? '' : '<label class="f"><input type="radio" name="when" value="later" checked> Schedule for</label>'}
+      ${resched || gated ? '' : '<div class="full"><label class="f"><input type="radio" name="when" value="now"> Publish now</label></div>'}
+      <div class="full">${resched || gated ? '' : '<label class="f"><input type="radio" name="when" value="later" checked> Schedule for</label>'}
         <div class="chips" id="slots"><span class="muted small">Finding free times…</span></div>
         <input type="datetime-local" id="sched" value="" style="margin-top:6px">
         <div class="small muted" style="margin-top:4px">Time zone: ${esc(zone)} (your workspace setting). Suggested times are free slots for this account.</div></div>
     </div>
-    <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="pubgo">${resched ? 'Move' : 'Go'}</button></div>`, true);
+    <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="pubgo">${resched ? 'Move' : gated ? 'Send for approval' : 'Go'}</button></div>`, true);
   // which platforms are connected: a platform with no account is offered a Connect button right here, and
   // after signing in on the platform the user lands back on this card with the dialog open again
   const managed = !!(state.publish && state.publish.managed_available);
@@ -1876,7 +1919,7 @@ async function scheduleDialog(post, opts = {}) {
     });
   }).catch(() => { const box = $('#slots', sm); if (box) box.innerHTML = ''; });
   $('#pubgo', sm).onclick = guard(async () => {
-    const later = resched || $$('input[name=when]', sm).find(r => r.checked)?.value === 'later';
+    const later = resched || gated || $$('input[name=when]', sm).find(r => r.checked)?.value === 'later';
     const local = $('#sched', sm).value;
     if (later) {
       if (!local) throw new Error('Pick a date and time');
@@ -1884,7 +1927,7 @@ async function scheduleDialog(post, opts = {}) {
       if (z && local <= `${z.date}T${z.time}`) throw new Error('Schedule time must be in the future');
     }
     const btn = $('#pubgo', sm);
-    busy(btn, true, resched ? 'Moving…' : later ? 'Scheduling…' : 'Publishing…');
+    busy(btn, true, resched ? 'Moving…' : gated ? 'Sending…' : later ? 'Scheduling…' : 'Publishing…');
     try {
       if (resched) {
         const job = await api('POST', `/api/posts/${post.id}/reschedule`, { schedule_local: local });
@@ -1893,6 +1936,13 @@ async function scheduleDialog(post, opts = {}) {
       }
       const platforms = $$('[data-plat]', sm).filter(c => c.checked && !c.disabled).map(c => c.dataset.plat);
       if (!platforms.length) throw new Error('Choose at least one platform');
+      if (gated) {
+        const approval = await api('POST', `/api/posts/${post.id}/approval`, { platforms, schedule_local: local });
+        sm.close();
+        toast(`Sent to ${client.name} for approval`);
+        if (opts.onApprovalRequested) opts.onApprovalRequested(approval);
+        return;
+      }
       const body = { platforms };
       if (later) body.schedule_local = local;
       const job = await api('POST', `/api/posts/${post.id}/publish`, body);
@@ -2023,6 +2073,9 @@ pages.pipeline = async app => {
                   const vid = !!(p.video_url || p.has_video_file);
                   const chips = [];
                   if (p.publish_failed) chips.push(`<span class="tag warn" title="${esc(p.publish_failed)}">didn't post</span>`);
+                  if (p.approval && p.approval.status === 'pending') chips.push(`<span class="tag" title="Sent ${esc(fmtWhen(p.approval.created_at))}">⏳ pending approval</span>`);
+                  else if (p.approval && p.approval.status === 'rejected') chips.push(`<span class="tag warn" title="${esc(p.approval.client_note || '')}">✎ changes requested</span>`);
+                  else if (p.approval && p.approval.status === 'approved' && p.approval.publish_error) chips.push(`<span class="tag warn" title="${esc(p.approval.publish_error)}">approved, didn't post</span>`);
                   if (p.scheduled_for && !p.external_post_id && s === 'filmed') chips.push(`<span class="tag good" title="Queued to publish (${esc(wsTz())})">📅 ${esc(fmtWhen(p.scheduled_for))}</span>`);
                   else if (s === 'scripted' && !vid) chips.push('<span class="tag warn" title="Add the filmed video before this can be scheduled">needs video</span>');
                   else if (['scripted', 'filmed'].includes(s) && vid && !p.external_post_id) chips.push('<span class="tag good" title="The video is attached: open the card to schedule it">ready</span>');
@@ -3073,9 +3126,11 @@ pages.accounts = async app => {
 };
 
 pages.clients = async app => {
-  const [cl, rp] = await Promise.all([api('GET', '/api/clients'), api('GET', '/api/reports')]);
+  const [cl, rp, av] = await Promise.all([api('GET', '/api/clients'), api('GET', '/api/reports'), api('GET', '/api/approvals').catch(() => ({ approvals: [] }))]);
   state.clients = cl.clients;
   const links = rp.links;
+  const approvalsByClient = {};
+  (av.approvals || []).forEach(a => { (approvalsByClient[a.client_name] = approvalsByClient[a.client_name] || []).push(a); });
   const unassigned = state.accounts.filter(a => !a.client_id).length;
   const admin = isAdmin();
   const limitNote = rp.limit === -1 ? '' : rp.limit === 0
@@ -3086,9 +3141,12 @@ pages.clients = async app => {
     ${limitNote ? `<div class="notice" style="margin-bottom:12px">${esc(limitNote)}</div>` : ''}
     ${cl.clients.map(c => {
       const mine = links.filter(l => l.client_id === c.id);
+      const pending = (approvalsByClient[c.name] || []).filter(a => a.status === 'pending');
+      const recent = (approvalsByClient[c.name] || []).filter(a => a.status !== 'pending').slice(0, 3);
       return `<div class="card" style="margin-bottom:14px"><div class="row" style="margin-bottom:6px"><b style="font-size:16px">${esc(c.name)}</b>
-        <span class="muted">${c.accounts} account${c.accounts === 1 ? '' : 's'}</span><span class="spacer"></span>
-        ${admin ? `<button class="btn sm" data-ca="${c.id}">Accounts</button><button class="btn sm" data-ce="${c.id}">Rename</button>` : ''}</div>
+        <span class="muted">${c.accounts} account${c.accounts === 1 ? '' : 's'}</span>
+        ${c.requires_approval ? '<span class="tag">approves posts first</span>' : ''}<span class="spacer"></span>
+        ${admin ? `<button class="btn sm" data-ca="${c.id}">Accounts</button><button class="btn sm" data-ce="${c.id}">Edit</button>` : ''}</div>
         ${c.notes ? `<p class="muted small" style="margin:0 0 6px">${esc(c.notes)}</p>` : ''}
         <p class="small" style="margin:0 0 10px">${c.handles.length ? c.handles.map(h => `<span class="pill">${esc(h)}</span>`).join(' ') : '<span class="muted">No accounts yet. Use Accounts to add some.</span>'}</p>
         <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm" data-prev="${c.id}" ${c.accounts ? '' : 'disabled'}>Preview report</button>
@@ -3096,7 +3154,15 @@ pages.clients = async app => {
         ${mine.length ? `<div style="margin-top:10px">${mine.map(l => `<div class="row small" style="gap:8px;padding:6px 0;border-top:1px solid var(--line,#e5e7eb);flex-wrap:wrap">
           <span style="flex:1;min-width:180px"><b>${esc(l.title || 'Report')}</b> <span class="muted">· last ${l.days} days · ${l.view_count} view${l.view_count === 1 ? '' : 's'}${l.last_viewed_at ? ', last ' + esc(String(l.last_viewed_at).slice(0, 10)) : ''}</span></span>
           <button class="btn sm" data-copy="${esc(l.path)}">Copy link</button><a class="btn sm" href="${esc(l.path)}" target="_blank" rel="noopener">Open</a>
-          ${admin ? `<button class="btn sm danger" data-revoke="${l.id}">Revoke</button>` : ''}</div>`).join('')}</div>` : ''}</div>`;
+          ${admin ? `<button class="btn sm danger" data-revoke="${l.id}">Revoke</button>` : ''}</div>`).join('')}</div>` : ''}
+        ${pending.length || recent.length ? `<div style="margin-top:10px"><div class="small muted" style="margin-bottom:4px">Approvals</div>
+          ${pending.map(a => `<div class="row small" style="gap:8px;padding:6px 0;border-top:1px solid var(--line,#e5e7eb);flex-wrap:wrap">
+            <span style="flex:1;min-width:180px"><span class="tag">pending</span> ${esc(short(a.hook || a.caption || 'Untitled', 60))} <span class="muted">· ${esc(a.handle || '')} · goes out ${esc(fmtWhen(a.schedule_at))}</span></span>
+            <button class="btn sm" data-ap-copy="${esc(a.link)}">Copy link</button>
+            ${admin ? `<button class="btn sm danger" data-ap-cancel="${a.id}">Cancel</button>` : ''}</div>`).join('')}
+          ${recent.map(a => `<div class="row small" style="gap:8px;padding:6px 0;border-top:1px solid var(--line,#e5e7eb);flex-wrap:wrap">
+            <span style="flex:1;min-width:180px">${a.status === 'approved' && a.publish_error ? '<span class="tag warn">approved, didn\'t post</span>' : a.status === 'approved' ? '<span class="tag good">approved</span>' : a.status === 'rejected' ? '<span class="tag warn">changes requested</span>' : '<span class="tag">cancelled</span>'}
+              ${esc(short(a.hook || a.caption || 'Untitled', 60))}${a.status === 'rejected' && a.client_note ? ` <span class="muted">· "${esc(short(a.client_note, 80))}"</span>` : ''}${a.status === 'approved' && a.publish_error ? ` <span class="muted">· ${esc(short(a.publish_error, 100))}</span>` : ''}</span></div>`).join('')}</div>` : ''}</div>`;
     }).join('') || `<div class="empty card"><h2>No clients yet</h2><p>Add a client for each brand you manage, put its accounts under it, then share a report.</p></div>`}
     ${unassigned && cl.clients.length ? `<p class="muted small">${unassigned} account${unassigned === 1 ? ' is' : 's are'} not assigned to a client.</p>` : ''}`;
   const find = id => cl.clients.find(c => c.id === +id);
@@ -3111,6 +3177,13 @@ pages.clients = async app => {
   $$('[data-revoke]', app).forEach(b => (b.onclick = guard(async () => {
     if (!await askConfirm('Revoke this link? Anyone who has it will see "not available" straight away.')) return;
     await api('DELETE', `/api/reports/${b.dataset.revoke}`); route();
+  })));
+  $$('[data-ap-copy]', app).forEach(b => (b.onclick = guard(async () => {
+    await navigator.clipboard.writeText(fullLink(b.dataset.apCopy)); toast('Link copied');
+  })));
+  $$('[data-ap-cancel]', app).forEach(b => (b.onclick = guard(async () => {
+    if (!await askConfirm('Cancel this approval request? The link will stop working.')) return;
+    await api('DELETE', `/api/approvals/${b.dataset.apCancel}`); route();
   })));
 };
 
@@ -3207,12 +3280,15 @@ function conversationModal(conversationId) {
 }
 
 function clientModal(c) {
+  const requiresApproval = c ? c.requires_approval !== false : true;
   const m = openModal(`<h2>${c ? 'Edit client' : 'New client'}</h2><div class="fields">
     <div><label class="f">Name</label><input id="cn" value="${esc(c ? c.name : '')}" maxlength="80" placeholder="Brand or client name"></div>
-    <div style="grid-column:1/-1"><label class="f">Notes (only you see these)</label><input id="cno" value="${esc(c ? c.notes : '')}" maxlength="500"></div></div>
+    <div><label class="f">Contact email (optional)</label><input id="cem" type="email" value="${esc(c ? c.contact_email || '' : '')}" placeholder="for approval links and reports" maxlength="200"></div>
+    <div style="grid-column:1/-1"><label class="f">Notes (only you see these)</label><input id="cno" value="${esc(c ? c.notes : '')}" maxlength="500"></div>
+    <div style="grid-column:1/-1"><label class="check"><input type="checkbox" id="creq" ${requiresApproval ? 'checked' : ''}> This client approves a post before it goes out to their account</label></div></div>
     <div class="actions">${c ? '<button class="btn danger" id="cdel">Delete</button>' : ''}<span class="spacer"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="csave">Save</button></div>`);
   $('#csave', m).onclick = guard(async () => {
-    const b = { name: $('#cn', m).value.trim(), notes: $('#cno', m).value };
+    const b = { name: $('#cn', m).value.trim(), notes: $('#cno', m).value, contact_email: $('#cem', m).value.trim(), requires_approval: $('#creq', m).checked };
     if (!b.name) throw new Error('Give the client a name');
     await (c ? api('PATCH', `/api/clients/${c.id}`, b) : api('POST', '/api/clients', b)); m.close(); route();
   });
