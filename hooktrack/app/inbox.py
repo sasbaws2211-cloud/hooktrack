@@ -121,13 +121,14 @@ def refresh_comments(ws: int, account_id: Optional[int] = None) -> int:
                 log.warning("inbox comment thread failed for post %s: %s", post_id, e)
                 continue
             # this endpoint's envelope is {"comments": [...]}, distinct from the list call above; each comment's
-            # body is "message" (not text/body), author is nested under "from": {name, username}, and top-level
-            # comments have no parent (threaded replies live in a nested "replies" array, not pulled in here yet)
-            items = thread.get("comments") if isinstance(thread, dict) else thread
-            for c in items or []:
+            # body is "message" (not text/body), author is nested under "from": {name, username}. Threaded replies
+            # come back nested under each comment's own "replies" array (Zernio's spec leaves that array's item
+            # shape undeclared, so it is read defensively, assuming it matches a top-level comment's own shape).
+            def _save(c: dict, parent_id: str) -> None:
+                nonlocal changed
                 cid = str(c.get("id") or "")
                 if not cid:
-                    continue
+                    return
                 frm = c.get("from") or {}
                 row = db.one(
                     """INSERT INTO inbox_comments(workspace_id, account_id, platform, post_external_id, post_title, post_url,
@@ -136,11 +137,17 @@ def refresh_comments(ws: int, account_id: Optional[int] = None) -> int:
                        ON CONFLICT (account_id, comment_id) DO UPDATE SET like_count=EXCLUDED.like_count, fetched_at=now()
                        RETURNING (xmax = 0) AS inserted""",
                     (ws, a["id"], a["platform"], post_id, p.get("content") or "", p.get("permalink") or "",
-                     cid, "", frm.get("name") or frm.get("username") or "",
+                     cid, parent_id, frm.get("name") or frm.get("username") or "",
                      frm.get("picture") or "", c.get("message") or "", c.get("likeCount"),
                      c.get("createdTime")))
                 if row and row.get("inserted"):
                     changed += 1
+                for reply in c.get("replies") or []:
+                    _save(reply, cid)
+
+            items = thread.get("comments") if isinstance(thread, dict) else thread
+            for c in items or []:
+                _save(c, "")
     return changed
 
 

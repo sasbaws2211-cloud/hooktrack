@@ -3147,8 +3147,8 @@ pages.inbox = async app => {
     const comments = await api('GET', `/api/inbox/comments${acctFilter ? '?account_id=' + acctFilter : ''}`);
     app.innerHTML = `<div class="page-head"><div><h1>Inbox</h1><div class="sub">Comments and messages on a connected account, yours or a client's.</div></div>
         <div class="row">${toggle}${acctSelect}<button class="btn sm" id="irefresh">Refresh</button></div></div>
-      ${comments.length ? `<ul class="list">${comments.map(c => `<li style="align-items:flex-start;flex-direction:column;gap:6px">
-          <div class="row" style="width:100%"><b>${esc(c.author_name || 'Someone')}</b> <span class="muted small">on "${esc(short(c.post_title || 'your video', 60))}" · ${esc(c.handle)}</span>
+      ${comments.length ? `<ul class="list">${comments.map(c => `<li style="align-items:flex-start;flex-direction:column;gap:6px${c.parent_comment_id ? ';margin-left:28px;border-left:2px solid var(--border);padding-left:10px' : ''}">
+          <div class="row" style="width:100%">${c.parent_comment_id ? '<span class="muted small">↳ reply ·</span>' : ''}<b>${esc(c.author_name || 'Someone')}</b> <span class="muted small">on "${esc(short(c.post_title || 'your video', 60))}" · ${esc(c.handle)}</span>
             <span class="spacer"></span><span class="small muted">${c.posted_at ? esc(String(c.posted_at).slice(0, 10)) : ''}</span></div>
           <div>${esc(c.body)}</div>
           ${c.replied_at ? `<div class="small muted">You replied: ${esc(short(c.reply_body, 140))}</div>`
