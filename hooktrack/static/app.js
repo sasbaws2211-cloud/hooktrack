@@ -3131,16 +3131,23 @@ pages.inbox = async app => {
   const acctSelect = `<select id="ia" style="width:auto"><option value="">All connected accounts</option>${accounts.map(a =>
     `<option value="${a.id}" ${String(acctFilter) === String(a.id) ? 'selected' : ''}>${esc(a.handle)}</option>`).join('')}</select>`;
 
+  const dmNote = `<div class="notice small" style="margin-bottom:12px">
+      <b>Platform rules for DMs, not a HookTrack limit:</b>
+      YouTube has no direct-message inbox at all.
+      TikTok DMs only work on a Business account outside the EEA, Switzerland and the UK, and are reply-only — you can never send the first message, only reply to one someone sent you.
+      Instagram allows a free reply within 24 hours of their last message to you (a limited message type works up to 7 days after that).
+    </div>`;
   if (view === 'messages') {
     const convos = await api('GET', `/api/inbox/conversations${acctFilter ? '?account_id=' + acctFilter : ''}`);
     app.innerHTML = `<div class="page-head"><div><h1>Inbox</h1><div class="sub">Comments and messages on a connected account, yours or a client's.</div></div>
         <div class="row">${toggle}${acctSelect}<button class="btn sm" id="irefresh">Refresh</button></div></div>
+      ${dmNote}
       ${convos.length ? `<ul class="list">${convos.map(c => `<li data-open-convo="${c.id}" style="cursor:pointer">
           <div style="flex:1;min-width:0"><b>${esc(c.participant_name || 'Someone')}</b> <span class="muted small">· ${esc(c.handle)} · ${esc((c.platform || '').replace(/^\w/, s => s.toUpperCase()))}</span>
             ${c.unread ? '<span class="pill hot" style="margin-left:6px">New</span>' : ''}
             <div class="small muted">${esc(short(c.last_message_preview || '', 100))}</div></div>
           <span class="small muted">${c.last_message_at ? esc(String(c.last_message_at).slice(0, 10)) : ''}</span></li>`).join('')}</ul>`
-        : `<div class="empty card"><h2>No conversations yet</h2><p>Press Refresh to check for new DMs on your connected accounts. Instagram and TikTok DMs only: there's no direct-message inbox for YouTube.</p></div>`}`;
+        : `<div class="empty card"><h2>No conversations yet</h2><p>Press Refresh to check for new DMs on your connected accounts.</p></div>`}`;
     $('#irefresh').onclick = guard(async () => { await api('GET', `/api/inbox/conversations?refresh=true${acctFilter ? '&account_id=' + acctFilter : ''}`); route(); });
     $$('[data-open-convo]', app).forEach(li => (li.onclick = () => conversationModal(+li.dataset.openConvo)));
   } else {

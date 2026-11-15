@@ -50,6 +50,25 @@ class InboxError(Exception):
         self.status = status
 
 
+def _explain(platform: str, e: "InboxError") -> "InboxError":
+    """Turn a raw Zernio/platform error into something a user can actually act on, for the known platform rules.
+    Anything not recognised is returned unchanged, raw error text and all, rather than hidden."""
+    platform = (platform or "").strip().lower()
+    msg = str(e)
+    if platform == "tiktok" and "40001" in msg:
+        return InboxError(
+            "TikTok refused this (permission error, code 40001). TikTok DMs only work for a TikTok Business "
+            "account, registered outside the EEA, Switzerland and the UK, connected through the newer Business "
+            "app. If that's already true for this account, this needs a Zernio support ticket.", e.status)
+    if platform == "tiktok" and e.status in (400, 403) and ("start" in msg.lower() or "initiat" in msg.lower()):
+        return InboxError("TikTok only allows replying to a DM someone already sent you; a business account can "
+                          "never send the first message in a conversation.", e.status)
+    if platform == "instagram" and e.status in (400, 403) and ("window" in msg.lower() or "24" in msg or "expired" in msg.lower()):
+        return InboxError("Instagram only allows a free reply within 24 hours of their last message to you "
+                          "(or a tagged message, up to 7 days). This conversation is outside that window.", e.status)
+    return e
+
+
 def _headers() -> dict:
     if not latehub.available():
         raise InboxError("Publishing is not set up on this server yet.")
@@ -195,9 +214,12 @@ def reply_to_comment(ws: int, comment_row_id: int, body: str) -> dict:
     # confirmed against Zernio's openapi.json: posting a reply is POST .../comments/{postId} (not a {commentId}/reply
     # sub-path) with the target comment named in the body's "commentId"
     key = str(uuid.uuid4())
-    _call("POST", f"/inbox/comments/{row['post_external_id']}",
-          json={"accountId": lid, "message": body, "commentId": row["comment_id"]},
-          headers={**_headers(), "Idempotency-Key": key})
+    try:
+        _call("POST", f"/inbox/comments/{row['post_external_id']}",
+              json={"accountId": lid, "message": body, "commentId": row["comment_id"]},
+              headers={**_headers(), "Idempotency-Key": key})
+    except InboxError as e:
+        raise _explain(a["platform"], e)
     db.execute("UPDATE inbox_comments SET replied_at=now(), reply_body=%s WHERE id=%s", (body, comment_row_id))
     return {"ok": True}
 
@@ -284,8 +306,11 @@ def send_message(ws: int, conversation_row_id: int, body: str) -> dict:
         raise InboxError("Write a message first")
     # confirmed against Zernio's openapi.json: the body field is "message", not "text"
     key = str(uuid.uuid4())
-    result = _call("POST", f"/inbox/conversations/{conv['conversation_id']}/messages",
-                   json={"accountId": lid, "message": body}, headers={**_headers(), "Idempotency-Key": key})
+    try:
+        result = _call("POST", f"/inbox/conversations/{conv['conversation_id']}/messages",
+                       json={"accountId": lid, "message": body}, headers={**_headers(), "Idempotency-Key": key})
+    except InboxError as e:
+        raise _explain(a["platform"], e)
     mid = str((result or {}).get("id") or (result or {}).get("messageId") or key)
     db.execute("INSERT INTO inbox_messages(conversation_id, workspace_id, message_id, direction, body, sent_at) "
                "VALUES (%s,%s,%s,'out',%s, now()) ON CONFLICT (conversation_id, message_id) DO NOTHING",
