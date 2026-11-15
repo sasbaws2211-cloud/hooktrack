@@ -58,8 +58,12 @@ def _headers() -> dict:
 
 
 def _call(method: str, path: str, **kw) -> dict:
+    # extra headers (e.g. Idempotency-Key) merge with the default ones; passing headers=... again as a **kw
+    # alongside the hardcoded one below used to crash every call that needed it (reply, send) with a Python
+    # TypeError, since a keyword argument cannot be given a value twice
+    headers = {**_headers(), **kw.pop("headers", {})}
     with httpx.Client(timeout=30.0) as c:
-        r = c.request(method, f"{latehub.base_url()}{path}", headers=_headers(), **kw)
+        r = c.request(method, f"{latehub.base_url()}{path}", headers=headers, **kw)
     if r.status_code >= 400:
         raise InboxError(f"Zernio error {r.status_code}: {r.text[:200]}", r.status_code)
     return r.json() if r.content else {}
