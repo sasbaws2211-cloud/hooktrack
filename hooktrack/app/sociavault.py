@@ -340,10 +340,12 @@ def _twitter_date(s: str, tz: str = "UTC") -> date:
 
 
 # ---------- LinkedIn ----------
-# Confirmed live: LinkedIn posts carry no view/impression count at all (likes and comments only), and there is
-# no feed-pagination endpoint for a profile's post history — only whatever `recentPosts` the profile scrape
-# happens to expose (undocumented shape, size limited by what LinkedIn shows publicly). So LinkedIn tracking
-# is deliberately likes/comments-only: no "winner vs your normal" verdict, since there is nothing to compare.
+# Confirmed live against a real profile (not just the docs example): LinkedIn posts carry no view/impression
+# count, and in practice no like/comment count either — recentPosts items only ever had id/title/link/
+# datePublished/activityType, despite LinkedIn's own docs page showing a likeCount/commentCount example. There
+# is also no feed-pagination endpoint for a profile's post history — only whatever `recentPosts` the profile
+# scrape happens to expose (size limited by what LinkedIn shows publicly). So LinkedIn tracking amounts to post
+# content and timing only: no "winner vs your normal" verdict, and realistically no engagement numbers either.
 
 def linkedin_profile(profile_url: str, api_key: str) -> dict:
     return _get("linkedin/profile", {"url": profile_url}, api_key)
@@ -1088,7 +1090,11 @@ def sync_linkedin_account(workspace_id: int, account_id: int, days_back: int = 1
     upserted = 0
     for item in _linkedin_post_items(p):
         url = str(_first(item, "url", "link", "postUrl") or "")
-        text = str(_first(item, "text", "commentary", "description", "content") or "").strip()
+        # confirmed live against a real profile: recentPosts items carry "title" for the post text, not
+        # text/commentary/description — and no like/comment count at all, contrary to the one example in
+        # LinkedIn's own docs page. Those two fields stay a best-effort fallback in case another profile shape
+        # does include them, but in practice every post synced here will show 0 likes and 0 comments.
+        text = str(_first(item, "title", "text", "commentary", "description", "content") or "").strip()
         if not url and not text:
             continue
         ts_raw = _first(item, "datePublished", "postedAt", "date", "publishedAt")
@@ -1103,7 +1109,7 @@ def sync_linkedin_account(workspace_id: int, account_id: int, days_back: int = 1
                     continue
             except (ValueError, TypeError):
                 pass
-        ext_id = re.sub(r"[^\w-]", "", url.rsplit("/", 1)[-1])[:100] or url[-100:]
+        ext_id = str(item.get("id") or "") or re.sub(r"[^\w-]", "", url.rsplit("/", 1)[-1])[:100] or url[-100:]
         likes = _n(_first(item, "likeCount", "numLikes", "reactionCount"))
         comments = _n(_first(item, "commentCount", "numComments")) or 0
         post_id = _upsert_post(
