@@ -297,6 +297,95 @@ def youtube_channel_videos(handle: str, api_key: str, page: Optional[str] = None
     return _get("youtube/channel-videos", params, api_key)
 
 
+# ---------- Twitter/X ----------
+# Confirmed live against SociaVault's own docs: tweets carry a real views.count, and user-tweets-all is a true
+# chronological, paginated timeline (unlike user-tweets, which is ~100 most-popular, not most-recent).
+
+def twitter_profile(handle: str, api_key: str) -> dict:
+    return _get("twitter/profile", {"handle": handle.lstrip("@")}, api_key)
+
+
+def twitter_user_tweets_all(user_id: str, api_key: str, cursor: Optional[str] = None) -> dict:
+    params: dict[str, Any] = {"user_id": user_id}
+    if cursor:
+        params["cursor"] = cursor
+    return _get("twitter/user-tweets-all", params, api_key)
+
+
+def _twitter_tweet_items(page: dict) -> list:
+    """Tweets sit at entries[].content.itemContent.tweet_results.result, inside a GraphQL-shaped timeline."""
+    data = _payload(page)
+    instructions = (((data.get("result") or {}).get("timeline") or {}).get("instructions")) or []
+    out = []
+    for instr in instructions if isinstance(instructions, list) else []:
+        if not isinstance(instr, dict) or instr.get("type") != "TimelineAddEntries":
+            continue
+        for entry in instr.get("entries") or []:
+            item = _deep(entry, "itemContent") or {}
+            tweet = _deep(item, "tweet_results")
+            result = (tweet or {}).get("result") if isinstance(tweet, dict) else None
+            if isinstance(result, dict) and result.get("rest_id"):
+                out.append(result)
+    return out
+
+
+def _twitter_date(s: str, tz: str = "UTC") -> date:
+    """Twitter's created_at is 'Mon Jul 21 13:59:53 +0000 2025', not a unix timestamp."""
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(s)
+        return dt.astimezone(ZoneInfo(tz if logic.valid_tz(tz) else "UTC")).date()
+    except Exception:
+        return logic.today_in(tz)
+
+
+# ---------- LinkedIn ----------
+# Confirmed live: LinkedIn posts carry no view/impression count at all (likes and comments only), and there is
+# no feed-pagination endpoint for a profile's post history — only whatever `recentPosts` the profile scrape
+# happens to expose (undocumented shape, size limited by what LinkedIn shows publicly). So LinkedIn tracking
+# is deliberately likes/comments-only: no "winner vs your normal" verdict, since there is nothing to compare.
+
+def linkedin_profile(profile_url: str, api_key: str) -> dict:
+    return _get("linkedin/profile", {"url": profile_url}, api_key)
+
+
+def linkedin_profile_url(handle: str) -> str:
+    h = handle.lstrip("@").strip("/")
+    return h if h.startswith("http") else f"https://www.linkedin.com/in/{h}/"
+
+
+# ---------- Facebook (Reels only — scoped deliberately) ----------
+# Confirmed live against SociaVault's docs: facebook/profile/reels carries a real view_count, but no engagement
+# counts; facebook/profile/posts carries reactionCount/commentCount (and sometimes a null videoViewCount) but is
+# a separate, 3-per-page endpoint. The two are joined by reel.post_id == post.id. Plain (non-reel) Facebook
+# posts never carry a view count at all, so — matching the LinkedIn decision — only Reels are tracked here;
+# text/image posts are skipped entirely rather than fed in as half-data nobody asked for.
+
+def facebook_profile_url(handle: str) -> str:
+    h = handle.lstrip("@").strip("/")
+    return h if h.startswith("http") else f"https://www.facebook.com/{h}"
+
+
+def facebook_profile(url: str, api_key: str) -> dict:
+    return _get("facebook/profile", {"url": url}, api_key)
+
+
+def facebook_profile_reels(url: str, api_key: str, cursor: Optional[str] = None,
+                           next_page_id: Optional[str] = None) -> dict:
+    params: dict[str, Any] = {"url": url}
+    if cursor and next_page_id:          # the docs are explicit: both or neither
+        params["cursor"] = cursor
+        params["next_page_id"] = next_page_id
+    return _get("facebook/profile/reels", params, api_key)
+
+
+def facebook_profile_posts(url: str, api_key: str, cursor: Optional[str] = None) -> dict:
+    params: dict[str, Any] = {"url": url}
+    if cursor:
+        params["cursor"] = cursor
+    return _get("facebook/profile/posts", params, api_key)
+
+
 # ---------- Sync into HookTrack ----------
 
 def _aweme_items(page: dict) -> list:
@@ -462,6 +551,15 @@ def _profile_stats(platform: str, raw: dict) -> dict:
                 "following": count("edge_follow") or _n(_deep(raw, "following_count")),
                 "total_likes": None,
                 "video_count": count("edge_owner_to_timeline_media") or _n(_deep(raw, "media_count"))}
+    if platform in ("x", "twitter"):
+        legacy = _deep(raw, "legacy") or {}
+        return {"followers": _n(legacy.get("followers_count")), "following": _n(legacy.get("friends_count")),
+                "total_likes": None, "video_count": _n(legacy.get("statuses_count"))}
+    if platform == "linkedin":
+        return {"followers": _n(_deep(raw, "followers")), "following": None, "total_likes": None, "video_count": None}
+    if platform == "facebook":
+        # followerCount is often a rounded string ("798K"); _n falls back to parsing that
+        return {"followers": _n(_deep(raw, "followerCount")), "following": None, "total_likes": None, "video_count": None}
     return {"followers": _n(_deep(raw, "subscriberCount")), "following": None, "total_likes": None,
             "video_count": _n(_deep(raw, "videoCount"))}
 
@@ -860,7 +958,291 @@ def sync_youtube_account(workspace_id: int, account_id: int, days_back: int = 14
     }
 
 
+def sync_twitter_account(workspace_id: int, account_id: int, days_back: int = 14,
+                         mode: str = "full") -> dict:
+    """Full parity with TikTok/Instagram/YouTube: real view counts, chronological pagination."""
+    acc = db.one("SELECT * FROM accounts WHERE id=%s AND workspace_id=%s", (account_id, workspace_id))
+    if not acc:
+        raise SociaVaultError("Account not found")
+    handle = (acc["handle"] or "").lstrip("@")
+    if not handle:
+        raise SociaVaultError("Account has no handle")
+    key = resolve_key(workspace_id)
+    if not key:
+        raise SociaVaultError("SociaVault API key not configured")
+
+    light = (mode or "full").lower() == "light"
+    credits = 0
+    external_id = acc.get("external_id") or None
+    if not light or _followers_due(account_id) or not external_id:
+        profile = twitter_profile(handle, key)
+        credits += 1
+        p = _payload(profile)
+        external_id = str(p.get("rest_id") or "") or external_id
+        _store_followers(workspace_id, account_id, "twitter", profile)
+    if not external_id:
+        raise SociaVaultError("Could not resolve this account's numeric Twitter/X id")
+
+    cutoff = datetime.now(timezone.utc).timestamp() - days_back * 86400
+    cursor = None
+    upserted = 0
+    tz = logic.workspace_tz(workspace_id)
+    today = logic.today_in(tz)
+    pages = MAX_PAGES_LIGHT if light else (MAX_PAGES_HISTORY if days_back > 14 else MAX_PAGES_FULL)
+
+    for _ in range(pages):
+        page = twitter_user_tweets_all(external_id, key, cursor=cursor)
+        credits += 1
+        items = _twitter_tweet_items(page)
+        if not items:
+            break
+        stop_early = False
+
+        for t in items:
+            legacy = t.get("legacy") or {}
+            created_at = legacy.get("created_at") or ""
+            post_date = _twitter_date(created_at, tz) if created_at else today
+            ts = None
+            try:
+                from email.utils import parsedate_to_datetime
+                ts = parsedate_to_datetime(created_at).timestamp() if created_at else None
+            except Exception:
+                ts = None
+            if ts is not None and ts < cutoff:
+                stop_early = True
+                continue
+
+            text = legacy.get("full_text") or ""
+            note = _deep(t, "note_tweet_results")
+            if isinstance(note, dict):
+                full = _deep(note, "text")
+                if full:
+                    text = full
+            views = _n((t.get("views") or {}).get("count")) or 0
+            comments = _n(legacy.get("reply_count")) or 0
+            likes = _n(legacy.get("favorite_count"))
+            shares = _n(legacy.get("retweet_count"))
+            saves = _n(legacy.get("bookmark_count"))
+            ext_id = str(t.get("rest_id") or legacy.get("id_str") or "")
+            url = str(t.get("url") or (f"https://x.com/{handle}/status/{ext_id}" if ext_id else ""))
+            post_id = _upsert_post(
+                workspace_id, account_id, ext_id=ext_id, post_date=post_date,
+                date_estimated=not created_at, hook=text.strip()[:200], caption=text.strip()[:2200],
+                views=views, comments=comments, likes=likes, shares=shares, saves=saves, url=url)
+            upserted += 1
+            _record_post(workspace_id, account_id, post_id, views, today)
+
+        cursor = (_payload(page).get("cursor") or {}).get("bottom")
+        if not cursor or stop_early:
+            break
+
+    daily = _apply_daily_gain(workspace_id, account_id, today)
+
+    db.execute(
+        """UPDATE accounts SET external_id=COALESCE(%s, external_id),
+           last_synced_at=now() WHERE id=%s AND workspace_id=%s""",
+        (external_id, account_id, workspace_id),
+    )
+    return {
+        "platform": "X", "handle": handle, "mode": "light" if light else "full",
+        "upserted": upserted, "days": daily["written"], "manual_kept": daily["kept"],
+        "credits_est": credits, "last_synced_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _linkedin_post_items(raw: dict) -> list:
+    """`recentPosts` has no documented item shape (LinkedIn's own visibility limits what shows up at all); read
+    defensively and skip anything that isn't recognisably a post."""
+    posts = _deep(raw, "recentPosts")
+    if isinstance(posts, dict):
+        posts = list(posts.values())
+    return [p for p in posts if isinstance(p, dict)] if isinstance(posts, list) else []
+
+
+def sync_linkedin_account(workspace_id: int, account_id: int, days_back: int = 14,
+                          mode: str = "full") -> dict:
+    """Likes/comments only, by design: LinkedIn exposes no view count and no real feed endpoint here, so there
+    is nothing to score a 'winner' against. Posts are upserted with views left at 0 and views_updated_at never
+    set, which keeps them out of the view-based performance/winner engine entirely rather than feeding it a
+    fake number."""
+    acc = db.one("SELECT * FROM accounts WHERE id=%s AND workspace_id=%s", (account_id, workspace_id))
+    if not acc:
+        raise SociaVaultError("Account not found")
+    handle = (acc["handle"] or "").lstrip("@")
+    if not handle:
+        raise SociaVaultError("Account has no handle")
+    key = resolve_key(workspace_id)
+    if not key:
+        raise SociaVaultError("SociaVault API key not configured")
+
+    credits = 0
+    profile_url = linkedin_profile_url(handle)
+    raw = linkedin_profile(profile_url, key)
+    credits += 1
+    p = _payload(raw)
+    _store_followers(workspace_id, account_id, "linkedin", raw)
+
+    cutoff_days = days_back
+    tz = logic.workspace_tz(workspace_id)
+    today = logic.today_in(tz)
+    upserted = 0
+    for item in _linkedin_post_items(p):
+        url = str(_first(item, "url", "link", "postUrl") or "")
+        text = str(_first(item, "text", "commentary", "description", "content") or "").strip()
+        if not url and not text:
+            continue
+        ts_raw = _first(item, "datePublished", "postedAt", "date", "publishedAt")
+        post_date = today
+        date_estimated = True
+        if ts_raw:
+            try:
+                post_date = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00")).astimezone(
+                    ZoneInfo(tz if logic.valid_tz(tz) else "UTC")).date()
+                date_estimated = False
+                if (today - post_date).days > cutoff_days:
+                    continue
+            except (ValueError, TypeError):
+                pass
+        ext_id = re.sub(r"[^\w-]", "", url.rsplit("/", 1)[-1])[:100] or url[-100:]
+        likes = _n(_first(item, "likeCount", "numLikes", "reactionCount"))
+        comments = _n(_first(item, "commentCount", "numComments")) or 0
+        post_id = _upsert_post(
+            workspace_id, account_id, ext_id=ext_id, post_date=post_date,
+            date_estimated=date_estimated, hook=text[:200], caption=text[:2200],
+            views=0, comments=comments, likes=likes, url=url)
+        upserted += 1
+
+    db.execute("UPDATE accounts SET last_synced_at=now() WHERE id=%s AND workspace_id=%s", (account_id, workspace_id))
+    return {
+        "platform": "LinkedIn", "handle": handle, "mode": mode,
+        "upserted": upserted, "days": 0, "manual_kept": 0,
+        "credits_est": credits, "last_synced_at": datetime.now(timezone.utc).isoformat(),
+        "note": "LinkedIn gives no view count, so these are tracked by likes/comments only — no winner verdict.",
+    }
+
+
+def sync_facebook_account(workspace_id: int, account_id: int, days_back: int = 14,
+                          mode: str = "full") -> dict:
+    """Reels only: joins facebook/profile/reels (views) with facebook/profile/posts (reactions/comments) by
+    post_id. Plain text/image posts are never synced (see the module note above)."""
+    acc = db.one("SELECT * FROM accounts WHERE id=%s AND workspace_id=%s", (account_id, workspace_id))
+    if not acc:
+        raise SociaVaultError("Account not found")
+    handle = (acc["handle"] or "").lstrip("@")
+    if not handle:
+        raise SociaVaultError("Account has no handle")
+    key = resolve_key(workspace_id)
+    if not key:
+        raise SociaVaultError("SociaVault API key not configured")
+
+    light = (mode or "full").lower() == "light"
+    credits = 0
+    url = facebook_profile_url(handle)
+    external_id = acc.get("external_id") or None
+    if not light or _followers_due(account_id):
+        profile = facebook_profile(url, key)
+        credits += 1
+        p = _payload(profile)
+        external_id = str(p.get("id") or "") or external_id
+        _store_followers(workspace_id, account_id, "facebook", profile)
+
+    cutoff = datetime.now(timezone.utc).timestamp() - days_back * 86400
+    tz = logic.workspace_tz(workspace_id)
+    today = logic.today_in(tz)
+    pages = MAX_PAGES_LIGHT if light else (MAX_PAGES_HISTORY if days_back > 14 else MAX_PAGES_FULL)
+
+    def _reel_ts(r: dict) -> Optional[float]:
+        ct = r.get("creation_time")
+        if not ct:
+            return None
+        try:
+            return datetime.fromisoformat(str(ct).replace("Z", "+00:00")).timestamp()
+        except (ValueError, TypeError):
+            return None
+
+    # 1) reels (views), paginated, stop once older than the cutoff
+    reels = []
+    cursor = next_page_id = None
+    for _ in range(pages):
+        page = facebook_profile_reels(url, key, cursor=cursor, next_page_id=next_page_id)
+        credits += 1
+        data = _payload(page)
+        items = _listify(data.get("reels"))
+        if not items:
+            break
+        stop_early = False
+        for r in items:
+            ts = _reel_ts(r)
+            if ts is not None and ts < cutoff:
+                stop_early = True
+                continue
+            reels.append(r)
+        cursor, next_page_id = data.get("cursor"), data.get("next_page_id")
+        if not cursor or not next_page_id or stop_early:
+            break
+
+    db.execute("UPDATE accounts SET external_id=COALESCE(%s, external_id), last_synced_at=now() "
+               "WHERE id=%s AND workspace_id=%s", (external_id, account_id, workspace_id))
+    if not reels:
+        return {"platform": "Facebook", "handle": handle, "mode": "light" if light else "full",
+                "upserted": 0, "days": 0, "manual_kept": 0, "credits_est": credits,
+                "last_synced_at": datetime.now(timezone.utc).isoformat()}
+
+    # 2) engagement (reactions/comments) from profile/posts, matched by post_id. That endpoint returns far
+    # fewer items per page than reels does, so it gets proportionally more pages — and stops early once every
+    # reel we pulled has been matched, rather than reading on for nothing.
+    engagement: dict[str, dict] = {}
+    wanted_ids = {str(r.get("post_id") or "") for r in reels}
+    cursor = None
+    for _ in range(pages * 4):
+        if wanted_ids <= set(engagement):
+            break
+        page = facebook_profile_posts(url, key, cursor=cursor)
+        credits += 1
+        data = _payload(page)
+        items = _listify(data.get("posts"))
+        if not items:
+            break
+        for p in items:
+            pid = str(p.get("id") or "")
+            if pid:
+                engagement[pid] = {"likes": _n(p.get("reactionCount")), "comments": _n(p.get("commentCount")) or 0}
+        cursor = data.get("cursor")
+        if not cursor:
+            break
+
+    upserted = 0
+    for r in reels:
+        pid = str(r.get("post_id") or "")
+        views = _n(r.get("view_count")) or 0
+        eng = engagement.get(pid) or {}
+        ts = _reel_ts(r)
+        date_estimated = ts is None
+        post_date = _ts_to_date(ts, tz) if ts else today
+        desc = (r.get("description") or "").strip()
+        duration_ms = r.get("play_time_in_ms")
+        duration_s = (duration_ms / 1000.0) if isinstance(duration_ms, (int, float)) and duration_ms > 0 else None
+        ext_id = pid or str(r.get("id") or "")
+        post_id = _upsert_post(
+            workspace_id, account_id, ext_id=ext_id, post_date=post_date,
+            date_estimated=date_estimated, hook=desc[:200], caption=desc[:2200], views=views,
+            comments=eng.get("comments") or 0, likes=eng.get("likes"), duration_s=duration_s,
+            url=str(r.get("url") or ""))
+        upserted += 1
+        _record_post(workspace_id, account_id, post_id, views, today)
+
+    daily = _apply_daily_gain(workspace_id, account_id, today)
+    return {
+        "platform": "Facebook", "handle": handle, "mode": "light" if light else "full",
+        "upserted": upserted, "days": daily["written"], "manual_kept": daily["kept"],
+        "credits_est": credits, "last_synced_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 YOUTUBE_NAMES = ("youtube", "yt", "youtube shorts", "shorts")
+TWITTER_NAMES = ("x", "twitter", "x (twitter)")
+LINKEDIN_NAMES = ("linkedin",)
+FACEBOOK_NAMES = ("facebook", "fb")
 
 
 def is_youtube(platform) -> bool:
@@ -1018,10 +1400,16 @@ def sync_account(workspace_id: int, account_id: int, days_back: int = 14,
         fn = sync_instagram_account
     elif platform in YOUTUBE_NAMES:
         fn = sync_youtube_account
+    elif platform in TWITTER_NAMES:
+        fn = sync_twitter_account
+    elif platform in LINKEDIN_NAMES:
+        fn = sync_linkedin_account
+    elif platform in FACEBOOK_NAMES:
+        fn = sync_facebook_account
     else:
         raise SociaVaultError(
             f"SociaVault sync not supported for platform '{acc['platform']}'. "
-            "Use TikTok, Instagram, or YouTube."
+            "Use TikTok, Instagram, YouTube, X, LinkedIn or Facebook."
         )
     from fastapi import HTTPException
     from . import auth, billing, youtube_api
@@ -1327,6 +1715,9 @@ PLATFORM_ALIASES = {
     "tiktok": "TikTok", "tik tok": "TikTok", "tt": "TikTok",
     "instagram": "Instagram", "ig": "Instagram", "insta": "Instagram", "reels": "Instagram", "instagram reels": "Instagram",
     "youtube": "YouTube", "yt": "YouTube", "you tube": "YouTube", "shorts": "YouTube", "youtube shorts": "YouTube",
+    "x": "X", "twitter": "X", "x (twitter)": "X",
+    "linkedin": "LinkedIn",
+    "facebook": "Facebook", "fb": "Facebook",
 }
 
 
@@ -1335,11 +1726,13 @@ def canonical_platform(name: str) -> str:
     return PLATFORM_ALIASES.get(n, (name or "").strip() or "TikTok")
 
 
-_URL_RE = re.compile(r"^(?:https?://)?(?:www\.|m\.|vm\.|vt\.)?(tiktok\.com|instagram\.com|youtube\.com|youtu\.be)/(.+)$", re.I)
+_URL_RE = re.compile(
+    r"^(?:https?://)?(?:www\.|m\.|vm\.|vt\.)?"
+    r"(tiktok\.com|instagram\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|linkedin\.com|facebook\.com|fb\.com)/(.+)$", re.I)
 
 
 def normalize_handle(text: str, platform_hint: str = "") -> tuple[str, str]:
-    """('@handle', 'Platform') from a handle, an @handle, or a profile/video URL on any of the three platforms."""
+    """('@handle', 'Platform') from a handle, an @handle, or a profile/video URL on any supported platform."""
     t = (text or "").strip()
     platform = canonical_platform(platform_hint) if platform_hint else ""
     m = _URL_RE.match(t)
@@ -1352,6 +1745,17 @@ def normalize_handle(text: str, platform_hint: str = "") -> tuple[str, str]:
         elif host == "instagram.com":
             platform = "Instagram"
             skip = {"p", "reel", "reels", "stories", "explore", "tv"}
+            t = parts[0] if parts and parts[0].lower() not in skip else ""
+        elif host in ("x.com", "twitter.com"):
+            platform = "X"
+            skip = {"i", "home", "search", "notifications", "messages"}
+            t = parts[0] if parts and parts[0].lower() not in skip else ""
+        elif host == "linkedin.com":
+            platform = "LinkedIn"
+            t = parts[1] if len(parts) > 1 and parts[0] in ("in", "company") else ""
+        elif host in ("facebook.com", "fb.com"):
+            platform = "Facebook"
+            skip = {"watch", "reel", "reels", "groups", "marketplace", "profile.php"}
             t = parts[0] if parts and parts[0].lower() not in skip else ""
         else:
             platform = "YouTube"
@@ -1400,8 +1804,28 @@ def lookup_profile(workspace_id: int, platform: str, handle: str) -> dict:
             name, verified, ident = _deep(raw, "name"), bool(_deep(raw, "isVerified")), _deep(raw, "channelId")
             real = (_deep(raw, "handle") or "").lstrip("@")
             bio = _deep(raw, "description") or ""
+        elif platform == "X":
+            raw = twitter_profile(h, key)
+            p = _payload(raw)
+            legacy = p.get("legacy") or {}
+            core = p.get("core") or {}
+            name, verified, ident = (core.get("name") or legacy.get("name")), bool(p.get("is_blue_verified")), p.get("rest_id")
+            real = core.get("screen_name") or legacy.get("screen_name") or h
+            bio = legacy.get("description") or ""
+        elif platform == "LinkedIn":
+            raw = linkedin_profile(linkedin_profile_url(h), key)
+            p = _payload(raw)
+            name, verified, ident = p.get("name"), False, None
+            real = h
+            bio = p.get("about") or ""
+        elif platform == "Facebook":
+            raw = facebook_profile(facebook_profile_url(h), key)
+            p = _payload(raw)
+            name, verified, ident = p.get("name"), False, p.get("id")
+            real = h
+            bio = p.get("pageIntro") or p.get("category") or ""
         else:
-            raise SociaVaultError(f"SociaVault cannot look up '{platform}' accounts. Use TikTok, Instagram or YouTube.")
+            raise SociaVaultError(f"SociaVault cannot look up '{platform}' accounts. Use TikTok, Instagram, YouTube, X, LinkedIn or Facebook.")
     except SociaVaultError as e:
         if e.status == 404:
             return {"found": False, "platform": platform, "handle": "@" + h,

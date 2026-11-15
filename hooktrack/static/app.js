@@ -3100,7 +3100,7 @@ pages.accounts = async app => {
     const btn = b; busy(btn, true, '…');
     try {
       const r = await api('POST', `/api/accounts/${b.dataset.sync}/sync?days_back=${syncDays()}`);
-      toast(`Synced @${r.handle || ''}: ${r.upserted} posts (~${r.credits_est || '?'} credits)`);
+      toast(`Synced @${r.handle || ''}: ${r.upserted} posts (~${r.credits_est || '?'} credits)${r.note ? ' — ' + r.note : ''}`);
       route();
     } finally { busy(btn, false, 'Sync'); }
   })));
@@ -3359,7 +3359,7 @@ function phoneModal(p) {
 function accountModal(a) {
   const editing = !!a;
   const x = a || { handle: '', phone_id: state.phones[0] ? state.phones[0].id : '', platform: 'TikTok', niche: '', status: 'active', times_per_day: 1, content_hook: '', model: '', sync_enabled: true, client_id: null };
-  const PLATFORMS = ['TikTok', 'Instagram', 'YouTube'];
+  const PLATFORMS = ['TikTok', 'Instagram', 'YouTube', 'X', 'LinkedIn', 'Facebook'];
   const known = PLATFORMS.some(p => p.toLowerCase() === String(x.platform).toLowerCase());
   const m = openModal(`<h2>${editing ? 'Edit account' : 'Add an account'}</h2>
     <label class="f">Handle or profile link</label>
@@ -3383,8 +3383,9 @@ function accountModal(a) {
           <div class="muted small">Pulls public posts &amp; view counts automatically.</div></div></div></details>
     <div class="actions">${editing ? '<button class="btn danger" id="del">Delete</button>' : ''}<span class="spacer"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="save">${editing ? 'Save' : 'Add account'}</button></div>`);
 
-  const guessPlatform = v => (/tiktok\.com/i.test(v) ? 'TikTok' : /instagram\.com/i.test(v) ? 'Instagram' : /youtu(\.be|be\.com)/i.test(v) ? 'YouTube' : '');
-  const looksLikeLink = v => /(tiktok|instagram|youtube|youtu)\./i.test(v);
+  const guessPlatform = v => (/tiktok\.com/i.test(v) ? 'TikTok' : /instagram\.com/i.test(v) ? 'Instagram' : /youtu(\.be|be\.com)/i.test(v) ? 'YouTube'
+    : /(x\.com|twitter\.com)/i.test(v) ? 'X' : /linkedin\.com/i.test(v) ? 'LinkedIn' : /facebook\.com|fb\.com/i.test(v) ? 'Facebook' : '');
+  const looksLikeLink = v => /(tiktok|instagram|youtube|youtu|twitter|linkedin|facebook|x)\.(com|be)/i.test(v);
   const hcheck = $('#hcheck', m);
   const lookupAvailable = () => !!(state.sv && state.sv.configured);
   const memo = {};                                  // handle|platform -> result: one lookup (one credit) per distinct account
