@@ -54,8 +54,9 @@ PLATFORM_MAP = {
     "tiktok": {"upload_post": "tiktok", "ayrshare": "tiktok", "late": "tiktok"},
     "instagram": {"upload_post": "instagram", "ayrshare": "instagram", "late": "instagram"},
     "youtube": {"upload_post": "youtube", "ayrshare": "youtube", "late": "youtube"},
-    "x": {"upload_post": "x", "ayrshare": "twitter", "late": "x"},
-    "twitter": {"upload_post": "x", "ayrshare": "twitter", "late": "x"},
+    # Zernio's real connect/platform slug is "twitter", never "x" — confirmed against its own OpenAPI spec.
+    "x": {"upload_post": "x", "ayrshare": "twitter", "late": "twitter"},
+    "twitter": {"upload_post": "x", "ayrshare": "twitter", "late": "twitter"},
     "facebook": {"upload_post": "facebook", "ayrshare": "facebook", "late": "facebook"},
     "linkedin": {"upload_post": "linkedin", "ayrshare": "linkedin", "late": "linkedin"},
     "threads": {"upload_post": "threads", "ayrshare": "threads", "late": "threads"},
@@ -319,7 +320,8 @@ def publish_post(
         ids = _managed_ids(conf["_managed_accounts"], platforms, (account or {}).get("handle") or "")
         missing = [p for p in platforms if p not in ids]
         if missing:
-            names = {"tiktok": "TikTok", "instagram": "Instagram", "youtube": "YouTube"}
+            names = {"tiktok": "TikTok", "instagram": "Instagram", "youtube": "YouTube",
+                     "twitter": "X", "linkedin": "LinkedIn", "facebook": "Facebook"}
             raise PublishError("Connect your " + ", ".join(names.get(m, m) for m in missing) +
                                " account first (Connect in the publish window, or Settings, Publishing).", 409)
     media_url = _media_for(post, conf, when_hint)
@@ -740,7 +742,7 @@ def test_connection(workspace_id: int) -> dict:
 # ---------- time zone, rescheduling and suggested slots ----------
 DEFAULT_SLOTS = ["09:00", "13:00", "19:00"]     # local times a post is offered at when the workspace has none of its own
 SLOT_GAP_HOURS = 2                               # an account is never offered a slot this close to one it already has
-SUPPORTED_PLATFORMS = ["tiktok", "instagram", "youtube"]
+SUPPORTED_PLATFORMS = ["tiktok", "instagram", "youtube", "twitter", "linkedin", "facebook"]
 
 
 def _tz(workspace_id: int):

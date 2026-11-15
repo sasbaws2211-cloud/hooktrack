@@ -14,7 +14,7 @@ from . import crypto, db
 from .sociavault import platform_delete, platform_get, platform_set
 
 KEY_ENC, KEY_HINT = "late_api_key_enc", "late_key_hint"
-PLATFORMS = ("tiktok", "instagram", "youtube")
+PLATFORMS = ("tiktok", "instagram", "youtube", "twitter", "linkedin", "facebook")
 
 
 class LateHubError(Exception):
@@ -137,7 +137,7 @@ def disconnect(ws: int, account_id: str) -> dict:
 
 def connect_url(ws: int, platform: str, redirect_url: str) -> str:
     if platform not in PLATFORMS:
-        raise LateHubError("Choose TikTok, Instagram or YouTube")
+        raise LateHubError("Choose TikTok, Instagram, YouTube, X, LinkedIn or Facebook")
     pid = ensure_profile(ws)
     # connecting again (maybe the very account just disconnected): stop hiding that platform's old ones
     db.execute("DELETE FROM late_disconnected WHERE workspace_id=%s AND platform=%s", (ws, platform))

@@ -1809,7 +1809,7 @@ if (post) $('#del', m).onclick = guard(async () => {
 
 
 /* ---------------- publish / schedule dialog ---------------- */
-const PLATFORM_LABEL = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube' };
+const PLATFORM_LABEL = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube', twitter: 'X', linkedin: 'LinkedIn', facebook: 'Facebook' };
 
 function fullLink(path) { return /^https?:\/\//.test(path) ? path : location.origin + path; }
 
@@ -1850,7 +1850,8 @@ async function scheduleDialog(post, opts = {}) {
     return pendingApprovalDialog(post.approval, opts);
   }
   const defaults = (state.publish && state.publish.config && state.publish.config.default_platforms) || ['tiktok'];
-  const own = acct && String(acct.platform || '').toLowerCase();
+  const acctPlatform = acct ? String(acct.platform || '').toLowerCase() : '';
+  const own = acct && ({ x: 'twitter' }[acctPlatform] || acctPlatform);
   const chosen = new Set(own && PLATFORM_LABEL[own] ? [own] : (Array.isArray(defaults) ? defaults : [String(defaults)]));
   const zone = wsTz();
   const sm = openModal(`<h2>${resched ? 'Move to a new time' : gated ? 'Send for client approval' : 'Publish / schedule'}</h2>
@@ -3563,14 +3564,14 @@ pages.settings = async app => {
     (async () => {
       let r;
       try { r = await api('GET', '/api/publish/managed'); } catch (e) { mbody.textContent = e.message; return; }
-      const names = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube' };
+      const names = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube', twitter: 'X', linkedin: 'LinkedIn', facebook: 'Facebook' };
       mbody.className = 'small';
       mbody.innerHTML = `${(r.accounts || []).length ? `<ul class="list">${r.accounts.map(a => `<li><span class="badge">${esc(names[a.platform] || a.platform)}</span>
           <span style="flex:1">${esc(a.display_name || a.username)}${a.username ? ` <span class="muted">@${esc(String(a.username).replace(/^@/, ''))}</span>` : ''}</span><span class="pill SCALE">connected</span>
           ${admin ? `<button class="btn sm danger" type="button" data-disconnect="${esc(a.id)}" data-name="${esc(a.display_name || a.username || '')}">Disconnect</button>` : ''}</li>`).join('')}</ul>`
         : '<div class="muted" style="margin-bottom:6px">No account connected yet.</div>'}
         ${r.error ? `<div class="muted" style="margin-top:4px">${esc(r.error)}</div>` : ''}
-        ${admin ? `<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">${['tiktok', 'instagram', 'youtube'].map(p =>
+        ${admin ? `<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">${['tiktok', 'instagram', 'youtube', 'twitter', 'linkedin', 'facebook'].map(p =>
           `<button class="btn" type="button" data-connect="${p}" ${pub.held ? 'disabled title="Unlocks with a paid plan"' : ''}>Connect ${names[p]}</button>`).join('')}</div>`
           : '<div class="muted">Ask a workspace admin to connect accounts.</div>'}`;
       $$('[data-disconnect]', mbody).forEach(b => (b.onclick = guard(async () => {
