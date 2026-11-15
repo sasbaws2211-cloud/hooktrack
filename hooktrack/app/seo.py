@@ -18,8 +18,8 @@ from fastapi import Request
 
 STATIC = Path(__file__).parent.parent / "static"
 OG_IMAGE = "/og.jpg"
-DESCRIPTION = ("Track every TikTok, Instagram Reels and YouTube Shorts account in one dashboard. See which hooks beat each "
-               "account's normal, then scale the winners. Plans from $12 a month.")
+DESCRIPTION = ("Track every TikTok, Instagram Reels and YouTube Shorts account (plus X, LinkedIn and Facebook) in one "
+               "dashboard. See which hooks beat each account's normal, then scale the winners. Plans from $12 a month.")
 
 # What a crawler should never fetch: the app itself, the API, private report links and uploaded files.
 DISALLOW = ["/api/", "/app$", "/r/", "/uploads/", "/media/"]
@@ -69,9 +69,10 @@ def landing_jsonld(site: str, page: str) -> str:
     app = {"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "HookTrack",
            "applicationCategory": "BusinessApplication", "operatingSystem": "Web", "url": site + "/",
            "description": DESCRIPTION,
-           "featureList": ["Multi-account TikTok, Instagram and YouTube tracking",
+           "featureList": ["Multi-account TikTok, Instagram, YouTube, X, LinkedIn and Facebook tracking",
                            "Winner detection against each account's own normal",
                            "Scale, Tweak, Hold and Stop decisions", "Content calendar and scheduled publishing",
+                           "Client approval before a post goes out", "Comments and DMs in one inbox",
                            "Shareable client reports"]}
     offers = _offers()
     if offers:

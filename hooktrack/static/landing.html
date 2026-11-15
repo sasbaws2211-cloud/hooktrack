@@ -16,7 +16,7 @@ if (location.hash.indexOf('#/') === 0) location.replace('/app' + location.search
   document.addEventListener('DOMContentLoaded', function () { Array.prototype.forEach.call(document.querySelectorAll('a[href^="/app"]'), fix); });
 })();</script>
 <title>HookTrack: The Short-Form Video Suite for Creators &amp; Agencies</title>
-<meta name="description" content="Track every TikTok, Instagram Reels and YouTube Shorts account, see which hooks beat each account's normal, find what's working for creators your size, then plan and schedule the next video, to your own account or a client's. Plans from $12 a month.">
+<meta name="description" content="Track every TikTok, Instagram Reels and YouTube Shorts account (plus X, LinkedIn and Facebook), see which hooks beat each account's normal, find what's working for creators your size, then plan and schedule the next video, to your own account or a client's. Plans from $12 a month.">
 <link rel="canonical" href="__SITE__/">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta name="theme-color" content="#4f46e5">
@@ -291,8 +291,10 @@ footer .partners img{display:block;height:auto;max-width:100%}
       <div class="card"><div class="icon">◎</div><h3>Discover: what's working in your niche</h3><p>Recent videos that beat their creator's usual by 3x or more, from creators your own size, not accounts with ten times your followers.</p></div>
       <div class="card"><div class="icon">✎</div><h3>AI that uses your winners</h3><p>Hook ideas and a weekly plan written from your own best and worst posts, or from what's working in Discover. AI is included, with no key to set up.</p></div>
       <div class="card"><div class="icon">☷</div><h3>Board, calendar and scheduling</h3><p>Plan posts from idea to posted, then publish through your own connected account. Posts that might have gone out are never sent twice.</p></div>
-      <div class="card"><div class="icon">👥</div><h3>Client accounts, not just your own</h3><p>Group tracked accounts under a client, send them a one-time connect link, and schedule to their account directly. Share a read-only report whenever they want to check in.</p></div>
+      <div class="card"><div class="icon">👥</div><h3>Client accounts, not just your own</h3><p>Group tracked accounts under a client, send them a one-time connect link, and schedule to their account directly. If they want sign-off first, turn on approval: they get a link to approve or ask for changes before anything goes out. Share a read-only report whenever they want to check in.</p></div>
       <div class="card"><div class="icon">☺</div><h3>Built for teams</h3><p>Invite teammates with owner, admin and member roles. Each workspace is private and never shared with another.</p></div>
+      <div class="card"><div class="icon">💬</div><h3>Comments and DMs, in one inbox</h3><p>Reply to comments and messages on any connected account without leaving HookTrack, across every platform you publish to.</p></div>
+      <div class="card"><div class="icon">⊞</div><h3>Six platforms, one dashboard</h3><p>TikTok, Instagram, YouTube, X, LinkedIn and Facebook. Track them side by side and schedule to any of them from the same board.</p></div>
     </div>
   </div>
 </section>
@@ -312,7 +314,7 @@ footer .partners img{display:block;height:auto;max-width:100%}
           <label>Your email<input type="email" id="nm-email" autocomplete="email" maxlength="254" required placeholder="you@example.com"></label>
           <label>How many accounts?<input type="number" id="nm-accounts" min="0" max="100000" inputmode="numeric" placeholder="e.g. 25"></label>
           <label>Team size<input type="number" id="nm-team" min="0" max="10000" inputmode="numeric" placeholder="e.g. 3"></label>
-          <label>Platforms<input id="nm-platforms" maxlength="100" placeholder="TikTok, Instagram, YouTube"></label>
+          <label>Platforms<input id="nm-platforms" maxlength="100" placeholder="e.g. TikTok, Instagram, X"></label>
           <label>Rough monthly budget<select id="nm-budget"><option value="">Not sure yet</option><option>Under $20</option><option>$20 to $50</option><option>$50 to $150</option><option>More than $150</option></select></label>
         </div>
         <label>What do you need? <textarea id="nm-message" rows="3" maxlength="1000" placeholder="e.g. 40 client accounts, reports for each client, 2 people on the team"></textarea></label>
@@ -329,8 +331,8 @@ footer .partners img{display:block;height:auto;max-width:100%}
     <div class="head"><h2>Questions</h2></div>
     <div class="faq">
       <details><summary>What counts as a "winner"?</summary><p>A post that beats the median of its own account's recent mature posts by a set multiple (2× by default). Shorts and long-form YouTube are compared separately, and a post younger than two days is "too early" instead of being judged on a half-finished number.</p></details>
-      <details><summary>Do I have to connect my TikTok, Instagram or YouTube login?</summary><p>No, not for tracking. HookTrack reads the public numbers for the handles you add, with no login needed. To schedule and publish, you (or a client) sign in once with a one-time link; HookTrack never sees or asks for the password.</p></details>
-      <details><summary>Can I schedule to a client's own account?</summary><p>Yes. Group an account under a client, send them a one-time connect link, and they sign into their own TikTok, Instagram or YouTube to authorize it. From then on you can schedule and publish to it from HookTrack, and share them a read-only report whenever they want to check in.</p></details>
+      <details><summary>Do I have to connect my TikTok, Instagram, YouTube, X, LinkedIn or Facebook login?</summary><p>No, not for tracking. HookTrack reads the public numbers for the handles you add, with no login needed. To schedule and publish, you (or a client) sign in once with a one-time link; HookTrack never sees or asks for the password.</p></details>
+      <details><summary>Can I schedule to a client's own account?</summary><p>Yes. Group an account under a client, send them a one-time connect link, and they sign into their own account to authorize it. From then on you can schedule and publish to it from HookTrack, and share them a read-only report whenever they want to check in. If a client wants to approve each post before it goes out, turn that on for them and they'll get a link to approve or ask for changes before it's scheduled.</p></details>
       <details><summary>How is Discover different from just searching TikTok or YouTube?</summary><p>Discover only shows videos that beat their own creator's usual by a wide margin, filtered to your niche and to creators your own size, so you're not comparing yourself to accounts ten or a hundred times bigger.</p></details>
       <details><summary>Do I need AI to use it?</summary><p>No. Tracking, winner detection and decisions work without it. AI is included with your plan and there is nothing to set up: it reads screenshots, writes hook ideas, plans the week and answers questions about your data.</p></details>
       <details><summary>Is there a free trial?</summary><p id="faq-trial">No. There is no free trial. Every plan is month to month, so you can stop any time by turning off renewal, and nothing you saved is deleted.</p></details>
@@ -428,9 +430,9 @@ footer .partners img{display:block;height:auto;max-width:100%}
         '<div class="price">' + money(lt.price_minor, lt.currency) + '<small> once</small></div>' +
         (local ? '<div class="local-price">\u2248 ' + money(lt.charge_minor, lt.charge_currency) + '</div>' : '') +
         '<div class="charged">One payment, no renewals · ' + lt.left + ' of ' + lt.cap + ' spots left</div>' +
-        '<ul><li>' + tick + 'Track ' + inc.other_accounts + ' TikTok or Instagram account</li>' +
+        '<ul><li>' + tick + 'Track ' + inc.other_accounts + ' TikTok, Instagram, X, LinkedIn or Facebook account</li>' +
         '<li>' + tick + 'Track up to ' + inc.youtube_accounts + ' YouTube channels</li>' +
-        '<li>' + tick + 'Publish to ' + inc.connected + ' account' + (inc.connected === 1 ? '' : 's') + ' (TikTok, Instagram or YouTube)</li>' +
+        '<li>' + tick + 'Publish to ' + inc.connected + ' account' + (inc.connected === 1 ? '' : 's') + ' (any platform)</li>' +
         '<li>' + tick + 'Discover feed and AI help</li>' +
         '<li>' + tick + '60-day money-back guarantee</li>' +
         '<li>' + tick + 'More accounts any time as add-ons</li></ul>' +
@@ -451,8 +453,8 @@ footer .partners img{display:block;height:auto;max-width:100%}
         (local ? '<div class="local-price">\u2248 ' + money(pl.charge_minor, pl.charge_currency) + '<small> / ' + esc(pl.interval) + '</small></div>' : '') +
         '<div class="charged">' + esc([perMonth || only, charged].filter(Boolean).join(' \u00b7 ')) + '</div>' +
         '<ul>' +
-        '<li>' + tick + (pl.max_accounts === -1 ? 'Track unlimited accounts' : 'Track up to ' + pl.max_accounts + ' account' + (pl.max_accounts === 1 ? '' : 's')) + ': any mix of TikTok, Instagram and YouTube</li>' +
-        '<li>' + tick + (pl.max_connected === 0 ? 'No publishing accounts' : pl.max_connected === -1 ? 'Publish to unlimited accounts' : 'Publish to ' + pl.max_connected + ' account' + (pl.max_connected === 1 ? '' : 's') + ' (TikTok, Instagram or YouTube)') + '</li>' +
+        '<li>' + tick + (pl.max_accounts === -1 ? 'Track unlimited accounts' : 'Track up to ' + pl.max_accounts + ' account' + (pl.max_accounts === 1 ? '' : 's')) + ': any mix of TikTok, Instagram, YouTube, X, LinkedIn and Facebook</li>' +
+        '<li>' + tick + (pl.max_connected === 0 ? 'No publishing accounts' : pl.max_connected === -1 ? 'Publish to unlimited accounts' : 'Publish to ' + pl.max_connected + ' account' + (pl.max_connected === 1 ? '' : 's') + ' (any platform)') + '</li>' +
         '<li>' + tick + esc(lim(pl.max_members, 'team member', 'team members')) + '</li>' +
         '<li>' + tick + esc(lim(pl.max_credits, 'data credit', 'data credits')) + ' a month</li>' +
         '<li>' + tick + esc(lim(pl.max_ai_calls, 'AI request', 'AI requests')) + ' a month</li>' +
@@ -484,7 +486,7 @@ footer .partners img{display:block;height:auto;max-width:100%}
     draw();
     var lowest = Math.min.apply(null, plans.filter(function (x) { return x.interval === 'month' && x.price_minor > 0; }).map(function (x) { return x.price_minor; }));
     if (fp) {
-      $('#pricing-sub').textContent = 'Start free with YouTube. Upgrade when you want TikTok, Instagram or publishing.';
+      $('#pricing-sub').textContent = 'Start free with YouTube. Upgrade when you want TikTok, Instagram, X, LinkedIn, Facebook or publishing.';
       if (isFinite(lowest)) $('#hero-fine').textContent = 'Free for YouTube. Paid plans from ' + money(lowest, plans[0].currency) + ' a month' + (lt ? ', or ' + money(lt.price_minor, lt.currency) + ' once for lifetime access.' : '.');
       $('#faq-trial').parentNode.querySelector('summary').textContent = 'Is there a free plan or trial?';
       $('#faq-trial').textContent = 'There is no free trial, but there is a free plan. It lets you track up to ' + fp.max_accounts + ' YouTube channel' + (fp.max_accounts === 1 ? '' : 's') + ' and see what to scale, tweak or stop, with no card. TikTok and Instagram tracking and publishing need a paid plan. Every paid plan is month to month, so you can stop any time by turning off renewal, and nothing you saved is deleted.';

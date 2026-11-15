@@ -497,7 +497,7 @@ def credits_used(ws: int) -> int:
 # platform admin through platform_settings "addon_prices".
 ADDONS = {
     "connected": {"label": "Connected publishing account", "price_minor": 800, "unit": 1, "lasts": "30 days",
-                  "what": "Another TikTok, Instagram or YouTube account you can publish to."},
+                  "what": "Another account (any platform) you can publish to."},
     "accounts": {"label": "25 more tracked accounts", "price_minor": 1000, "unit": 25, "lasts": "30 days",
                  "what": "Track 25 more accounts for views and decisions."},
     "accounts5": {"label": "5 more tracked accounts", "price_minor": 300, "unit": 5, "lasts": "30 days",

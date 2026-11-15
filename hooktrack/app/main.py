@@ -1731,7 +1731,7 @@ def publish_config_put(b: PublishConfigIn, ctx: Ctx = Depends(admin)):
 
 @app.delete("/api/publish/managed/accounts/{account_id}")
 def publish_managed_disconnect(account_id: str, ctx: Ctx = Depends(admin)):
-    """Disconnect a connected TikTok / Instagram / YouTube account from this workspace."""
+    """Disconnect a connected publishing account (any platform) from this workspace."""
     from . import latehub
     try:
         return latehub.disconnect(ctx.workspace_id, account_id)
@@ -1760,7 +1760,7 @@ def publish_managed(ctx: Ctx = Depends(current)):
 
 @app.post("/api/publish/managed/connect")
 def publish_managed_connect(b: ConnectIn, request: Request, ctx: Ctx = Depends(admin)):
-    """Where to send the user to connect a TikTok / Instagram / YouTube account to this workspace."""
+    """Where to send the user to connect a publishing account (any platform) to this workspace."""
     from . import latehub
     base = (os.environ.get("HOOKTRACK_PUBLIC_URL") or str(request.base_url)).rstrip("/")
     try:

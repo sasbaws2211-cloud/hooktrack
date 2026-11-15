@@ -794,7 +794,7 @@ pages.dashboard = async app => {
   // First-time / incomplete setup: checklist home
   if (!s.complete) {
     const steps = [
-      { ok: s.has_accounts, title: 'Add accounts', body: 'Your TikTok / Instagram / YouTube handles (or import a spreadsheet).', href: '#/accounts', cta: 'Add accounts' },
+      { ok: s.has_accounts, title: 'Add accounts', body: 'Your TikTok, Instagram, YouTube, X, LinkedIn or Facebook handles (or import a spreadsheet).', href: '#/accounts', cta: 'Add accounts' },
       { ok: s.has_views, title: 'Pull in your videos and views', body: 'Press Sync on Hooks: your posts and their views come in by themselves from your handles. You can also log views by hand.', href: '#/hooks', cta: 'Open hooks', need: s.has_accounts },
       { ok: s.has_scored_hook, title: 'See your first decisions', body: 'Once a few videos are in, each gets Scale / Tweak / Stop against its own account’s normal.', href: '#/hooks', cta: 'Open hooks', need: s.has_accounts },
       { ok: state.ai.available, title: 'AI help', body: state.ai.available ? 'On: screenshot reading, hook ideas and weekly plans.' : 'Not set up on this server yet. Manual entry works without it.', href: '#/settings', cta: 'Settings', optional: true },
@@ -873,7 +873,7 @@ pages.dashboard = async app => {
         <li><a href="#/pipeline">Plan posts</a> on the board or calendar</li>
         <li><a href="#/discover">See what is working</a> for creators like you</li>
         <li><a href="#/inspiration">Keep saved ideas</a> from competitors (optional)</li>
-        <li><a href="#/settings">Settings</a> — connect your TikTok, Instagram and YouTube accounts to publish</li>
+        <li><a href="#/settings">Settings</a> — connect your accounts to publish (TikTok, Instagram, YouTube, X, LinkedIn or Facebook)</li>
       </ul>
     </div>
     <button class="btn sm" id="next-dismiss">Dismiss</button>
@@ -2591,7 +2591,7 @@ pages.hooks = async app => {
       <td class="num">${fmt(p.views)}</td><td class="num">${winnerChip(p.perf)}</td>${hasLikes ? `<td class="num">${p.likes == null ? '<span class="muted">-</span>' : fmt(p.likes)}</td>` : ''}<td class="num">${fmt(p.comments)}</td>${hasSS ? `<td class="num">${p.saves == null ? '<span class="muted">-</span>' : fmt(p.saves)}</td><td class="num">${p.shares == null ? '<span class="muted">-</span>' : fmt(p.shares)}</td>` : ''}<td class="num">${p.perf && p.perf.intent_per_1k != null ? p.perf.intent_per_1k : '<span class="muted">-</span>'}</td><td class="num">${p.perf && p.perf.comments_read ? `<span title="${p.perf.buy_comments} want to buy, ${p.perf.ask_comments} ask how/where; ${p.perf.comments_read} comments read">${p.perf.intent_comments}<span class="muted"> / ${p.perf.comments_read}</span></span>` : '<span class="muted" title="Open the post and read its comments">-</span>'}</td><td>${p.intent ? '✓' : ''}</td>
       <td class="num">${p.vsc == null ? '<span class="muted">—</span>' : p.vsc + '/30'}${p.score_by === 'auto' ? ` <span class="muted small" title="${esc(p.score_reasoning || 'Calculated from this video’s real results against the account’s normal')}">auto</span>` : ''}${p.score_by === 'ai' ? ` <span title="${p.score_blind === true ? 'AI score on the wording alone' : p.score_blind === false ? 'AI score that saw the results' : 'AI score'}">${p.score_blind === false ? '✨*' : '✨'}</span>` : ''}${p.score_confidence != null ? ` <span class="muted small" title="Confidence">${Math.round(p.score_confidence*100)}%</span>` : ''}</td><td title="${esc(p.decision_basis || '')}">${pill(p.decision)}${p.decision ? `<div class="muted small">${decisionSource(p)}</div>` : ''}</td>
       <td>${postCell(p)}</td></tr>`).join('')}</tbody></table></div>`
-      : `<div class="empty card"><h2>No posted videos yet</h2><p>Hooks fills itself from your accounts: add your TikTok, Instagram or YouTube handles, then press Sync. Posted videos and their views appear here.</p>
+      : `<div class="empty card"><h2>No posted videos yet</h2><p>Hooks fills itself from your accounts: add your TikTok, Instagram, YouTube, X, LinkedIn or Facebook handles, then press Sync. Posted videos and their views appear here.</p>
       <div class="row" style="justify-content:center;gap:8px;margin-top:12px">
         <a class="btn primary" href="#/accounts">Add accounts</a>
       </div></div>`}`;
@@ -2818,8 +2818,8 @@ async function pollPayment(ref, { everyMs = 3000, maxMs = 5 * 60 * 1000, closed 
 }
 // One path for every "pay for a plan" button: quote (credit for unused time), Paystack popup, confirmation.
 // Plain-language lines for what a plan's limits mean, so "3 accounts" is never ambiguous.
-const trackLine = n => (n === -1 ? 'Track unlimited accounts: any mix of TikTok, Instagram and YouTube' : `Track up to ${n} account${n === 1 ? '' : 's'}: any mix of TikTok, Instagram and YouTube`);
-const publishLine = n => (n === -1 ? 'Publish to unlimited accounts' : n === 0 ? 'No publishing accounts' : `Publish to ${n} account${n === 1 ? '' : 's'} (TikTok, Instagram or YouTube)`);
+const trackLine = n => (n === -1 ? 'Track unlimited accounts: any mix of TikTok, Instagram, YouTube, X, LinkedIn and Facebook' : `Track up to ${n} account${n === 1 ? '' : 's'}: any mix of TikTok, Instagram, YouTube, X, LinkedIn and Facebook`);
+const publishLine = n => (n === -1 ? 'Publish to unlimited accounts' : n === 0 ? 'No publishing accounts' : `Publish to ${n} account${n === 1 ? '' : 's'} (any platform)`);
 
 // The one-time lifetime deal. `attr` is the button attribute the page's click handler listens for (data-buy or data-pick).
 function lifetimeCard(b, attr) {
@@ -2833,7 +2833,7 @@ function lifetimeCard(b, attr) {
       <span class="pill ${o.sold_out ? '' : 'SCALE'}">${o.sold_out ? 'sold out' : `${o.left} of ${o.cap} spots left`}</span></div>
     <div style="font-size:26px;font-weight:700;margin:6px 0">${money(o.price_minor, o.currency)} <span class="muted small" style="font-weight:400">one time</span></div>${local}
     <ul style="padding-left:18px;margin:8px 0;font-size:14px">
-      <li>Track ${inc.other_accounts} TikTok or Instagram account</li><li>Track up to ${inc.youtube_accounts} YouTube channels</li>
+      <li>Track ${inc.other_accounts} TikTok, Instagram, X, LinkedIn or Facebook account</li><li>Track up to ${inc.youtube_accounts} YouTube channels</li>
       <li>${publishLine(inc.connected)}</li><li>Discover, AI help and all the free tools</li>
       <li>About ${inc.credits} data credits a month, and no limit on AI</li></ul>
     <button type="button" class="btn primary" ${attr}="lifetime" ${b.can_manage && b.payments_ready && !o.sold_out ? '' : 'disabled'}>${o.sold_out ? 'Sold out' : 'Get the lifetime deal'}</button>
@@ -3520,7 +3520,7 @@ pages.settings = async app => {
     ${pub.managed_available && pub.held ? `<div class="notice" style="margin-bottom:10px"><b>Publishing starts when you choose a plan.</b>
       Your trial includes tracking, decisions, cards and briefs. <a href="#/billing">Choose a plan</a> to connect accounts and publish.</div>` : ''}
     ${pub.managed_available ? `
-    <p class="muted">Connect the TikTok, Instagram and YouTube accounts you publish to. Press <b>Publish</b> on a Filmed card and HookTrack posts it for you.
+    <p class="muted">Connect the TikTok, Instagram, YouTube, X, LinkedIn or Facebook accounts you publish to. Press <b>Publish</b> on a Filmed card and HookTrack posts it for you.
       You sign in on each platform's own page: HookTrack never sees your password. <b>Nothing is ever posted unless you press Publish.</b></p>
     <div id="pub-managed-body" class="small muted">Loading…</div>`
     : `<p class="muted">Publishing is not set up on this server yet. Ask the platform admin to add the publishing key.</p>`}
