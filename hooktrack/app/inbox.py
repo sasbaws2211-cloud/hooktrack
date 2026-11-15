@@ -156,13 +156,27 @@ def refresh_comments(ws: int, account_id: Optional[int] = None) -> int:
 
 
 def list_comments(ws: int, account_id: Optional[int] = None, unreplied_only: bool = False) -> list[dict]:
+    """Threads grouped together: a reply sits directly under its own parent comment, not wherever its own timestamp
+    would otherwise place it. Threads themselves are ordered by their most recent activity (a reply counts as
+    activity on its parent's thread), so an old comment that just got a new reply rises back to the top."""
     where, params = ["ic.workspace_id=%s"], [ws]
     if account_id:
         where.append("ic.account_id=%s"); params.append(account_id)
     if unreplied_only:
         where.append("ic.replied_at IS NULL AND ic.hidden_at IS NULL")
-    rows = db.query(f"SELECT ic.*, a.handle FROM inbox_comments ic JOIN accounts a ON a.id = ic.account_id "
-                    f"WHERE {' AND '.join(where)} ORDER BY ic.posted_at DESC NULLS LAST LIMIT 200", params)
+    rows = db.query(
+        f"""SELECT * FROM (
+              SELECT ic.*, a.handle,
+                     COALESCE(NULLIF(ic.parent_comment_id, ''), ic.comment_id) AS thread_key,
+                     MAX(ic.posted_at) OVER (PARTITION BY ic.account_id, COALESCE(NULLIF(ic.parent_comment_id, ''), ic.comment_id)) AS thread_last_activity
+              FROM inbox_comments ic JOIN accounts a ON a.id = ic.account_id
+              WHERE {' AND '.join(where)}
+            ) t
+            ORDER BY t.thread_last_activity DESC NULLS LAST,
+                     t.thread_key,
+                     (t.parent_comment_id = '' OR t.parent_comment_id IS NULL) DESC,
+                     t.posted_at ASC
+            LIMIT 200""", params)
     return rows
 
 
