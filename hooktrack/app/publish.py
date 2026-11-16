@@ -347,9 +347,17 @@ def publish_post(
             raise PublishError("Connect your " + ", ".join(names.get(m, m) for m in missing) +
                                " account first (Connect in the publish window, or Settings, Publishing).", 409)
     media_items = _media_items_for(post, conf, when_hint)
+    is_image_post = bool(media_items) and media_items[0]["type"] == "image"
     media_url = media_items[0]["url"] if media_items and media_items[0]["type"] == "video" else _media_for(post, conf, when_hint)
     if provider != "mock" and not media_items and any(x.lower() in ("tiktok", "instagram", "youtube") for x in platforms):
         raise PublishError("Attach a video or at least one image first: this card has no media to publish.")
+    # upload_post and ayrshare still only know how to send a single video_url (unchanged, by design - see
+    # _dispatch). Sending anyway would silently drop every image and publish a caption-only post instead,
+    # which is worse than refusing: the images are real content the user attached, not something to lose quietly.
+    if is_image_post and provider not in ("mock", "late"):
+        raise PublishError(f"{PROVIDERS[provider]['label']} can't publish a photo or carousel from here yet "
+                           f"(only video). Switch to the Late provider under Settings, Publishing, or post this one "
+                           f"directly on the platform.")
     payload = {
         "post_id": post_id,
         "caption": caption,
