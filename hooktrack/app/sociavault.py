@@ -349,6 +349,20 @@ def _twitter_date(s: str, tz: str = "UTC") -> date:
         return logic.today_in(tz)
 
 
+def _twitter_content_type(legacy: dict) -> str:
+    """Confirmed live against real tweets: legacy.extended_entities.media[].type is 'photo', 'video' or
+    'animated_gif' when a tweet carries media, and the key is simply absent/empty for a plain text tweet.
+    Unlike Instagram, X reports a real view count for every one of these, so (unlike image/carousel there)
+    this is purely about comparing a post only against others of its own kind — not about missing data."""
+    media = (legacy.get("extended_entities") or legacy.get("entities") or {}).get("media") or []
+    types = {m.get("type") for m in media if isinstance(m, dict)} if isinstance(media, list) else set()
+    if types & {"video", "animated_gif"}:
+        return "short_video"
+    if "photo" in types:
+        return "image"
+    return "text"
+
+
 # ---------- LinkedIn ----------
 # Confirmed live against a real profile (not just the docs example): LinkedIn posts carry no view/impression
 # count, and in practice no like/comment count either — recentPosts items only ever had id/title/link/
@@ -1083,7 +1097,8 @@ def sync_twitter_account(workspace_id: int, account_id: int, days_back: int = 14
             post_id = _upsert_post(
                 workspace_id, account_id, ext_id=ext_id, post_date=post_date,
                 date_estimated=not created_at, hook=text.strip()[:200], caption=text.strip()[:2200],
-                views=views, comments=comments, likes=likes, shares=shares, saves=saves, url=url, platform="x")
+                views=views, comments=comments, likes=likes, shares=shares, saves=saves, url=url, platform="x",
+                content_type=_twitter_content_type(legacy))
             upserted += 1
             _record_post(workspace_id, account_id, post_id, views, today)
 
