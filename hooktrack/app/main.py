@@ -416,11 +416,19 @@ def accounts(ctx: Ctx = Depends(current)):
                               ORDER BY day DESC LIMIT 1) o ON TRUE
            WHERE a.workspace_id = %s
            ORDER BY p.position NULLS LAST, a.handle""", (ctx.workspace_id,))
-    # how far each account is from having a normal of its own (until then its posts are compared with similar accounts)
-    judged = {r["account_id"]: r["n"] for r in db.query(
-        "SELECT account_id, COUNT(*) AS n FROM posts WHERE workspace_id = %s AND status IN ('posted', 'analysed') "
-        "AND views_updated_at IS NOT NULL AND post_date <= current_date - %s GROUP BY account_id",
-        (ctx.workspace_id, logic.MATURE_DAYS))}
+    # how far each account is from having a normal of its own (until then its posts are compared with similar
+    # accounts). A post is only ever judged against others of its own content_type on the same account (see
+    # logic.performance()), so an account mixing types — a YouTube channel with Shorts and long-form, say — is
+    # only as "ready" as its best-stocked type: 3 Shorts plus 3 long-form is not one baseline of 6, it is two
+    # unready baselines of 3, so the per-type count is taken, not the account-wide total.
+    judged_by_type = {}
+    for r in db.query(
+        "SELECT account_id, content_type, COUNT(*) AS n FROM posts WHERE workspace_id = %s "
+        "AND status IN ('posted', 'analysed') AND views_updated_at IS NOT NULL "
+        "AND post_date <= current_date - %s GROUP BY account_id, content_type",
+        (ctx.workspace_id, logic.MATURE_DAYS)):
+        judged_by_type[r["account_id"]] = max(judged_by_type.get(r["account_id"], 0), r["n"])
+    judged = judged_by_type
     for r in rows:
         n = judged.get(r["id"], 0)
         r["judged_posts"] = n
