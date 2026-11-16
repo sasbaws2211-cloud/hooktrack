@@ -304,8 +304,33 @@ const WIN_TIP = {
   HOT_START: 'Under 2 days old but its first day is far above this account\'s usual: act on it now',
   NO_BASELINE: 'Needs 5+ older posts on this account to know what normal is',
 };
-const winnerChip = pf => {
-  if (!pf) return '<span class="muted">-</span>';
+// Every post gets a content_type from the sync (short_video, long_video, image, carousel, text), or 'mixed'
+// on older rows the sync hasn't re-classified yet (it corrects itself on the next sync). Shown as a small
+// badge so a Short and a long-form video, or a scored video and an unscored photo/text post, don't look
+// identical in a shared table.
+const CONTENT_TYPE_INFO = {
+  short_video: { icon: '🎬', label: 'Short video' },
+  long_video: { icon: '🎥', label: 'Long-form video' },
+  image: { icon: '🖼', label: 'Photo' },
+  carousel: { icon: '🖼', label: 'Carousel' },
+  text: { icon: '📝', label: 'Text post' },
+};
+const contentTypeBadge = ct => {
+  const info = CONTENT_TYPE_INFO[ct];
+  if (!info) return ct === 'mixed' ? '<span class="chip-type muted" title="Not yet classified by type: will update on the next sync">❔</span>' : '';
+  return `<span class="chip-type" title="${esc(info.label)}">${info.icon}</span>`;
+};
+// A post missing perf entirely (rather than e.g. TOO_EARLY) means its platform never reports a view count
+// for this kind of post (LinkedIn text, Facebook/Instagram photo posts): there is nothing to compare, not
+// a zero to be ashamed of.
+const viewsCell = p => (!p.perf && !p.views
+  ? '<span class="muted" title="This kind of post has no view count on this platform, so there is nothing to track here">not tracked</span>'
+  : fmt(p.views));
+const winnerChip = (pf, p) => {
+  if (!pf) {
+    if (p && !p.views) return '<span class="muted" title="No view count to compare: this kind of post is not scored by views">not scored</span>';
+    return '<span class="muted">-</span>';
+  }
   const cls = { WINNER: 'SCALE', DUD: 'KILL', HOT_START: 'SCALE' }[pf.label] || '';
   const hot = pf.label === 'HOT_START';
   const text = hot ? `${pf.early_multiple}× day 1` : (pf.multiple != null ? `${pf.multiple}×` : (pf.label === 'TOO_EARLY' ? 'early' : '-'));
@@ -2587,8 +2612,8 @@ pages.hooks = async app => {
       <p class="small muted" style="margin:6px 0 0">A strong first day is the earliest sign of a winner. Make two or three variations of it now, while it is still fresh.</p></div>` : ''}
     ${posts.length ? `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Account</th><th>Hook</th><th>Status</th><th class="num">Views</th><th class="num" title="Views vs this account's normal (median of its recent posts)">× normal</th>${hasLikes ? '<th class="num">Likes</th>' : ''}<th class="num">Comments</th>${hasSS ? '<th class="num" title="Saves">Saves</th><th class="num">Shares</th>' : ''}<th class="num" title="Saves + shares + comments per 1,000 views">Intent /1k</th><th class="num" title="Comments asking to buy it, or how/where to get it, out of the comments read">Asking</th><th>Intent</th><th class="num">Hook score</th><th>Decision</th><th>Post</th></tr></thead><tbody>
     ${posts.map(p => `<tr class="band" style="--band:${esc(p.phone_color || 'transparent')};cursor:pointer" data-id="${p.id}"><td>${esc(p.post_date)}</td><td class="handle">${esc(p.handle || '—')}</td>
-      <td class="wrap">${p.variant_label ? `<span class="badge" title="A/B variant">${esc(p.variant_label)}</span> ` : ''}${esc(p.hook || '—')}${p.made_from ? `<div class="small" style="color:var(--accent)" title="A video you made from another hook">↻ made from “${esc(short(p.made_from.hook || '', 40))}” · generation ${p.made_from.generation}</div>` : ''}<div class="muted small">${esc(short(p.ai_prompt, 60))}</div></td><td>${pill(p.status)}</td>
-      <td class="num">${fmt(p.views)}</td><td class="num">${winnerChip(p.perf)}</td>${hasLikes ? `<td class="num">${p.likes == null ? '<span class="muted">-</span>' : fmt(p.likes)}</td>` : ''}<td class="num">${fmt(p.comments)}</td>${hasSS ? `<td class="num">${p.saves == null ? '<span class="muted">-</span>' : fmt(p.saves)}</td><td class="num">${p.shares == null ? '<span class="muted">-</span>' : fmt(p.shares)}</td>` : ''}<td class="num">${p.perf && p.perf.intent_per_1k != null ? p.perf.intent_per_1k : '<span class="muted">-</span>'}</td><td class="num">${p.perf && p.perf.comments_read ? `<span title="${p.perf.buy_comments} want to buy, ${p.perf.ask_comments} ask how/where; ${p.perf.comments_read} comments read">${p.perf.intent_comments}<span class="muted"> / ${p.perf.comments_read}</span></span>` : '<span class="muted" title="Open the post and read its comments">-</span>'}</td><td>${p.intent ? '✓' : ''}</td>
+      <td class="wrap">${contentTypeBadge(p.content_type)} ${p.variant_label ? `<span class="badge" title="A/B variant">${esc(p.variant_label)}</span> ` : ''}${esc(p.hook || '—')}${p.made_from ? `<div class="small" style="color:var(--accent)" title="A video you made from another hook">↻ made from “${esc(short(p.made_from.hook || '', 40))}” · generation ${p.made_from.generation}</div>` : ''}<div class="muted small">${esc(short(p.ai_prompt, 60))}</div></td><td>${pill(p.status)}</td>
+      <td class="num">${viewsCell(p)}</td><td class="num">${winnerChip(p.perf, p)}</td>${hasLikes ? `<td class="num">${p.likes == null ? '<span class="muted">-</span>' : fmt(p.likes)}</td>` : ''}<td class="num">${fmt(p.comments)}</td>${hasSS ? `<td class="num">${p.saves == null ? '<span class="muted">-</span>' : fmt(p.saves)}</td><td class="num">${p.shares == null ? '<span class="muted">-</span>' : fmt(p.shares)}</td>` : ''}<td class="num">${p.perf && p.perf.intent_per_1k != null ? p.perf.intent_per_1k : '<span class="muted">-</span>'}</td><td class="num">${p.perf && p.perf.comments_read ? `<span title="${p.perf.buy_comments} want to buy, ${p.perf.ask_comments} ask how/where; ${p.perf.comments_read} comments read">${p.perf.intent_comments}<span class="muted"> / ${p.perf.comments_read}</span></span>` : '<span class="muted" title="Open the post and read its comments">-</span>'}</td><td>${p.intent ? '✓' : ''}</td>
       <td class="num">${p.vsc == null ? '<span class="muted">—</span>' : p.vsc + '/30'}${p.score_by === 'auto' ? ` <span class="muted small" title="${esc(p.score_reasoning || 'Calculated from this video’s real results against the account’s normal')}">auto</span>` : ''}${p.score_by === 'ai' ? ` <span title="${p.score_blind === true ? 'AI score on the wording alone' : p.score_blind === false ? 'AI score that saw the results' : 'AI score'}">${p.score_blind === false ? '✨*' : '✨'}</span>` : ''}${p.score_confidence != null ? ` <span class="muted small" title="Confidence">${Math.round(p.score_confidence*100)}%</span>` : ''}</td><td title="${esc(p.decision_basis || '')}">${pill(p.decision)}${p.decision ? `<div class="muted small">${decisionSource(p)}</div>` : ''}</td>
       <td>${postCell(p)}</td></tr>`).join('')}</tbody></table></div>`
       : `<div class="empty card"><h2>No posted videos yet</h2><p>Hooks fills itself from your accounts: add your TikTok, Instagram, YouTube, X, LinkedIn or Facebook handles, then press Sync. Posted videos and their views appear here.</p>
