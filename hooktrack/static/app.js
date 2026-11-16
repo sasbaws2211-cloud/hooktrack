@@ -2535,15 +2535,17 @@ pages.studio = async app => {
     app.innerHTML = `<div class="empty card"><h2>Could not load this post</h2><p class="muted">${esc(e.message)}</p></div>`;
     return;
   }
+  const locked = normStatus(post.status) === 'filmed';
   app.innerHTML = `<div class="page-head"><div><h1>Edit in Studio</h1><div class="sub">${esc(short(post.hook || post.caption || 'Untitled', 90))}</div></div>
     <div class="row"><button class="btn" id="studio-back">← Back</button></div></div>
+    ${locked ? '<div class="card" style="margin-bottom:10px"><p class="muted">This card is Filmed, so its finished video/images are locked for publishing. You can still draft here, but move it back to Scripted before using "Finish".</p></div>' : ''}
     <div class="card" style="padding:0;overflow:hidden">
       <div id="studio-toolbar" class="row" style="padding:10px;border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn sm" id="studio-add-media">+ Add media</button>
         <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
         <button class="btn sm" id="studio-save-draft" disabled>Save draft</button>
         ${post.studio_draft ? '<button class="btn sm" id="studio-discard-draft" disabled>Start over</button>' : ''}
-        <button class="btn sm primary" id="studio-finish" disabled>${isImageFormat(post.content_type) ? 'Finish &amp; attach images' : 'Finish &amp; attach video'}</button>
+        <button class="btn sm primary" id="studio-finish" disabled ${locked ? `title="Move this card back to Scripted first"` : ''}>${isImageFormat(post.content_type) ? 'Finish &amp; attach images' : 'Finish &amp; attach video'}</button>
         <span class="spacer"></span>
         <span class="small muted" id="studio-status">Loading editor…</span>
       </div>
@@ -2579,7 +2581,7 @@ pages.studio = async app => {
     controls = new Controls(edit);
     await controls.load();
     setStatus(post.studio_draft ? 'Ready — restored your saved draft' : 'Ready');
-    $('#studio-finish', app).disabled = false;
+    $('#studio-finish', app).disabled = locked;
     $('#studio-save-draft', app).disabled = false;
     if ($('#studio-discard-draft', app)) $('#studio-discard-draft', app).disabled = false;
     edit.events.on('edit:changed', () => { draftDirty = true; });
@@ -2660,9 +2662,13 @@ pages.studio = async app => {
 
   // A photo/carousel post publishes as still images, not a video, so "finish" here means capturing each
   // image clip's own edited frame (crop, filter, text overlay, whatever Studio applied) and replacing the
-  // post's images with those stills, in timeline order - not exporting a slideshow video. New images are
-  // uploaded first and the old ones only removed once every capture has succeeded, so a failed capture or
-  // upload never leaves the post with fewer images than it started with.
+  // post's images with those stills, in timeline order - not exporting a slideshow video. All frames are
+  // captured (pure client-side canvas work, no server round-trip) before anything is uploaded, so a capture
+  // failure never touches the post's existing images. Each new image then replaces its OLD counterpart one
+  // at a time (delete old, then upload new) rather than uploading everything first and deleting after - a
+  // carousel already at the 20-image cap would otherwise reject every new upload before any old one is
+  // freed up. That does mean a failed upload mid-way loses that one slot (not the whole carousel); the
+  // remaining old images stay untouched, matching the server's own "a post can hold at most 20 images" limit.
   async function finishImages() {
     const finishBtn = $('#studio-finish', app), addBtn = $('#studio-add-media', app);
     finishBtn.disabled = true; addBtn.disabled = true;
@@ -2685,11 +2691,13 @@ pages.studio = async app => {
       }
       setStatus('Uploading…');
       for (let i = 0; i < captured.length; i++) {
+        setStatus(`Uploading ${i + 1} of ${captured.length}…`);
+        if (before[i]) await api('DELETE', `/api/posts/${post.id}/images/${before[i].id}`);
         const fd = new FormData();
         fd.append('file', captured[i], `studio-export-${i + 1}.jpg`);
         await api('POST', `/api/posts/${post.id}/images/upload`, fd);
       }
-      for (const img of before) await api('DELETE', `/api/posts/${post.id}/images/${img.id}`);
+      for (let i = captured.length; i < before.length; i++) await api('DELETE', `/api/posts/${post.id}/images/${before[i].id}`);
       await finishedDraftCleanup();
       setStatus(`Done — ${captured.length} image${captured.length === 1 ? '' : 's'} attached to this post`);
       toast('Images attached to this post');

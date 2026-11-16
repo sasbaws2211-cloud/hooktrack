@@ -124,6 +124,11 @@ def cleanup_expired() -> dict:
         "password_resets": db.execute("DELETE FROM password_resets WHERE expires_at < now()"),
         "rate_limits": db.execute("DELETE FROM rate_limits WHERE at < now() - interval '1 day'"),
         "email_verifications": db.execute("DELETE FROM email_verifications WHERE expires_at < now()"),
+        # Studio drafts a user never came back to finish - the post's real video/images are unaffected,
+        # this only forgets the in-progress editor state (full Edit JSON per post) sitting unused.
+        "studio_drafts": db.execute(
+            "UPDATE posts SET studio_draft=NULL, studio_draft_at=NULL "
+            "WHERE studio_draft_at < now() - interval '30 days'"),
     }
 
 
