@@ -2541,6 +2541,8 @@ pages.studio = async app => {
       <div id="studio-toolbar" class="row" style="padding:10px;border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn sm" id="studio-add-media">+ Add media</button>
         <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
+        <button class="btn sm" id="studio-save-draft" disabled>Save draft</button>
+        ${post.studio_draft ? '<button class="btn sm" id="studio-discard-draft" disabled>Start over</button>' : ''}
         <button class="btn sm primary" id="studio-finish" disabled>${isImageFormat(post.content_type) ? 'Finish &amp; attach images' : 'Finish &amp; attach video'}</button>
         <span class="spacer"></span>
         <span class="small muted" id="studio-status">Loading editor…</span>
@@ -2549,13 +2551,23 @@ pages.studio = async app => {
       <div data-shotstack-timeline style="width:100%;height:160px;background:#0d1117"></div>
     </div>`;
   $('#studio-back').onclick = () => { location.hash = '#/pipeline'; };
+  if ($('#studio-discard-draft')) $('#studio-discard-draft').onclick = guard(async () => {
+    if (!await askConfirm('Discard your saved draft and start over from this post\'s current media? This cannot be undone.', { title: 'Start over' })) return;
+    await api('DELETE', `/api/posts/${post.id}/studio-draft`);
+    post.studio_draft = null;
+    clearInterval(autosave);
+    await pages.studio(app);   // re-enter fresh with the draft gone, same hash won't fire hashchange on its own
+  });
   const setStatus = t => { const el = $('#studio-status', app); if (el) el.textContent = t; };
 
-  let edit, canvas, timeline, controls, ui, StudioSdk;
+  let edit, canvas, timeline, controls, ui, StudioSdk, draftDirty = false;
   try {
     StudioSdk = await loadStudioSdk();
     const { Edit, Canvas, Controls, Timeline, UIController } = StudioSdk;
-    const seed = studioSeedEdit(post);
+    // A saved draft (in-progress crops, filters, clip order, added media) wins over re-seeding from the
+    // post's current media - that re-seed is only the starting point the very first time, or after
+    // "Start over" explicitly asks for it.
+    const seed = post.studio_draft || studioSeedEdit(post);
     edit = new Edit(seed);
     canvas = new Canvas(edit);
     ui = UIController.create(edit, canvas);
@@ -2566,12 +2578,36 @@ pages.studio = async app => {
     await timeline.load();
     controls = new Controls(edit);
     await controls.load();
-    setStatus('Ready');
+    setStatus(post.studio_draft ? 'Ready — restored your saved draft' : 'Ready');
     $('#studio-finish', app).disabled = false;
+    $('#studio-save-draft', app).disabled = false;
+    if ($('#studio-discard-draft', app)) $('#studio-discard-draft', app).disabled = false;
+    edit.events.on('edit:changed', () => { draftDirty = true; });
   } catch (e) {
     setStatus('');
     $('[data-shotstack-studio]', app).outerHTML = `<div class="empty" style="padding:20px"><p class="muted">The editor could not load: ${esc(e.message || e)}</p></div>`;
     return;
+  }
+
+  async function saveDraft() {
+    if (!draftDirty) return false;
+    draftDirty = false;
+    try {
+      await api('PUT', `/api/posts/${post.id}/studio-draft`, { edit: edit.getEdit() });
+      return true;
+    } catch (e) { draftDirty = true; return false; /* retried on the next autosave tick or manual save */ }
+  }
+  $('#studio-save-draft').onclick = guard(async () => {
+    setStatus('Saving draft…');
+    setStatus((await saveDraft()) ? 'Draft saved' : 'Nothing to save - already up to date');
+  });
+  const autosave = setInterval(saveDraft, 20000);
+  window.addEventListener('hashchange', () => clearInterval(autosave), { once: true });
+
+  async function finishedDraftCleanup() {
+    clearInterval(autosave);
+    draftDirty = false;
+    try { await api('DELETE', `/api/posts/${post.id}/studio-draft`); } catch (e) { /* not worth failing the finish over */ }
   }
 
   $('#studio-add-media').onclick = () => $('#studio-upload', app).click();
@@ -2606,6 +2642,7 @@ pages.studio = async app => {
       const fd = new FormData();
       fd.append('file', blob, 'studio-export.mp4');
       await api('POST', `/api/posts/${post.id}/video/upload`, fd);
+      await finishedDraftCleanup();
       setStatus('Done — video attached to this post');
       toast('Video attached to this post');
     } catch (err) {
@@ -2653,6 +2690,7 @@ pages.studio = async app => {
         await api('POST', `/api/posts/${post.id}/images/upload`, fd);
       }
       for (const img of before) await api('DELETE', `/api/posts/${post.id}/images/${img.id}`);
+      await finishedDraftCleanup();
       setStatus(`Done — ${captured.length} image${captured.length === 1 ? '' : 's'} attached to this post`);
       toast('Images attached to this post');
     } catch (err) {

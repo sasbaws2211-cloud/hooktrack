@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
 from . import crypto, db
 from .auth import Ctx, current
@@ -356,6 +357,9 @@ async def matching_video(pid: int, request: Request, file: UploadFile = File(...
 @router.get("/api/posts/{pid}/video/file.{ext}")   # same response; some asset loaders (e.g. PixiJS, in the
                                                      # Studio editor) pick a parser from the URL's extension
                                                      # alone, never from the real Content-Type header
+@router.head("/api/posts/{pid}/video/file")         # FastAPI doesn't register HEAD for a route just because
+@router.head("/api/posts/{pid}/video/file.{ext}")   # GET is - Studio's own addClip() validates a new asset
+                                                     # with a HEAD request first, before ever doing a GET
 def video_file(pid: int, ctx: Ctx = Depends(current), ext: str = ""):
     """The owner's preview. Cookie + workspace checked; range requests supported so the player can seek."""
     row = _post(ctx.workspace_id, pid)
@@ -426,6 +430,8 @@ def images_reorder(pid: int, body: dict, ctx: Ctx = Depends(current)):
 
 @router.get("/api/posts/{pid}/images/{media_id}/file")
 @router.get("/api/posts/{pid}/images/{media_id}/file.{ext}")   # same response; see the video route's note above
+@router.head("/api/posts/{pid}/images/{media_id}/file")
+@router.head("/api/posts/{pid}/images/{media_id}/file.{ext}")
 def image_file(pid: int, media_id: int, ctx: Ctx = Depends(current), ext: str = ""):
     """The owner's preview. Cookie + workspace checked."""
     row = _image_row(ctx.workspace_id, pid, media_id)
@@ -449,3 +455,26 @@ def signed_image(ws: int, pid: int, media_id: int, exp: int, sig: str):
         raise HTTPException(404, "Not found")
     return FileResponse(f, media_type=row["content_type"] or "image/jpeg",
                         headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"})
+
+
+# ---------- Studio draft: in-progress editor state, separate from the post's real video/images ----------
+
+class StudioDraftIn(BaseModel):
+    edit: dict = Field(..., description="The Edit JSON as Studio currently has it, to resume later")
+
+
+@router.put("/api/posts/{pid}/studio-draft")
+def save_studio_draft(pid: int, b: StudioDraftIn, ctx: Ctx = Depends(current)):
+    _post(ctx.workspace_id, pid)
+    row = db.one(
+        "UPDATE posts SET studio_draft=%s, studio_draft_at=now() WHERE id=%s AND workspace_id=%s "
+        "RETURNING studio_draft_at", (db.Json(b.edit), pid, ctx.workspace_id))
+    return {"ok": True, "saved_at": row["studio_draft_at"]}
+
+
+@router.delete("/api/posts/{pid}/studio-draft")
+def clear_studio_draft(pid: int, ctx: Ctx = Depends(current)):
+    _post(ctx.workspace_id, pid)
+    db.execute("UPDATE posts SET studio_draft=NULL, studio_draft_at=NULL WHERE id=%s AND workspace_id=%s",
+               (pid, ctx.workspace_id))
+    return {"ok": True}
