@@ -26,7 +26,8 @@
         ${d.body && d.body !== d.caption ? `<p class="rp-muted" style="white-space:pre-wrap">${esc(d.body)}</p>` : ''}
         ${d.video_url ? `<video class="rp-video" controls preload="metadata" src="${esc(d.video_url)}">Your browser can't preview this video.</video>
           <p class="rp-muted"><a href="${esc(d.video_url)}" target="_blank" rel="noopener">Open the video directly ↗</a></p>` : ''}
-        ${!d.hook && !d.caption && !d.video_url ? '<p class="rp-muted">No preview content was attached to this post.</p>' : ''}
+        ${(d.images || []).length ? `<div class="rp-gallery">${d.images.map(u => `<a href="${esc(u)}" target="_blank" rel="noopener"><img class="rp-img" src="${esc(u)}" alt="" loading="lazy"></a>`).join('')}</div>` : ''}
+        ${!d.hook && !d.caption && !d.video_url && !(d.images || []).length ? '<p class="rp-muted">No preview content was attached to this post.</p>' : ''}
       </section>
       ${!decided ? `<section class="rp-card">
         <h2>Your decision</h2>

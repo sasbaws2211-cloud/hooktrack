@@ -41,6 +41,8 @@ body.rp-page { margin: 0; background: #f8fafc; }
 .rp-btn.danger { border-color: var(--rp-bad); color: var(--rp-bad); }
 .rp-btn:disabled { opacity: .6; cursor: default; }
 .rp-video { width: 100%; max-height: 480px; border-radius: 10px; background: #000; display: block; margin: 10px 0; }
+.rp-gallery { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.rp-img { width: 140px; height: 140px; object-fit: cover; border-radius: 10px; display: block; border: 1px solid var(--rp-line); }
 .rp-textarea { width: 100%; min-height: 90px; border: 1px solid var(--rp-line); border-radius: 8px; padding: 10px;
   font: inherit; margin: 8px 0; box-sizing: border-box; }
 .rp-decision { border-radius: 12px; padding: 14px 16px; font-weight: 600; margin-bottom: 14px; }

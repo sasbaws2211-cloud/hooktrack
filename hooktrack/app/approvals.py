@@ -157,12 +157,17 @@ def public_get(token: str) -> dict:
         (row["post_id"],))
     ws_name = (db.one("SELECT name FROM workspaces WHERE id=%s", (row["workspace_id"],)) or {}).get("name") or ""
     video_url = (post or {}).get("video_url") or ""
+    from . import media
     if post and post.get("video_file"):
-        from . import media
         try:
             video_url = media.signed_url(row["workspace_id"], row["post_id"], ttl=7 * 24 * 3600)
         except ValueError:
             pass
+    images = []
+    try:
+        images = media.signed_image_urls(row["workspace_id"], row["post_id"], ttl=7 * 24 * 3600)
+    except ValueError:
+        pass
     if row["status"] == "pending" and not row.get("viewed_at"):
         db.execute("UPDATE post_approvals SET viewed_at=now() WHERE id=%s", (row["id"],))
     out = _out(row)
@@ -173,6 +178,7 @@ def public_get(token: str) -> dict:
         "caption": (post or {}).get("caption") or "",
         "body": (post or {}).get("body") or "",
         "video_url": video_url,
+        "images": images,
     })
     out.pop("token", None)
     return out
