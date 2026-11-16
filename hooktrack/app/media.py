@@ -353,7 +353,10 @@ async def matching_video(pid: int, request: Request, file: UploadFile = File(...
 
 
 @router.get("/api/posts/{pid}/video/file")
-def video_file(pid: int, ctx: Ctx = Depends(current)):
+@router.get("/api/posts/{pid}/video/file.{ext}")   # same response; some asset loaders (e.g. PixiJS, in the
+                                                     # Studio editor) pick a parser from the URL's extension
+                                                     # alone, never from the real Content-Type header
+def video_file(pid: int, ctx: Ctx = Depends(current), ext: str = ""):
     """The owner's preview. Cookie + workspace checked; range requests supported so the player can seek."""
     row = _post(ctx.workspace_id, pid)
     f = _abs(row["video_file"])
@@ -422,7 +425,8 @@ def images_reorder(pid: int, body: dict, ctx: Ctx = Depends(current)):
 
 
 @router.get("/api/posts/{pid}/images/{media_id}/file")
-def image_file(pid: int, media_id: int, ctx: Ctx = Depends(current)):
+@router.get("/api/posts/{pid}/images/{media_id}/file.{ext}")   # same response; see the video route's note above
+def image_file(pid: int, media_id: int, ctx: Ctx = Depends(current), ext: str = ""):
     """The owner's preview. Cookie + workspace checked."""
     row = _image_row(ctx.workspace_id, pid, media_id)
     f = _abs(row["file_path"])

@@ -10,6 +10,11 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/app.css?v=logo1">
 <script src="/cookie-consent.js"></script>
+<!-- Shotstack Studio (the in-app video/photo editor): a prebuilt bundle (studio-build/, esbuild) rather than
+     a CDN import map - that resolved every dependency (pixi.js included) to one deterministic copy, where
+     jsdelivr's own ESM resolution could not guarantee that and caused real rendering bugs. Loaded as a plain
+     global, not a module, so it costs nothing until a studio page actually reads window.HookTrackStudioBundle. -->
+<script src="/studio-bundle.js?v=1" defer></script>
 </head>
 <body>
 <header class="top">

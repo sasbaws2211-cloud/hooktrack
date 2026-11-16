@@ -1,0 +1,15 @@
+{
+  "name": "hooktrack-studio-build",
+  "private": true,
+  "version": "1.0.0",
+  "description": "One-off bundle step for the Shotstack Studio editor page only. Not part of HookTrack's own runtime - the rest of the app stays plain <script> tags with no build step.",
+  "scripts": {
+    "build": "esbuild src/entry.js --bundle --format=iife --global-name=HookTrackStudioBundle --outfile=../static/studio-bundle.js --minify"
+  },
+  "dependencies": {
+    "@shotstack/shotstack-studio": "2.31.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

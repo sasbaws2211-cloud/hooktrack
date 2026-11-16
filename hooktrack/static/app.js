@@ -373,13 +373,14 @@ function loadBase() {
   return baseInFlight;
 }
 async function loadBaseNow() {
-  [state.accounts, state.phones, state.settings, state.ai, state.sv, state.publish, state.queued, state.clientList] = await Promise.all([
+  [state.accounts, state.phones, state.settings, state.ai, state.sv, state.publish, state.queued, state.clientList, state.shotstack] = await Promise.all([
     api('GET', '/api/accounts'), api('GET', '/api/phones'), api('GET', '/api/settings'),
     api('GET', '/api/ai/status'),
     api('GET', '/api/connectors/sociavault').catch(() => ({ configured: false })),
     api('GET', '/api/addons/publish').catch(() => ({ enabled: false })),
     api('GET', '/api/publish/queued-count').catch(() => ({ count: 0 })),
     api('GET', '/api/clients').catch(() => ({ clients: [] })),
+    api('GET', '/api/shotstack/status').catch(() => ({ configured: false })),
   ]);
   state.clients = (state.clientList && state.clientList.clients) || [];
   try {
@@ -1697,6 +1698,8 @@ function postModal(post, defaults, onDone) {
       if (hasFiles(e)) await handleFiles(e.dataTransfer.files);
     }));
   };
+  const studioButtonHtml = () => (post && post.id && !post.external_id && state.shotstack && state.shotstack.configured)
+    ? `<a class="btn sm" href="#/studio?post=${post.id}" id="studio-open" target="_blank" rel="noopener">✂️ Edit in Studio</a>` : '';
   const imageBlock = () => {
     const el = $('#vidupload', m);
     if (!el) return;
@@ -1714,6 +1717,7 @@ function postModal(post, defaults, onDone) {
       ${canAddMore ? zoneHtmlImg(imgList.length ? 'Add another image' : 'Drag and drop image(s) here, or click to choose',
           curFormat() === 'carousel' ? 'JPEG, PNG or WebP · up to 20 images' : 'JPEG, PNG or WebP · up to 20 MB')
         : `<div class="small muted" style="margin-top:6px">${curFormat() === 'carousel' ? 'This carousel has its maximum 20 images.' : 'A photo post takes one image. Switch Format to Carousel to add more.'}</div>`}
+      <div class="row" style="margin-top:8px">${studioButtonHtml()}</div>
       </div>`;
     wireImageZone();
     wireImageActions();
@@ -1798,7 +1802,8 @@ function postModal(post, defaults, onDone) {
                  'MP4, MOV or WebM · up to 300 MB · stays private to this workspace', has)}
       <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">
         <button class="btn sm" id="vidpick" type="button">${has ? 'Replace file' : '⬆ Upload a video'}</button>
-        ${has ? '<button class="btn sm danger" id="vidrm" type="button">Remove file</button>' : ''}</div></div>`;
+        ${has ? '<button class="btn sm danger" id="vidrm" type="button">Remove file</button>' : ''}
+        ${studioButtonHtml()}</div></div>`;
     wireZone(sendOwn);
     wireRemove();
     if (matching && parent) wireEmbeds(el, parent.embed);
@@ -2486,6 +2491,103 @@ pages.calendar = async app => {
   // Calendar is a secondary view of Posts
   state.postsView = 'calendar';
   location.hash = '#/pipeline';
+};
+
+
+/* ---------------- studio: the in-app video/photo editor (Shotstack Studio), opened on one post ---------------- */
+// The prebuilt bundle (studio-build/, see index.html) loads as a deferred <script>, so by the time a user
+// actually opens the editor it's normally already on window - this just covers the rare case of asking for
+// it before that deferred script has run.
+async function loadStudioSdk() {
+  for (let i = 0; i < 100 && !window.HookTrackStudioBundle; i++) await new Promise(r => setTimeout(r, 50));
+  if (!window.HookTrackStudioBundle) throw new Error('The editor failed to load. Refresh the page and try again.');
+  return window.HookTrackStudioBundle;
+}
+// PixiJS (inside Studio) picks an asset parser from the URL's extension alone, never from the real
+// Content-Type header - confirmed live (an extension-less URL silently failed to load at all). media.py's
+// file routes accept a harmless ".ext" suffix for exactly this; these map a MIME type to the right one.
+const MIME_EXT = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm',
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+// Seeds the Edit from the post's own media (same-origin authenticated routes - no signed URL needed here,
+// that's only for Shotstack's own cloud render servers later, which have no cookie of ours to send).
+function studioSeedEdit(post) {
+  const images = post.images || [];
+  if (isVideoFormat(post.content_type) && (post.has_video_file || post.video_url)) {
+    const ext = MIME_EXT[post.video_file_type] || 'mp4';
+    const src = post.has_video_file ? `${location.origin}/api/posts/${post.id}/video/file.${ext}` : post.video_url;
+    return { timeline: { background: '#000000', tracks: [{ clips: [{ asset: { type: 'video', src }, start: 0, length: 'auto' }] }] },
+      output: { format: 'mp4', resolution: 'sd' } };
+  }
+  if (isImageFormat(post.content_type) && images.length) {
+    const clips = images.map((img, i) => ({
+      asset: { type: 'image', src: `${location.origin}/api/posts/${post.id}/images/${img.id}/file.${MIME_EXT[img.content_type] || 'jpg'}` },
+      start: i * 3, length: 3 }));
+    return { timeline: { background: '#000000', tracks: [{ clips }] }, output: { format: 'mp4', resolution: 'sd' } };
+  }
+  return { timeline: { background: '#000000', tracks: [{ clips: [] }] }, output: { format: 'mp4', resolution: 'sd' } };
+}
+pages.studio = async app => {
+  const q = new URLSearchParams((location.hash.split('?')[1] || ''));
+  const postId = +q.get('post');
+  if (!postId) { app.innerHTML = '<div class="empty card"><h2>No post to edit</h2><p class="muted">Open a card from Posts or Hooks and press "Edit in Studio" there.</p></div>'; return; }
+  let post;
+  try { post = await api('GET', `/api/posts/${postId}`); } catch (e) {
+    app.innerHTML = `<div class="empty card"><h2>Could not load this post</h2><p class="muted">${esc(e.message)}</p></div>`;
+    return;
+  }
+  app.innerHTML = `<div class="page-head"><div><h1>Edit in Studio</h1><div class="sub">${esc(short(post.hook || post.caption || 'Untitled', 90))}</div></div>
+    <div class="row"><button class="btn" id="studio-back">← Back</button></div></div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div id="studio-toolbar" class="row" style="padding:10px;border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn sm" id="studio-add-media">+ Add media</button>
+        <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
+        <span class="spacer"></span>
+        <span class="small muted" id="studio-status">Loading editor…</span>
+      </div>
+      <div data-shotstack-studio style="width:100%;height:420px;background:#000"></div>
+      <div data-shotstack-timeline style="width:100%;height:160px;background:#0d1117"></div>
+    </div>`;
+  $('#studio-back').onclick = () => { location.hash = '#/pipeline'; };
+  const setStatus = t => { const el = $('#studio-status', app); if (el) el.textContent = t; };
+
+  let edit, canvas, timeline, controls, ui;
+  try {
+    const { Edit, Canvas, Controls, Timeline, UIController } = await loadStudioSdk();
+    const seed = studioSeedEdit(post);
+    edit = new Edit(seed);
+    canvas = new Canvas(edit);
+    ui = UIController.create(edit, canvas);
+    await canvas.load();
+    await edit.load();
+    const timelineContainer = $('[data-shotstack-timeline]', app);
+    timeline = new Timeline(edit, timelineContainer);
+    await timeline.load();
+    controls = new Controls(edit);
+    await controls.load();
+    setStatus('Ready');
+  } catch (e) {
+    setStatus('');
+    $('[data-shotstack-studio]', app).outerHTML = `<div class="empty" style="padding:20px"><p class="muted">The editor could not load: ${esc(e.message || e)}</p></div>`;
+    return;
+  }
+
+  $('#studio-add-media').onclick = () => $('#studio-upload', app).click();
+  $('#studio-upload').onchange = guard(async e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    const isImg = String(f.type).startsWith('image/');
+    setStatus('Uploading…');
+    const fd = new FormData();
+    fd.append('file', f);
+    try {
+      const r = await api('POST', `/api/posts/${post.id}/${isImg ? 'images/upload' : 'video/upload'}`, fd);
+      const ext = MIME_EXT[r.type] || (isImg ? 'jpg' : 'mp4');
+      const src = `${location.origin}/api/posts/${post.id}/${isImg ? `images/${r.id}/file.${ext}` : `video/file.${ext}`}`;
+      await edit.addClip(0, { asset: { type: isImg ? 'image' : 'video', src }, start: 0, length: isImg ? 3 : 'auto' });
+      setStatus('Added');
+    } catch (err) { toast(err.message || 'Could not upload that file', true); setStatus('Ready'); }
+  });
 };
 
 
