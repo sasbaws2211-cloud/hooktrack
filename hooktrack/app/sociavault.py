@@ -353,9 +353,21 @@ def _twitter_content_type(legacy: dict) -> str:
     """Confirmed live against real tweets: legacy.extended_entities.media[].type is 'photo', 'video' or
     'animated_gif' when a tweet carries media, and the key is simply absent/empty for a plain text tweet.
     Unlike Instagram, X reports a real view count for every one of these, so (unlike image/carousel there)
-    this is purely about comparing a post only against others of its own kind — not about missing data."""
-    media = (legacy.get("extended_entities") or legacy.get("entities") or {}).get("media") or []
-    types = {m.get("type") for m in media if isinstance(m, dict)} if isinstance(media, list) else set()
+    this is purely about comparing a post only against others of its own kind — not about missing data.
+
+    A retweet's own legacy always has empty media — the real media sits nested under its
+    retweeted_status_result.result.legacy, confirmed live on three real retweets that each looked media-less
+    at the outer level while actually reposting a video. Checked second, after the tweet's own media, so a
+    quote-tweet's own attached media (if any) still wins over the quoted tweet's."""
+    def media_types(lgc: dict) -> set:
+        media = (lgc.get("extended_entities") or lgc.get("entities") or {}).get("media") or []
+        return {m.get("type") for m in media if isinstance(m, dict)} if isinstance(media, list) else set()
+
+    types = media_types(legacy)
+    if not types:
+        rt = legacy.get("retweeted_status_result") or {}
+        rt_legacy = ((rt.get("result") or {}).get("legacy")) or {}
+        types = media_types(rt_legacy)
     if types & {"video", "animated_gif"}:
         return "short_video"
     if "photo" in types:
