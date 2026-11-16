@@ -1,4 +1,4 @@
-"""Weekly email digest: "this week: 2 winners, 3 cards due, your matching video beat its original".
+"""Weekly email digest: "this week: 2 winners, 3 cards due, your matching post beat its original".
 
 Built only from numbers the app already holds. Sent on Monday morning in the workspace's own time zone, once per
 workspace per week (workspaces.digest_week is the claim), to confirmed owners/admins who have not opted out.
@@ -92,7 +92,7 @@ def render(d: dict, name: str, base: str, unsubscribe: str) -> tuple[str, str]:
     if n_w:
         parts.append(f"{n_w} winner{'' if n_w == 1 else 's'}")
     if n_b:
-        parts.append(f"{n_b} matching video{'' if n_b == 1 else 's'} beat the original")
+        parts.append(f"{n_b} matching post{'' if n_b == 1 else 's'} beat the original")
     due = sum(a["count"] for a in d["actions"])
     if due:
         parts.append(f"{due} thing{'' if due == 1 else 's'} to do")
@@ -106,7 +106,7 @@ def render(d: dict, name: str, base: str, unsubscribe: str) -> tuple[str, str]:
             lines.append(f"  ...and {n_w - len(d['winners'])} more")
         lines.append("")
     if d["beats"]:
-        lines.append("MATCHING VIDEOS THAT BEAT THEIR ORIGINAL")
+        lines.append("MATCHING POSTS THAT BEAT THEIR ORIGINAL")
         for b in d["beats"]:
             lines.append(f"  - {_x(b['made'])} vs {_x(b['original'])}  @{b['handle'].lstrip('@')}: {b['hook'] or '(no hook text)'}")
         lines.append("")
@@ -117,7 +117,7 @@ def render(d: dict, name: str, base: str, unsubscribe: str) -> tuple[str, str]:
         lines.append("")
     p = d["pace"]
     if p.get("target"):
-        lines.append(f"This week so far: {p['done']} of {p['target']} videos filmed.")
+        lines.append(f"This week so far: {p['done']} of {p['target']} posts made.")
         lines.append("")
     lines += [f"Open HookTrack: {base}/#/dashboard", "",
               f"Don't want this email? Switch it off: {base}/#/digest-off/{unsubscribe}"]

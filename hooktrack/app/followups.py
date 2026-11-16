@@ -145,7 +145,9 @@ def create_for(ws: int, hook_id: int, account_id: Optional[int] = None) -> dict:
     from . import activation
     activation.mark(ws, "hook_sent")
     out = {"created": True, "post_id": new["id"], "status": status, "label": f"{letter}{n}"}
-    if d == "SCALE" and st.get("read_on_send"):
+    # there is no transcript to read on a photo, carousel or text winner - skip the read rather than let it
+    # fail with a confusing "could not read the video" on a hook that was never a video
+    if d == "SCALE" and st.get("read_on_send") and content_type in ("short_video", "long_video"):
         out.update(_read_original(ws, hook_id))
     return out
 

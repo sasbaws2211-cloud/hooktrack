@@ -135,7 +135,7 @@ function askText(message, opts = {}) {
 const TIPS = [
   { id: 'home', hash: 'dashboard', title: 'Your home base', body: 'Finish these steps to unlock Scale / Tweak / Stop insights. You can also load sample data to explore first.' },
   { id: 'views', hash: 'views', title: 'Log views here', body: 'Type weekly view counts, or use AI screenshot entry if AI is on. This feeds the dashboard.' },
-  { id: 'hooks', hash: 'hooks', title: 'Your hooks, scored for you', body: 'Each posted video gets a score out of 30 from its real results, and a Scale / Tweak / Hold / Stop call. Press Score hooks to refresh them.' },
+  { id: 'hooks', hash: 'hooks', title: 'Your hooks, scored for you', body: 'Each posted hook gets a score out of 30 from its real results, and a Scale / Tweak / Hold / Stop call. Press Score hooks to refresh them.' },
   { id: 'posts', hash: 'pipeline', title: 'Plan content on Posts', body: 'Use the Board for stages (Idea → Posted) or switch to Calendar for dates. Same posts either way.' },
 ];
 function tipsKey() {
@@ -820,7 +820,7 @@ pages.dashboard = async app => {
   if (!s.complete) {
     const steps = [
       { ok: s.has_accounts, title: 'Add accounts', body: 'Your TikTok, Instagram, YouTube, X, LinkedIn or Facebook handles (or import a spreadsheet).', href: '#/accounts', cta: 'Add accounts' },
-      { ok: s.has_views, title: 'Pull in your videos and views', body: 'Press Sync on Hooks: your posts and their views come in by themselves from your handles. You can also log views by hand.', href: '#/hooks', cta: 'Open hooks', need: s.has_accounts },
+      { ok: s.has_views, title: 'Pull in your posts and views', body: 'Press Sync on Hooks: your posts and their views come in by themselves from your handles. You can also log views by hand.', href: '#/hooks', cta: 'Open hooks', need: s.has_accounts },
       { ok: s.has_scored_hook, title: 'See your first decisions', body: 'Once a few videos are in, each gets Scale / Tweak / Stop against its own account’s normal.', href: '#/hooks', cta: 'Open hooks', need: s.has_accounts },
       { ok: state.ai.available, title: 'AI help', body: state.ai.available ? 'On: screenshot reading, hook ideas and weekly plans.' : 'Not set up on this server yet. Manual entry works without it.', href: '#/settings', cta: 'Settings', optional: true },
     ];
@@ -904,8 +904,8 @@ pages.dashboard = async app => {
     <button class="btn sm" id="next-dismiss">Dismiss</button>
   </div>` : ''}
   <div class="grid kpis">
-    <div class="card kpi"><div class="label">Views this week${d.week_estimated ? ' <span title="Some days are estimated from your videos\' totals" class="muted">(~)</span>' : ''}</div><div class="value">${d.week_estimated ? '~' : ''}${fmt(d.week_views)}</div>
-      <div class="delta" title="What your synced videos gained so far today">${d.today_views ? `${fmt(d.today_views)} so far today` : 'today not counted yet'}</div>
+    <div class="card kpi"><div class="label">Views this week${d.week_estimated ? ' <span title="Some days are estimated from your posts\' totals" class="muted">(~)</span>' : ''}</div><div class="value">${d.week_estimated ? '~' : ''}${fmt(d.week_views)}</div>
+      <div class="delta" title="What your synced posts gained so far today">${d.today_views ? `${fmt(d.today_views)} so far today` : 'today not counted yet'}</div>
       <div class="delta ${delta > 0 ? 'up' : delta < 0 ? 'down' : ''}">${delta == null ? 'No prior week' : `${delta > 0 ? '▲' : delta < 0 ? '▼' : ''} ${Math.abs(delta)}% vs last week`}</div></div>
     <div class="card kpi"><div class="label">Avg / account</div><div class="value">${fmt(d.avg_per_account)}</div><div class="delta">${d.accounts} accounts</div></div>
     <div class="card kpi"><div class="label">Scale</div><div class="value up">${d.decisions.SCALE}</div><div class="delta">${fmt(d.settings.scale_weekly)}+ weekly &amp; strong hook score</div></div>
@@ -1014,7 +1014,7 @@ pages.dashboard = async app => {
     el.className = ''; el.innerHTML = pace + (items.length
       ? `<ul class="list">${items.map(x => `<li><span class="badge" style="min-width:26px;text-align:center">${x.count}</span>
           <a href="${x.href}" style="flex:1;${x.quiet ? 'opacity:.7' : ''}">${esc(x.text)}</a></li>`).join('')}</ul>`
-      : '<p class="muted">Nothing is waiting on you. Sync to pull in new videos.</p>');
+      : '<p class="muted">Nothing is waiting on you. Sync to pull in new content.</p>');
   }).catch(() => { const el = $('#next-body'); if (el) el.textContent = ''; });
     const box = $('#activity-list');
     if (!box) return;
@@ -1292,7 +1292,7 @@ function postModal(post, defaults, onDone) {
         : approvalStatusLine(p.approval) || (p.scheduled_for ? `📅 Scheduled ${esc(fmtWhen(p.scheduled_for))} (${esc(wsTz())})` : '')}</div>
     ${p.external_id ? '' : `<div class="full" id="linkblock" ${['posted', 'analysed'].includes(normStatus(p.status)) || p.url || p.result_post_id || !canUpload(initialFormat) ? '' : 'hidden'}><label for="posturl" id="posturl-label">Posted video link</label>
       <input id="posturl" type="url" inputmode="url" placeholder="https://www.tiktok.com/@you/video/…" value="${esc(p.url || '')}">
-      ${!p.result_post_id && p.id ? '<div style="margin-top:6px"><button class="btn sm" id="findvid" type="button">🔎 Find it in synced videos</button></div>' : ''}
+      ${!p.result_post_id && p.id ? '<div style="margin-top:6px"><button class="btn sm" id="findvid" type="button">🔎 Find it in synced content</button></div>' : ''}
       <div class="small muted" style="margin-top:4px">${p.result_post_id
         ? '✓ Linked to the synced post: its results show on this card.'
         : `Paste the full address once it is posted. After the next sync this card shows how it really did. (Short vm.tiktok.com links cannot be matched: open the ${isVideoFormat(initialFormat) ? 'video' : isImageFormat(initialFormat) ? 'photo' : 'post'} and copy the address bar.)`}</div></div>`}
@@ -1339,7 +1339,7 @@ function postModal(post, defaults, onDone) {
     }
     if (pf && pf.baseline_source === 'peer' && pf.peer) {
       parts.push(`<div class="sig-row"><div class="sig-title">Compared with similar accounts</div>
-        <div class="small">This account has ${pf.own_mature} judged post${pf.own_mature === 1 ? '' : 's'} so far, so this video is measured against ${esc(pf.peer.who)}: a typical account posts about <b>${fmt(pf.baseline)}</b> views (middle half: ${fmt(pf.peer.p25)} to ${fmt(pf.peer.p75)}). ${pf.own_needed > 0 ? `After ${pf.own_needed} more judged post${pf.own_needed === 1 ? '' : 's'} it is measured against this account's own history.` : ''}</div>
+        <div class="small">This account has ${pf.own_mature} judged post${pf.own_mature === 1 ? '' : 's'} so far, so this post is measured against ${esc(pf.peer.who)}: a typical account posts about <b>${fmt(pf.baseline)}</b> views (middle half: ${fmt(pf.peer.p25)} to ${fmt(pf.peer.p75)}). ${pf.own_needed > 0 ? `After ${pf.own_needed} more judged post${pf.own_needed === 1 ? '' : 's'} it is measured against this account's own history.` : ''}</div>
         <div class="small muted">Based on ${pf.peer.n_accounts} ${pf.peer.source === 'users' ? 'HookTrack accounts (anonymous)' : 'public accounts we sampled'}.${pf.peer.exact ? '' : ' A broader group is used because this niche and size has too few accounts yet.'} It is an early read: low confidence.</div></div>`);
     }
     if (pf && pf.growth_note) {
@@ -2285,7 +2285,7 @@ pages.pipeline = async app => {
                   return chips.join('');
                 })()}
               </div>
-              ${p.result ? `<div class="pipe-result" title="Real results from the synced video">📊 ${fmt(p.result.views)} views${p.result.multiple != null ? ` · ${p.result.multiple}× normal` : ''}${p.result.original_multiple != null ? ` <span class="muted">(original ${p.result.original_multiple}×)</span>` : ''}
+              ${p.result ? `<div class="pipe-result" title="Real results from the synced post">📊 ${fmt(p.result.views)} views${p.result.multiple != null ? ` · ${p.result.multiple}× normal` : ''}${p.result.original_multiple != null ? ` <span class="muted">(original ${p.result.original_multiple}×)</span>` : ''}
                   ${(() => {
                     const v = p.verdict || p.result.verdict;
                     const t = { beat: '✓ beat the original', matched: '≈ matched the original', fell_short: '↓ fell short of the original' }[v];
@@ -2297,10 +2297,10 @@ pages.pipeline = async app => {
                 : (s === 'posted' ? (() => {
                     // a pasted link, or a post HookTrack published itself, is matched by the sync without any help:
                     // the manual match is only offered when that has had its chance and still found nothing
-                    if (p.url) return '<div class="pipe-result muted" title="The next sync will find this video from the link you pasted">⏳ waiting for sync</div>';
+                    if (p.url) return '<div class="pipe-result muted" title="The next sync will find this post from the link you pasted">⏳ waiting for sync</div>';
                     const ageDays = Math.round((parseISO(iso(nowLocal())) - parseISO(p.post_date)) / 864e5);
                     if (p.external_post_id && ageDays < 3) return '<div class="pipe-result muted" title="HookTrack published this: its link comes back on its own after the next sync">⏳ link coming back</div>';
-                    return `<button type="button" class="btn sm" data-find="${p.id}" title="No link was pasted and the sync has not matched this card: pick the posted video yourself">🔎 Link my video</button>`;
+                    return `<button type="button" class="btn sm" data-find="${p.id}" title="No link was pasted and the sync has not matched this card: pick the posted content yourself">🔎 Link my post</button>`;
                   })() : '')}
             </div>`).join('') || '<div class="muted small" style="padding:8px">Drop cards here</div>'}
           </div>
@@ -2606,7 +2606,7 @@ pages.inspiration = async app => {
       location.hash = '#/pipeline';
     };
     if (state.accounts.length <= 1) { await send(null); return; }
-    const mm = openModal(`<h2>Make an Idea from this</h2><p class="muted small">Which account is the new video for?</p>
+    const mm = openModal(`<h2>Make an Idea from this</h2><p class="muted small">Which account is the new post for?</p>
       <div class="fields"><div class="full"><label class="f">For account</label>
         <select id="ia">${state.accounts.map(a => `<option value="${a.id}">${esc(a.handle)}</option>`).join('')}</select></div></div>
       <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="ig">Add to Posts</button></div>`);
@@ -2642,7 +2642,7 @@ function inspirationModal(onDone) {
     <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="save">Save</button></div>`, true);
   $('#fill', m).onclick = guard(async () => {
     const u = $('#url', m).value.trim();
-    if (!u) throw new Error('Paste a video link first');
+    if (!u) throw new Error('Paste a post link first');
     const b = $('#fill', m); busy(b, true, 'Reading…');
     let r;
     try { r = await api('POST', '/api/inspiration/lookup', { url: u }); } finally { busy(b, false); }
@@ -2654,7 +2654,7 @@ function inspirationModal(onDone) {
       r.comments != null ? `${fmt(r.comments)} comments` : '', r.duration_s ? `${Math.round(r.duration_s)} s` : '',
       r.sound ? `sound: ${r.sound}` : ''].filter(Boolean).join(' · ');
     setIfEmpty('#notes', facts);
-    $('#fill-note', m).textContent = `Read ${r.platform} video${r.handle ? ' by @' + r.handle.replace(/^@/, '') : ''}. Edit anything, then save.`;
+    $('#fill-note', m).textContent = `Read ${r.platform} post${r.handle ? ' by @' + r.handle.replace(/^@/, '') : ''}. Edit anything, then save.`;
   });
   $('#save', m).onclick = guard(async () => {
     const fd = new FormData();
@@ -2705,17 +2705,17 @@ function planModal() {
 const POST_AS = { SCALE: 'Scripted', MUTATE: 'Idea' };
 // where a day's number came from: typed, a screenshot read by AI, the sync's formula, or an estimate
 const srcClass = s => ({ ai: 'ai', sociavault: 'sv', estimated: 'est' }[s] || '');
-const srcTitle = s => ({ ai: 'Read from a screenshot by AI', sociavault: 'Synced: what your videos gained that day',
-  estimated: 'Estimated from your videos\' totals; replaced by the exact number as syncs arrive', manual: 'Typed by hand' }[s] || '');
+const srcTitle = s => ({ ai: 'Read from a screenshot by AI', sociavault: 'Synced: what your posts gained that day',
+  estimated: 'Estimated from your posts\' totals; replaced by the exact number as syncs arrive', manual: 'Typed by hand' }[s] || '');
 const SETTLE_DAYS = 3;
 const stillGrowing = p => {
   const d = p && p.post_date ? parseISO(p.post_date) : null;
   return !!d && (nowLocal() - d) / 864e5 < SETTLE_DAYS;
 };
-// "Is this your video?": synced videos that could be the one a card became, so the link need not be pasted.
+// "Is this your post?": synced posts that could be the one a card became, so the link need not be pasted.
 async function findVideoModal(card, done) {
-  const m = openModal(`<h2>Find the posted video</h2>
-    <p class="muted small">Videos from <b>${esc(card.handle || 'this account')}</b> posted since this card was made, best match first.
+  const m = openModal(`<h2>Find the posted content</h2>
+    <p class="muted small">Posts from <b>${esc(card.handle || 'this account')}</b> made since this card was made, best match first.
       Confirm yours and its results come back to the card.</p><div id="fv-list" class="muted small">Looking…</div>
     <div class="actions"><button class="btn" data-close>Close</button></div>`);
   let r;
@@ -2728,7 +2728,7 @@ async function findVideoModal(card, done) {
         <div class="small muted">${esc(c.post_date)} · ${fmt(c.views)} views${c.similarity ? ` · ${Math.round(c.similarity * 100)}% same words` : ''}
         ${c.url ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">open ↗</a>` : ''}</div></span>
       <button class="btn sm primary" data-pick="${c.post_id}" type="button">This one</button></li>`).join('')}</ul>`
-    : '<p class="muted">No synced video from this account since the card was made. Post it, press Sync on Hooks, then try again.</p>';
+    : '<p class="muted">No synced post from this account since the card was made. Post it, press Sync on Hooks, then try again.</p>';
   $$('[data-pick]', m).forEach(b => (b.onclick = guard(async () => {
     await api('POST', `/api/posts/${card.id}/link`, { post_id: +b.dataset.pick });
     toast('Linked: its results are on the card');
@@ -2736,11 +2736,11 @@ async function findVideoModal(card, done) {
   })));
 }
 
-// Which account is the new video for? Defaults to the hook's own; with several accounts the user picks.
+// Which account is the new post for? Defaults to the hook's own; with several accounts the user picks.
 function sendHookModal(hook, done) {
   const m = openModal(`<h2>Send to Posts</h2>
     <p class="muted small">“${esc(short(hook.hook || '(no hook)', 90))}” is a <b>${esc(PIPE_LABEL[hook.decision === 'SCALE' ? 'scripted' : 'idea'])}</b> next step.
-      Which account is the new video for? Pick another account in the same niche to try the winner there.</p>
+      Which account is the new post for? Pick another account in the same niche to try the winner there.</p>
     <div class="fields"><div class="full"><label class="f">For account</label>
       <select id="sh-acc">${state.accounts.map(a => `<option value="${a.id}" ${a.id === hook.account_id ? 'selected' : ''}>${esc(a.handle)}${a.id === hook.account_id ? ' (same account)' : ''}</option>`).join('')}</select></div></div>
     <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="sh-go">Send to Posts</button></div>`);
@@ -2768,7 +2768,7 @@ pages.hooks = async app => {
   if (state.hookWinners) posts = posts.filter(p => p.perf && p.perf.label === 'WINNER');
   const hasSS = posts.some(p => p.saves != null || p.shares != null);      // only show columns that have data
   const hasLikes = posts.some(p => p.likes != null);
-  app.innerHTML = `<div class="page-head"><div><h1>Hooks</h1><div class="sub">Your posted videos, pulled in from your accounts. Press Post on a Scale hook (Scripted) or a Tweak hook (Idea) to send it to Posts. Rules: Scale ${state.settings.scale_vsc}+, Tweak ${state.settings.mutate_vsc}–${state.settings.scale_vsc - 1}, Stop below.</div></div>
+  app.innerHTML = `<div class="page-head"><div><h1>Hooks</h1><div class="sub">Your posted content, pulled in from your accounts. Press Post on a Scale hook (Scripted) or a Tweak hook (Idea) to send it to Posts. Rules: Scale ${state.settings.scale_vsc}+, Tweak ${state.settings.mutate_vsc}–${state.settings.scale_vsc - 1}, Stop below.</div></div>
     <div class="row"><select id="fs" style="width:auto"><option value="">All statuses</option>${['posted', 'analysed'].map(s => `<option value="${s}" ${state.hookStatus === s ? 'selected' : ''}>${PIPE_LABEL[s]}</option>`).join('')}</select>
       <button class="btn" id="scorehooks" title="Score every judged hook from its real results (free, no AI). This also runs after every sync.">Score hooks</button>
       <button class="btn" id="simdec" title="What if thresholds changed?">Simulate thresholds</button>
@@ -2786,7 +2786,7 @@ pages.hooks = async app => {
       <td class="num">${viewsCell(p)}</td><td class="num">${winnerChip(p.perf, p)}</td>${hasLikes ? `<td class="num">${p.likes == null ? '<span class="muted">-</span>' : fmt(p.likes)}</td>` : ''}<td class="num">${fmt(p.comments)}</td>${hasSS ? `<td class="num">${p.saves == null ? '<span class="muted">-</span>' : fmt(p.saves)}</td><td class="num">${p.shares == null ? '<span class="muted">-</span>' : fmt(p.shares)}</td>` : ''}<td class="num">${p.perf && p.perf.intent_per_1k != null ? p.perf.intent_per_1k : '<span class="muted">-</span>'}</td><td class="num">${p.perf && p.perf.comments_read ? `<span title="${p.perf.buy_comments} want to buy, ${p.perf.ask_comments} ask how/where; ${p.perf.comments_read} comments read">${p.perf.intent_comments}<span class="muted"> / ${p.perf.comments_read}</span></span>` : '<span class="muted" title="Open the post and read its comments">-</span>'}</td><td>${p.intent ? '✓' : ''}</td>
       <td class="num">${p.vsc == null ? '<span class="muted">—</span>' : p.vsc + '/30'}${p.score_by === 'auto' ? ` <span class="muted small" title="${esc(p.score_reasoning || 'Calculated from this video’s real results against the account’s normal')}">auto</span>` : ''}${p.score_by === 'ai' ? ` <span title="${p.score_blind === true ? 'AI score on the wording alone' : p.score_blind === false ? 'AI score that saw the results' : 'AI score'}">${p.score_blind === false ? '✨*' : '✨'}</span>` : ''}${p.score_confidence != null ? ` <span class="muted small" title="Confidence">${Math.round(p.score_confidence*100)}%</span>` : ''}</td><td title="${esc(p.decision_basis || '')}">${pill(p.decision)}${p.decision ? `<div class="muted small">${decisionSource(p)}</div>` : ''}</td>
       <td>${postCell(p)}</td></tr>`).join('')}</tbody></table></div>`
-      : `<div class="empty card"><h2>No posted videos yet</h2><p>Hooks fills itself from your accounts: add your TikTok, Instagram, YouTube, X, LinkedIn or Facebook handles, then press Sync. Posted videos and their views appear here.</p>
+      : `<div class="empty card"><h2>No posted content yet</h2><p>Hooks fills itself from your accounts: add your TikTok, Instagram, YouTube, X, LinkedIn or Facebook handles, then press Sync. Posted content and its views appear here.</p>
       <div class="row" style="justify-content:center;gap:8px;margin-top:12px">
         <a class="btn primary" href="#/accounts">Add accounts</a>
       </div></div>`}`;
@@ -2806,7 +2806,7 @@ pages.hooks = async app => {
   $$('[data-post-hook]', app).forEach(b => (b.onclick = guard(async e => {
     e.stopPropagation();
     const h = posts.find(x => x.id === +b.dataset.postHook);
-    if (h && h.made_from && !await askConfirm(`This video is itself a copy you made (generation ${h.made_from.generation}). Make another copy of it?`, {danger: false, ok: 'Make another copy'})) return;
+    if (h && h.made_from && !await askConfirm(`This post is itself a copy you made (generation ${h.made_from.generation}). Make another copy of it?`, {danger: false, ok: 'Make another copy'})) return;
     if (state.accounts.length > 1) { sendHookModal(posts.find(h => h.id === +b.dataset.postHook), route); return; }
     const r = await api('POST', `/api/posts/${b.dataset.postHook}/followup`);
     toast(`Added to Posts as ${PIPE_LABEL[r.status] || r.status}` + (r.read === 'done' ? ' · video read' : r.read === 'failed' ? ` · could not read the video (${r.read_error})` : ''), r.read === 'failed');
@@ -2830,7 +2830,7 @@ pages.hooks = async app => {
     const card = document.createElement('div');
     card.className = 'card';
     card.style.margin = '0 0 12px';
-    card.innerHTML = `<h3 style="margin:0 0 4px">Matching videos of winners</h3>
+    card.innerHTML = `<h3 style="margin:0 0 4px">Matching posts of winners</h3>
       <div class="small muted" style="margin-bottom:6px">${sc.clones} made · ${sc.measured} measured so far</div>
       ${sc.measured ? `<div class="row" style="gap:18px;flex-wrap:wrap"><div><b>${sc.winners}</b> <span class="muted small">winners</span></div>
         <div><b>${sc.average}</b> <span class="muted small">about normal</span></div><div><b>${sc.duds}</b> <span class="muted small">duds</span></div>
@@ -3272,7 +3272,7 @@ pages.accounts = async app => {
       <span class="dot" style="background:${esc(p.color)}"></span><b>${esc(p.label)}</b><span class="muted">${rows.length} accounts</span><span class="spacer"></span>
       ${p.id ? `<button class="btn sm" data-ep="${p.id}">Edit</button>` : ''}</div>
       ${rows.length ? `<div class="table-wrap" style="box-shadow:none"><table><thead><tr><th>Handle</th><th>Platform</th><th>Niche</th><th>Status</th><th class="num" title="From the platform profile, refreshed weekly (or on a full sync)">Followers</th><th class="num">Posts/day</th><th>Content hook</th><th>Sync</th><th></th></tr></thead><tbody>
-      ${rows.map(a => `<tr><td class="handle"><button type="button" class="pin-btn ${getPins().has(String(a.id)) ? 'on' : ''}" data-pin="${a.id}" title="Pin account">${getPins().has(String(a.id)) ? '★' : '☆'}</button> ${esc(a.handle)}${a.client_id ? `<div class="small muted">${esc((state.clients.find(c => c.id === a.client_id) || {}).name || '')}</div>` : ''}</td><td>${esc(a.platform)}</td><td>${esc(a.niche)}${a.baseline_needed > 0 ? `<div class="small muted" title="Until an account has ${a.judged_posts + a.baseline_needed} judged posts, its videos are compared with similar accounts instead of its own history">${a.judged_posts} of ${a.judged_posts + a.baseline_needed} posts to its own baseline</div>` : ''}</td><td>${pill(a.status, a.status === 'active' ? 'posted' : a.status === 'killed' ? 'KILL' : 'HOLD')}</td>
+      ${rows.map(a => `<tr><td class="handle"><button type="button" class="pin-btn ${getPins().has(String(a.id)) ? 'on' : ''}" data-pin="${a.id}" title="Pin account">${getPins().has(String(a.id)) ? '★' : '☆'}</button> ${esc(a.handle)}${a.client_id ? `<div class="small muted">${esc((state.clients.find(c => c.id === a.client_id) || {}).name || '')}</div>` : ''}</td><td>${esc(a.platform)}</td><td>${esc(a.niche)}${a.baseline_needed > 0 ? `<div class="small muted" title="Until an account has ${a.judged_posts + a.baseline_needed} judged posts, its posts are compared with similar accounts instead of its own history">${a.judged_posts} of ${a.judged_posts + a.baseline_needed} posts to its own baseline</div>` : ''}</td><td>${pill(a.status, a.status === 'active' ? 'posted' : a.status === 'killed' ? 'KILL' : 'HOLD')}</td>
         <td class="num" title="${a.followers_day ? `as of ${esc(String(a.followers_day).slice(0, 10))}` : 'no snapshot yet: run a sync'}">${a.followers == null ? '<span class="muted">-</span>' : compact(a.followers)}${a.followers_change ? `<div class="small ${a.followers_change > 0 ? 'up' : 'down'}" title="since ${esc(String(a.followers_since).slice(0, 10))}">${a.followers_change > 0 ? '+' : ''}${compact(a.followers_change)}</div>` : ''}</td>
         <td class="num">${a.times_per_day}</td><td class="muted">${esc(a.content_hook)}</td>
         <td class="muted small">${a.sync_enabled ? 'on' : 'off'}${a.last_synced_at ? `<br><span title="${esc(a.last_synced_at)}">${esc(String(a.last_synced_at).slice(0,10))}</span>` : ''}</td>
@@ -3432,7 +3432,7 @@ pages.inbox = async app => {
         <div class="row">${toggle}${acctSelect}<button class="btn sm" id="irefresh">Refresh</button></div></div>
       ${commentsNote}
       ${comments.length ? `<ul class="list">${comments.map(c => `<li style="align-items:flex-start;flex-direction:column;gap:6px${c.parent_comment_id ? ';margin-left:28px;border-left:2px solid var(--border);padding-left:10px' : ''}">
-          <div class="row" style="width:100%">${c.parent_comment_id ? '<span class="muted small">↳ reply ·</span>' : ''}<b>${esc(c.author_name || 'Someone')}</b> <span class="muted small">on "${esc(short(c.post_title || 'your video', 60))}" · ${esc(c.handle)}</span>
+          <div class="row" style="width:100%">${c.parent_comment_id ? '<span class="muted small">↳ reply ·</span>' : ''}<b>${esc(c.author_name || 'Someone')}</b> <span class="muted small">on "${esc(short(c.post_title || 'your post', 60))}" · ${esc(c.handle)}</span>
             <span class="spacer"></span><span class="small muted">${c.posted_at ? esc(String(c.posted_at).slice(0, 10)) : ''}</span></div>
           <div>${esc(c.body)}</div>
           ${c.replied_at ? `<div class="small muted">You replied: ${esc(short(c.reply_body, 140))}</div>`
@@ -3440,7 +3440,7 @@ pages.inbox = async app => {
                <button class="btn sm primary" data-reply="${c.id}">Reply</button></div>
                <div class="small" id="reply-err-${c.id}" style="color:var(--bad);display:none"></div>`}
         </li>`).join('')}</ul>`
-        : `<div class="empty card"><h2>No comments yet</h2><p>Press Refresh to check for new comments on your connected accounts' videos.</p></div>`}`;
+        : `<div class="empty card"><h2>No comments yet</h2><p>Press Refresh to check for new comments on your connected accounts' posts.</p></div>`}`;
     $('#irefresh').onclick = guard(async () => { await api('GET', `/api/inbox/comments?refresh=true${acctFilter ? '&account_id=' + acctFilter : ''}`); route(); });
     $$('[data-reply]', app).forEach(b => (b.onclick = async () => {
       const input = $(`.reply-in[data-comment="${b.dataset.reply}"]`, app);
@@ -3690,7 +3690,7 @@ pages.settings = async app => {
   <div class="card"><h2>Decision rules</h2>
     <p class="muted small">When to Scale, Tweak, or Stop an account based on weekly views and hook scores.</p>
     <div class="fields">
-    ${[['scale_weekly', 'Weekly views to Scale'], ['scale_vsc', 'Hook score to Scale (of 30)'], ['mutate_vsc', 'Hook score to Tweak (of 30)'], ['weekly_target', 'Videos to film per week (0 = no target)'], ['credit_budget', 'Monthly budget for syncing and reading videos, in credits (0 = no budget)'], ['hold_low_pct', 'Hold starts at (% of normal, 50-99)'], ['hold_high_pct', 'Hold ends at (% of normal, from 100)'], ['kill_after_posts', 'Posts before a stall = Stop'], ['stall_views', 'Views that count as a breakout'], ['winner_pct', 'Winner = % of an account\'s normal views (200 = 2×)']]
+    ${[['scale_weekly', 'Weekly views to Scale'], ['scale_vsc', 'Hook score to Scale (of 30)'], ['mutate_vsc', 'Hook score to Tweak (of 30)'], ['weekly_target', 'Posts to make per week (0 = no target)'], ['credit_budget', 'Monthly budget for syncing and reading content, in credits (0 = no budget)'], ['hold_low_pct', 'Hold starts at (% of normal, 50-99)'], ['hold_high_pct', 'Hold ends at (% of normal, from 100)'], ['kill_after_posts', 'Posts before a stall = Stop'], ['stall_views', 'Views that count as a breakout'], ['winner_pct', 'Winner = % of an account\'s normal views (200 = 2×)']]
       .map(([k, l]) => `<div><label class="f">${l}</label><input data-s="${k}" type="number" min="0" value="${S[k]}" ${admin ? '' : 'disabled'}></div>`).join('')}</div>
     <div class="small muted" id="calib" style="margin-top:10px">Checking how reliable the calls have been…</div>
     <div class="check" style="margin-top:10px"><input type="checkbox" id="read-on-send" data-s="read_on_send" ${S.read_on_send ? 'checked' : ''} ${admin ? '' : 'disabled'}>
@@ -3743,8 +3743,8 @@ pages.settings = async app => {
   <div class="card"><h2>Your account</h2><p class="muted">${esc(me.user.email)}</p>
     <div class="fields"><div><label class="f">Current password</label><input id="pw-cur" type="password" autocomplete="current-password"></div>
       <div><label class="f">New password (8+ characters)</label><input id="pw-new" type="password" autocomplete="new-password"></div></div>
-    <label class="check" style="margin-top:14px"><input type="checkbox" id="digest-on" ${me.user.digest === false ? '' : 'checked'}> Email me a weekly summary (winners, matching videos that beat their original, what is waiting)</label>
-    <label class="check"><input type="checkbox" id="hot-on" ${me.user.hot_alerts === false ? '' : 'checked'}> Email me when a video is breaking out (a very strong first day)</label>
+    <label class="check" style="margin-top:14px"><input type="checkbox" id="digest-on" ${me.user.digest === false ? '' : 'checked'}> Email me a weekly summary (winners, matching posts that beat their original, what is waiting)</label>
+    <label class="check"><input type="checkbox" id="hot-on" ${me.user.hot_alerts === false ? '' : 'checked'}> Email me when a post is breaking out (a very strong first day)</label>
     <div class="actions"><button class="btn" id="pw-go">Change password</button>${isAdmin() ? ' <button class="btn" id="digest-preview">Preview this week&rsquo;s summary</button>' : ''}</div>
     <pre id="digest-text" class="small" style="white-space:pre-wrap;display:none;margin-top:10px"></pre>
     <p class="small muted">Changing your password signs you out everywhere else.</p></div>
