@@ -14,12 +14,16 @@ from . import db, logic
 _TT = re.compile(r"tiktok\.com/(?:@[^/?#]+/)?video/(\d{6,25})")
 _YT = re.compile(r"(?:youtube\.com/(?:watch\?(?:[^#]*&)?v=|shorts/|embed/|live/)|youtu\.be/)([A-Za-z0-9_-]{11})")
 _IG = re.compile(r"instagram\.com/(?:[^/?#]+/)?(?:p|reel|reels|tv)/([A-Za-z0-9_-]{5,})")
+# X's own url (sociavault.sync_twitter_account) is always x.com/{handle}/status/{id}, where {id} is exactly the
+# tweet's external_id (rest_id) - unlike LinkedIn and Facebook, whose own ids don't reliably reappear in their
+# post URLs, so only X gets matching here.
+_X = re.compile(r"(?:x\.com|twitter\.com)/[^/?#]+/status/(\d+)")
 
 
 def key_of(url: str) -> str:
-    """'tiktok:<id>' / 'youtube:<id>' / 'instagram:<code>' for a post address, or ''."""
+    """'tiktok:<id>' / 'youtube:<id>' / 'instagram:<code>' / 'x:<id>' for a post address, or ''."""
     u = (url or "").strip()
-    for name, rx in (("tiktok", _TT), ("youtube", _YT), ("instagram", _IG)):
+    for name, rx in (("tiktok", _TT), ("youtube", _YT), ("instagram", _IG), ("x", _X)):
         m = rx.search(u)
         if m:
             return f"{name}:{m.group(1)}"
@@ -30,7 +34,7 @@ def _keys_for(row: dict) -> set[str]:
     keys = {key_of(row.get("url") or "")} - {""}
     ext = (row.get("external_id") or "").strip()
     if ext:
-        keys |= {f"tiktok:{ext}", f"youtube:{ext}", f"instagram:{ext}"}
+        keys |= {f"tiktok:{ext}", f"youtube:{ext}", f"instagram:{ext}", f"x:{ext}"}
     return keys
 
 

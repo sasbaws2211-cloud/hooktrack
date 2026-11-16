@@ -570,7 +570,17 @@ PIPELINE_ORDER = ["idea", "scripted", "filmed", "posted", "analysed"]
 STATUS_ALIASES = {"planned": "scripted"}  # normalize on write
 POST_FIELDS = {"account_id", "post_date", "status", "ai_prompt", "hook", "body", "caption",
                "views", "comments", "intent", "v", "s", "c", "score_notes",
-               "score_confidence", "score_reasoning", "parent_id", "variant_label", "experiment_id", "video_url", "url"}
+               "score_confidence", "score_reasoning", "parent_id", "variant_label", "experiment_id", "video_url", "url",
+               "content_type"}
+# What a card can be planned as. 'mixed' is logic.py's own placeholder for a synced item the sync hasn't told
+# apart yet - never something a person planning a post would pick.
+PLANNED_CONTENT_TYPES = tuple(t for t in logic.CONTENT_TYPES if t != "mixed")
+
+
+def _check_content_type(ct: Optional[str]) -> Optional[str]:
+    if ct is not None and ct not in PLANNED_CONTENT_TYPES:
+        raise HTTPException(400, f"Invalid content_type (use: {', '.join(PLANNED_CONTENT_TYPES)})")
+    return ct
 
 
 class PostIn(BaseModel):
@@ -587,6 +597,7 @@ class PostIn(BaseModel):
     v: Optional[int] = Field(None, ge=0, le=10)
     s: Optional[int] = Field(None, ge=0, le=10)
     c: Optional[int] = Field(None, ge=0, le=10)
+    content_type: Optional[str] = None   # what this is planned as: short_video/long_video/image/carousel/text
 
 
 class PostPatch(BaseModel):
@@ -610,6 +621,7 @@ class PostPatch(BaseModel):
     variant_label: Optional[str] = Field(None, max_length=40)
     experiment_id: Optional[int] = None
     url: Optional[str] = Field(None, max_length=500)       # the address of the video this card became once posted
+    content_type: Optional[str] = None   # what this is planned as: short_video/long_video/image/carousel/text
 
 
 def _normalize_status(s: str) -> str:
@@ -622,12 +634,13 @@ def _normalize_status(s: str) -> str:
 def _insert_post(ws: int, b: PostIn) -> int:
     b.status = _normalize_status(b.status)
     _own_account(ws, b.account_id)
+    _check_content_type(b.content_type)
     scored = None not in (b.v, b.s, b.c)
     row = db.one(
         "INSERT INTO posts(workspace_id, account_id, post_date, status, ai_prompt, hook, body, caption, views, "
-        "comments, intent, v, s, c, score_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        "comments, intent, v, s, c, score_by, content_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
         (ws, b.account_id, b.post_date, b.status, b.ai_prompt, b.hook, b.body, b.caption, b.views,
-         b.comments, b.intent, b.v, b.s, b.c, "manual" if scored else ""))
+         b.comments, b.intent, b.v, b.s, b.c, "manual" if scored else "", b.content_type or "short_video"))
     return row["id"]
 
 
@@ -1180,6 +1193,8 @@ def post_update(pid: int, b: PostPatch, ctx: Ctx = Depends(current)):
         d["status"] = _normalize_status(d["status"])
     if d.get("account_id") is not None:
         _own_account(ws, d["account_id"])
+    if "content_type" in d:
+        _check_content_type(d["content_type"])
     if {"v", "s", "c"} & d.keys():
         d["score_by"] = "manual"
     if isinstance(d.get("url"), str):

@@ -1227,18 +1227,27 @@ function vscDecision(t) {
   return t >= state.settings.scale_vsc ? 'SCALE' : t >= state.settings.mutate_vsc ? 'MUTATE' : 'KILL';
 }
 
+// A card of your own is planned as one of these (never 'mixed': that's logic.py's own placeholder for a
+// synced item the sync hasn't told apart yet, not something a person planning a post would pick). Only
+// short_video/long_video can actually be filmed, uploaded and published here today - the rest fall back to
+// "post it on the platform yourself, then paste the link" until that is built.
+const FORMAT_OPTIONS = [['short_video', '🎬 Short video'], ['long_video', '🎥 Long-form video'],
+  ['image', '🖼 Photo'], ['carousel', '🖼 Carousel'], ['text', '📝 Text post']];
+const isVideoFormat = ct => ct === 'short_video' || ct === 'long_video';
 function postModal(post, defaults, onDone) {
-  const p = post || { account_id: '', post_date: iso(nowLocal()), status: 'scripted', ai_prompt: '', hook: '', body: '', caption: '', views: 0, comments: 0, intent: false, v: null, s: null, c: null, ...defaults };
+  const p = post || { account_id: '', post_date: iso(nowLocal()), status: 'scripted', ai_prompt: '', hook: '', body: '', caption: '', views: 0, comments: 0, intent: false, v: null, s: null, c: null, content_type: 'short_video', ...defaults };
+  const initialFormat = p.content_type || 'short_video';
   // ---- the editor shows what this stage needs and tucks the rest away ----
   const STEPS = [['idea', 'Idea'], ['scripted', 'Scripted'], ['filmed', 'Filmed'], ['posted', 'Posted']];
   const stepOf = st => (st === 'analysed' ? 3 : Math.max(0, STEPS.findIndex(x => x[0] === st)));
-  const STAGE_HELP = {
+  const stageHelp = (st, video) => ({
     idea: 'An idea. Write the hook and caption, then mark it as scripted.',
-    scripted: 'Scripted. Film it, then drag your video into the box below.',
-    filmed: 'Filmed and ready. Choose when it goes out.',
-    posted: 'Posted. Paste the video’s link so its real results come back.',
+    scripted: video ? 'Scripted. Film it, then drag your video into the box below.'
+      : 'Scripted. Post it directly on the platform, then paste its link below.',
+    filmed: video ? 'Filmed and ready. Choose when it goes out.' : 'Ready. Post it on the platform, then paste its link below.',
+    posted: video ? 'Posted. Paste the video’s link so its real results come back.' : 'Posted. Paste its link so its real results come back.',
     analysed: 'Analysed. This is how it did.',
-  };
+  }[st] || '');
   const ctaButtons = (() => {
     if (!(post && post.id)) return '';
     if (post.external_id) {
@@ -1250,6 +1259,7 @@ function postModal(post, defaults, onDone) {
     const held = !!(state.publish && state.publish.held);
     const why = held ? state.publish.held_message
       : !on ? 'Publishing is not set up on this server yet'
+      : !isVideoFormat(initialFormat) ? 'Only video can be published from here today: post this directly on the platform, then paste its link'
       : !media ? 'Attach a video first: move the card back to Scripted, upload it, then move it to Filmed' : 'Publish to social platforms';
     return `<button class="btn primary" id="dopub" ${normStatus(p.status) === 'filmed' ? '' : 'hidden'} ${on && media && !held ? '' : 'disabled'} title="${esc(why)}">📤 Publish</button>
       <button class="btn primary" id="filmsched" hidden ${on && !held ? '' : 'disabled'} title="The video is attached: mark this card Filmed and choose when it goes out">🎬 Mark filmed &amp; schedule</button>`;
@@ -1261,23 +1271,24 @@ function postModal(post, defaults, onDone) {
   const m = openModal(`<div class="pm-head"><h2>${post ? 'Edit post' : 'New post'}</h2><button class="pm-x" type="button" data-close aria-label="Close">×</button></div>
     ${steps}
     <div class="fields pm-core">
-      <div class="full"><label class="f">Hook (first 3 seconds)</label><input id="hook" value="${esc(p.hook)}" placeholder="The line that stops the scroll"></div>
+      <div class="full"><label class="f" id="hook-label">Hook (first 3 seconds)</label><input id="hook" value="${esc(p.hook)}" placeholder="The line that stops the scroll"></div>
       <div class="full"><label class="f">Account</label><select id="account">${accountOptions(p.account_id, 'Choose…')}</select></div>
+      ${p.external_id ? '' : `<div class="full"><label class="f">Format</label><select id="format">${FORMAT_OPTIONS.map(([v, l]) => `<option value="${v}" ${initialFormat === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`}
       <div class="full"><label class="f">Caption + hashtags</label><textarea id="caption">${esc(p.caption)}</textarea></div>
     </div>
     <div class="stage-panel" id="stage-panel">
-      ${p.external_id ? '' : `<p class="stage-help" id="stage-help">${esc(STAGE_HELP[st0] || '')}</p>`}
+      ${p.external_id ? '' : `<p class="stage-help" id="stage-help">${esc(stageHelp(st0, isVideoFormat(initialFormat)))}</p>`}
       ${p.external_id ? '' : '<div class="row" style="gap:8px;margin:6px 0"><button class="btn primary" id="nextstage" type="button" hidden>Mark as scripted</button></div>'}
-      <div id="vidupload" style="margin-top:6px">${post ? '' : '<div class="small muted">Create the post first, then drag your video in here.</div>'}</div>
+      <div id="vidupload" style="margin-top:6px">${post ? '' : '<div class="small muted">Create the post first' + (isVideoFormat(initialFormat) ? ', then drag your video in here.' : '.') + '</div>'}</div>
       <div id="vidstatus" class="small" style="margin-top:6px">${p.video_url ? `🎬 <a href="${esc(p.video_url)}" target="_blank" rel="noopener">Video ready</a>` : ''}</div>
       <div id="pubstatus" class="small" style="margin-top:4px">${p.external_post_id ? `📤 Published · ${esc(p.publish_platforms || '')} · id ${esc(p.external_post_id)}`
         : approvalStatusLine(p.approval) || (p.scheduled_for ? `📅 Scheduled ${esc(fmtWhen(p.scheduled_for))} (${esc(wsTz())})` : '')}</div>
-    ${p.external_id ? '' : `<div class="full" id="linkblock" ${['posted', 'analysed'].includes(normStatus(p.status)) || p.url || p.result_post_id ? '' : 'hidden'}><label for="posturl">Posted video link</label>
+    ${p.external_id ? '' : `<div class="full" id="linkblock" ${['posted', 'analysed'].includes(normStatus(p.status)) || p.url || p.result_post_id || !isVideoFormat(initialFormat) ? '' : 'hidden'}><label for="posturl" id="posturl-label">Posted video link</label>
       <input id="posturl" type="url" inputmode="url" placeholder="https://www.tiktok.com/@you/video/…" value="${esc(p.url || '')}">
       ${!p.result_post_id && p.id ? '<div style="margin-top:6px"><button class="btn sm" id="findvid" type="button">🔎 Find it in synced videos</button></div>' : ''}
       <div class="small muted" style="margin-top:4px">${p.result_post_id
-        ? '✓ Linked to the synced video: its results show on this card.'
-        : 'Paste the full address of the video once it is posted. After the next sync this card shows how it really did. (Short vm.tiktok.com links cannot be matched: open the video and copy the address bar.)'}</div></div>`}
+        ? '✓ Linked to the synced post: its results show on this card.'
+        : `Paste the full address once it is posted. After the next sync this card shows how it really did. (Short vm.tiktok.com links cannot be matched: open the ${isVideoFormat(initialFormat) ? 'video' : 'post'} and copy the address bar.)`}</div></div>`}
       <div class="row pm-cta" style="gap:8px;margin-top:10px;flex-wrap:wrap">${ctaButtons}</div>
     </div>
     <details class="pm-more" id="pm-more"><summary>More details</summary>
@@ -1303,6 +1314,7 @@ function postModal(post, defaults, onDone) {
         <button class="btn danger" id="del" type="button">Delete</button></div></details>` : ''}
       <span class="spacer"></span><span class="save-state" id="savestate" aria-live="polite"></span><button class="btn primary" id="save">${post ? 'Done' : 'Create post'}</button></div>`);
   m.querySelector('.modal').classList.add('post-editor');
+  const curFormat = () => ($('#format', m) ? $('#format', m).value : initialFormat);
 
   // what the platform and the audience have shown so far: early velocity + what people asked for
   const signals = async (fresh) => {
@@ -1592,6 +1604,14 @@ function postModal(post, defaults, onDone) {
     if (!el) return;
     // a card that is already posted (or analysed) is past the filming step: no matching-video section on it
     if (post && post.id && !post.external_id && ['posted', 'analysed'].includes($('#status', m) ? $('#status', m).value : normStatus(post.status))) { el.innerHTML = ''; return; }
+    // only short_video/long_video can be filmed, uploaded and published here today; everything else is posted
+    // directly on the platform and linked by its posted address instead (see #linkblock)
+    if (post && post.id && !post.external_id && !isVideoFormat(curFormat())) {
+      const label = (FORMAT_OPTIONS.find(([v]) => v === curFormat()) || [, 'this'])[1].replace(/^\S+\s/, '').toLowerCase();
+      el.innerHTML = `<div class="sig-row"><div class="sig-title">No upload needed</div>
+        <div class="small">HookTrack can't upload or publish a ${esc(label)} yet. Post it directly on the platform, then paste its link below once it's live: the next sync links it automatically and its real results show here.</div></div>`;
+      return;
+    }
     const has = !!(post && post.id && post.has_video_file);
     // a Filmed card keeps the video it was filmed with: uploading and drag and drop are off until it is back on Scripted
     if (post && post.id && !post.external_id && ($('#status', m) ? $('#status', m).value : normStatus(post.status)) === 'filmed') {
@@ -1664,6 +1684,7 @@ function postModal(post, defaults, onDone) {
     return { account_id: $('#account', m).value ? +$('#account', m).value : null, post_date: $('#date', m).value, status: $('#status', m).value,
       ai_prompt: $('#prompt', m).value, hook: $('#hook', m).value, body: $('#body', m).value, caption: $('#caption', m).value,
       views: num('views'), comments: num('comments'), intent: $('#intent', m).checked,
+      ...($('#format', m) ? { content_type: $('#format', m).value } : {}),
       ...($('#posturl', m) ? { url: $('#posturl', m).value.trim() } : {}) };
   };
   let lastSaved = JSON.stringify(body());           // what the server has, for working out what changed
@@ -1683,7 +1704,7 @@ function postModal(post, defaults, onDone) {
   const stateEl = $('#savestate', m);
   let saveTimer = null, inflight = false, again = false, touched = false;
   const setState = (t, bad) => { if (stateEl) { stateEl.textContent = t; stateEl.className = 'save-state' + (bad ? ' bad' : ''); } };
-  const AUTOSAVE_FIELDS = new Set(['hook', 'account', 'caption', 'status', 'date', 'prompt', 'body', 'views', 'comments', 'intent', 'posturl']);
+  const AUTOSAVE_FIELDS = new Set(['hook', 'account', 'caption', 'status', 'date', 'prompt', 'body', 'views', 'comments', 'intent', 'posturl', 'format']);
   const flush = async () => {
     if (!post || !post.id) return;
     if (inflight) { again = true; return; }
@@ -1734,7 +1755,7 @@ function postModal(post, defaults, onDone) {
     const st = $('#status', m) ? $('#status', m).value : normStatus(post && post.status);
     const si = stepOf(st);
     $$('#steps li', m).forEach((li, i) => { li.className = i < si ? 'done' : i === si ? 'now' : ''; });
-    const help = $('#stage-help', m); if (help) help.textContent = STAGE_HELP[st] || '';
+    const help = $('#stage-help', m); if (help) help.textContent = stageHelp(st, isVideoFormat(curFormat()));
     const pf = $('#postedfields', m); if (pf) pf.hidden = !(['posted', 'analysed'].includes(st) || (post && post.external_id));
     const ns = $('#nextstage', m); if (ns) ns.hidden = !(st === 'idea' && post && post.id);
   };
@@ -1761,9 +1782,12 @@ function postModal(post, defaults, onDone) {
   const refreshLinkBlock = () => {
     const lb = $('#linkblock', m); if (!lb) return;
     const st = $('#status', m) ? $('#status', m).value : normStatus(post && post.status);
-    lb.hidden = !(['posted', 'analysed'].includes(st) || (post && (post.url || post.result_post_id)));
+    lb.hidden = !(['posted', 'analysed'].includes(st) || (post && (post.url || post.result_post_id)) || !isVideoFormat(curFormat()));
+    const lbl = $('#posturl-label', m); if (lbl) lbl.textContent = isVideoFormat(curFormat()) ? 'Posted video link' : 'Posted link';
   };
+  refreshLinkBlock();
   if ($('#status', m)) $('#status', m).addEventListener('change', refreshLinkBlock);
+  if ($('#format', m)) $('#format', m).addEventListener('change', () => { uploadBlock(); refreshStage(); refreshLinkBlock(); });
   const startPublish = async () => {
     await save();
     scheduleDialog(post, {
