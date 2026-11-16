@@ -358,7 +358,18 @@ def _twitter_content_type(legacy: dict) -> str:
     A retweet's own legacy always has empty media — the real media sits nested under its
     retweeted_status_result.result.legacy, confirmed live on three real retweets that each looked media-less
     at the outer level while actually reposting a video. Checked second, after the tweet's own media, so a
-    quote-tweet's own attached media (if any) still wins over the quoted tweet's."""
+    retweet of the account's own media-carrying tweet still classifies by that media, not a false negative.
+
+    Deliberately does NOT fall into quoted_status_result: a quote-tweet is the account's own written
+    commentary, with the quoted tweet only a reference alongside it, not the account's own payload — unlike a
+    retweet, which has no original content of its own at all. A quote-tweet with no media of its own lands as
+    'text' even when the tweet it quotes has a video.
+
+    is_quote_status and a 'RT @' retweet are NOT mutually exclusive — confirmed live on a real tweet that was
+    both (a retweet of a tweet that was itself a quote-tweet). That case still classifies correctly here,
+    because the retweeted_status_result fallback above reaches the retweeted tweet's own media regardless of
+    whether that tweet happens to also be a quote-tweet; only a quote-tweet reached with NO retweet wrapper at
+    all depends on its own media, per the paragraph above."""
     def media_types(lgc: dict) -> set:
         media = (lgc.get("extended_entities") or lgc.get("entities") or {}).get("media") or []
         return {m.get("type") for m in media if isinstance(m, dict)} if isinstance(media, list) else set()
