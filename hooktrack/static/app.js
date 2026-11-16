@@ -2541,6 +2541,7 @@ pages.studio = async app => {
       <div id="studio-toolbar" class="row" style="padding:10px;border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn sm" id="studio-add-media">+ Add media</button>
         <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
+        <button class="btn sm primary" id="studio-finish" disabled>Finish &amp; attach video</button>
         <span class="spacer"></span>
         <span class="small muted" id="studio-status">Loading editor…</span>
       </div>
@@ -2550,9 +2551,10 @@ pages.studio = async app => {
   $('#studio-back').onclick = () => { location.hash = '#/pipeline'; };
   const setStatus = t => { const el = $('#studio-status', app); if (el) el.textContent = t; };
 
-  let edit, canvas, timeline, controls, ui;
+  let edit, canvas, timeline, controls, ui, StudioSdk;
   try {
-    const { Edit, Canvas, Controls, Timeline, UIController } = await loadStudioSdk();
+    StudioSdk = await loadStudioSdk();
+    const { Edit, Canvas, Controls, Timeline, UIController } = StudioSdk;
     const seed = studioSeedEdit(post);
     edit = new Edit(seed);
     canvas = new Canvas(edit);
@@ -2565,6 +2567,7 @@ pages.studio = async app => {
     controls = new Controls(edit);
     await controls.load();
     setStatus('Ready');
+    $('#studio-finish', app).disabled = false;
   } catch (e) {
     setStatus('');
     $('[data-shotstack-studio]', app).outerHTML = `<div class="empty" style="padding:20px"><p class="muted">The editor could not load: ${esc(e.message || e)}</p></div>`;
@@ -2587,6 +2590,33 @@ pages.studio = async app => {
       await edit.addClip(0, { asset: { type: isImg ? 'image' : 'video', src }, start: 0, length: isImg ? 3 : 'auto' });
       setStatus('Added');
     } catch (err) { toast(err.message || 'Could not upload that file', true); setStatus('Ready'); }
+  });
+
+  $('#studio-finish').onclick = guard(async () => {
+    const finishBtn = $('#studio-finish', app), addBtn = $('#studio-add-media', app);
+    finishBtn.disabled = true; addBtn.disabled = true;
+    const exporter = new StudioSdk.VideoExporter(edit, canvas);
+    try {
+      const blob = await exporter.exportBlob({
+        onProgress: (fraction, stage) => setStatus(`${stage}… ${Math.round(fraction * 100)}%`),
+      });
+      setStatus('Uploading…');
+      const fd = new FormData();
+      fd.append('file', blob, 'studio-export.mp4');
+      await api('POST', `/api/posts/${post.id}/video/upload`, fd);
+      setStatus('Done — video attached to this post');
+      toast('Video attached to this post');
+    } catch (err) {
+      // ExportError carries .issues when the edit uses something the browser can't export (filters,
+      // transitions, chroma key, custom fonts, AI clips still pending, ...) - those messages are already
+      // written for a human, so show them as-is rather than just the generic ExportError message.
+      const issues = (err && err.issues) || [];
+      toast(issues.length ? issues.map(i => i.message).join(' ') : (err.message || 'Could not finish this video in the browser.'), true);
+      setStatus('Ready');
+    } finally {
+      exporter.dispose();
+      finishBtn.disabled = false; addBtn.disabled = false;
+    }
   });
 };
 
