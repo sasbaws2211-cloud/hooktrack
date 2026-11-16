@@ -131,13 +131,16 @@ def create_for(ws: int, hook_id: int, account_id: Optional[int] = None) -> dict:
 
     status, letter = KIND[d]
     n = db.one("SELECT COUNT(*) AS n FROM posts WHERE workspace_id=%s AND followup_of=%s", (ws, hook_id))["n"] + 1
+    # the new card is meant to match the winning hook: plan it as the same format, not the column's own
+    # 'short_video' default - a cloned carousel or photo post should not open as a video card
+    content_type = p.get("content_type") if p.get("content_type") in m.PLANNED_CONTENT_TYPES else "short_video"
     new = db.one(
         """INSERT INTO posts (workspace_id, account_id, post_date, status, ai_prompt, hook, body, caption,
-                              views, comments, intent, score_by, followup_of, cloned_from, variant_label)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,0,false,'',%s,%s,%s) RETURNING id""",
+                              views, comments, intent, score_by, followup_of, cloned_from, variant_label, content_type)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,0,false,'',%s,%s,%s,%s) RETURNING id""",
         (ws, target, logic.today(ws) + timedelta(days=DUE_DAYS.get(status, 3)), status, _prompt(d, p.get("decision_basis") or "", p.get("ai_prompt") or ""),
          p.get("hook") or "", p.get("body") or "", p.get("caption") or "", hook_id,
-         hook_id if d == "SCALE" else None, f"{letter}{n}"))
+         hook_id if d == "SCALE" else None, f"{letter}{n}", content_type))
     db.execute("UPDATE posts SET followup_decision=%s WHERE id=%s AND workspace_id=%s", (d, hook_id, ws))
     from . import activation
     activation.mark(ws, "hook_sent")
@@ -180,13 +183,14 @@ def make_variants(ws: int, card_id: int) -> dict:
     if existing:
         return {"created": False, "variants": [{"id": r["id"], "label": r["variant_label"]} for r in existing]}
     base = c.get("variant_label") or "T"
+    content_type = c.get("content_type") or "short_video"   # a variant is the same format as the Tweak card it's from
     out = []
     for letter, change in VARIANT_CHANGES:
         row = db.one(
             """INSERT INTO posts (workspace_id, account_id, post_date, status, ai_prompt, hook, body, caption,
-                                  views, comments, intent, score_by, followup_of, parent_id, variant_label)
-               VALUES (%s,%s,%s,'idea',%s,%s,%s,%s,0,0,false,'',%s,%s,%s) RETURNING id""",
+                                  views, comments, intent, score_by, followup_of, parent_id, variant_label, content_type)
+               VALUES (%s,%s,%s,'idea',%s,%s,%s,%s,0,0,false,'',%s,%s,%s,%s) RETURNING id""",
             (ws, c["account_id"], logic.today(ws), f"Variant {letter}. {change}"[:500], c["hook"] or "", c["body"] or "",
-             c["caption"] or "", c["followup_of"], card_id, f"{base}{letter}"))
+             c["caption"] or "", c["followup_of"], card_id, f"{base}{letter}", content_type))
         out.append({"id": row["id"], "label": f"{base}{letter}"})
     return {"created": True, "variants": out}

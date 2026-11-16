@@ -801,10 +801,11 @@ def post_duplicate(pid: int, ctx: Ctx = Depends(current)):
     src = db.one("SELECT * FROM posts WHERE id=%s AND workspace_id=%s", (pid, ws))
     if not src:
         raise HTTPException(404, "Post not found")
+    content_type = src.get("content_type") if src.get("content_type") in PLANNED_CONTENT_TYPES else "short_video"
     row = db.one(
         """INSERT INTO posts
-           (workspace_id, account_id, post_date, status, ai_prompt, hook, body, caption, views, comments, intent, score_by)
-           VALUES (%s,%s,%s,'idea',%s,%s,%s,%s,0,0,false,'')
+           (workspace_id, account_id, post_date, status, ai_prompt, hook, body, caption, views, comments, intent, score_by, content_type)
+           VALUES (%s,%s,%s,'idea',%s,%s,%s,%s,0,0,false,'',%s)
            RETURNING id""",
         (
             ws,
@@ -814,6 +815,7 @@ def post_duplicate(pid: int, ctx: Ctx = Depends(current)):
             src.get("hook") or "",
             src.get("body") or "",
             src.get("caption") or "",
+            content_type,
         ),
     )
     return _get_post(ws, row["id"])
