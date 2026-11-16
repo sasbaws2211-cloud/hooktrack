@@ -264,7 +264,17 @@ def instagram_reels(handle: str, api_key: str, max_id: Optional[str] = None) -> 
     try:
         return _get("instagram/reels", params, api_key)
     except SociaVaultError:
-        return _get("instagram/posts", params, api_key)
+        return instagram_posts(handle, api_key, next_max_id=max_id)
+
+
+def instagram_posts(handle: str, api_key: str, next_max_id: Optional[str] = None) -> dict:
+    """The full feed — Reels, photos and carousels together, in one chronological list (confirmed against
+    SociaVault's own docs: a sample item there was a Reel, not just stills). Its pagination param is
+    next_max_id, not max_id — the old instagram_reels() fallback above used to pass the wrong one."""
+    params: dict[str, Any] = {"handle": handle.lstrip("@")}
+    if next_max_id:
+        params["next_max_id"] = next_max_id
+    return _get("instagram/posts", params, api_key)
 
 
 # ---------- YouTube ----------
@@ -434,12 +444,15 @@ def _n(v):
 
 def _upsert_post(workspace_id: int, account_id: int, *, ext_id, post_date, date_estimated, hook, caption,
                  views, comments, likes=None, shares=None, saves=None, duration_s=None, url="",
-                 platform: str = "") -> int:
+                 platform: str = "", content_type: Optional[str] = None) -> int:
     """Create or refresh one synced post. Metrics the platform did not send never overwrite stored ones.
 
-    content_type is always recomputed from (platform, duration_s) via logic.content_type_for: it is how a post
-    gets compared only against others of its own kind on the same account (see logic.performance())."""
-    content_type = logic.content_type_for(platform, duration_s)
+    content_type is how a post gets compared only against others of its own kind on the same account (see
+    logic.performance()). Most platforms post one kind of thing, so (platform, duration_s) is enough — pass
+    nothing and logic.content_type_for() decides. A feed that mixes kinds per item (Instagram: Reels, photos
+    and carousels side by side) must classify each item itself and pass that classification here instead."""
+    if content_type is None:
+        content_type = logic.content_type_for(platform, duration_s)
     existing = None
     if ext_id:
         existing = db.one("SELECT id FROM posts WHERE workspace_id=%s AND account_id=%s AND external_id=%s",
@@ -742,9 +755,26 @@ def sync_tiktok_account(workspace_id: int, account_id: int, days_back: int = 14,
     }
 
 
+def _instagram_content_type(media: dict, duration_s) -> str:
+    """Instagram's own classic media_type enum, confirmed against a real synced item: 1 = photo, 2 = video
+    (Reels included), 8 = carousel/sidecar. A shape with no media_type at all (seen on some defensive fallback
+    responses) is treated as video, matching this sync's behavior before content types existed, rather than
+    guessed as something new."""
+    mt = media.get("media_type")
+    if mt == 1:
+        return "image"
+    if mt == 8:
+        return "carousel"
+    if mt == 2:
+        return "short_video"
+    return "short_video"
+
+
 def sync_instagram_account(workspace_id: int, account_id: int, days_back: int = 14,
                            mode: str = "full") -> dict:
-    """Best-effort Instagram Reels/posts sync. Field names vary; we map defensively."""
+    """Best-effort Instagram sync: Reels, photos and carousels together from one feed (instagram/posts), each
+    kept as its own content_type so a carousel is never compared against a Reel's views. Field names vary; we
+    map defensively."""
     acc = db.one(
         "SELECT * FROM accounts WHERE id=%s AND workspace_id=%s",
         (account_id, workspace_id),
@@ -774,7 +804,7 @@ def sync_instagram_account(workspace_id: int, account_id: int, days_back: int = 
     upserted = 0
     tz = logic.workspace_tz(workspace_id)
     today = logic.today_in(tz)
-    page = instagram_reels(handle, key)
+    page = instagram_posts(handle, key)
     credits += 1
     data = _payload(page)
     items = data.get("items") or data.get("reels") or data.get("posts") or data.get("data") or []
@@ -797,13 +827,17 @@ def sync_instagram_account(workspace_id: int, account_id: int, days_back: int = 
             ts = 0
         if ts and ts < cutoff:
             continue
+        vd = media.get("video_duration")
+        duration_s = float(vd) if isinstance(vd, (int, float)) and vd > 0 else None
+        content_type = _instagram_content_type(media, duration_s)
+        is_video = content_type == "short_video"
         views = int(
             media.get("video_play_count")
             or media.get("play_count")
             or media.get("view_count")
             or media.get("ig_play_count")
             or 0
-        )
+        ) if is_video else 0
         comments = int(media.get("comment_count") or media.get("comments_count") or 0)
         caption_obj = media.get("caption")
         if isinstance(caption_obj, dict):
@@ -818,15 +852,15 @@ def sync_instagram_account(workspace_id: int, account_id: int, days_back: int = 
         likes = _n(media.get("like_count"))
         shares = _n(media.get("reshare_count"))
         saves = None
-        vd = media.get("video_duration")
-        duration_s = float(vd) if isinstance(vd, (int, float)) and vd > 0 else None
         post_id = _upsert_post(
             workspace_id, account_id, ext_id=ext, post_date=post_date,
             date_estimated=date_estimated, hook=hook, caption=desc[:2200], views=views, comments=comments,
-            likes=likes, shares=shares, saves=saves, duration_s=duration_s, platform="instagram",
-                url=(f"https://www.instagram.com/reel/{media.get('code')}/" if media.get("code") else ""),)
+            likes=likes, shares=shares, saves=saves, duration_s=duration_s if is_video else None,
+            platform="instagram", content_type=content_type,
+                url=(f"https://www.instagram.com/{'reel' if is_video else 'p'}/{media.get('code')}/" if media.get("code") else ""),)
         upserted += 1
-        _record_post(workspace_id, account_id, post_id, views, today)
+        if is_video:
+            _record_post(workspace_id, account_id, post_id, views, today)
 
     daily = _apply_daily_gain(workspace_id, account_id, today)
 
