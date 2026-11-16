@@ -414,12 +414,18 @@ def linkedin_profile_url(handle: str) -> str:
     return h if h.startswith("http") else f"https://www.linkedin.com/in/{h}/"
 
 
-# ---------- Facebook (Reels only — scoped deliberately) ----------
-# Confirmed live against SociaVault's docs: facebook/profile/reels carries a real view_count, but no engagement
-# counts; facebook/profile/posts carries reactionCount/commentCount (and sometimes a null videoViewCount) but is
-# a separate, 3-per-page endpoint. The two are joined by reel.post_id == post.id. Plain (non-reel) Facebook
-# posts never carry a view count at all, so — matching the LinkedIn decision — only Reels are tracked here;
-# text/image posts are skipped entirely rather than fed in as half-data nobody asked for.
+# ---------- Facebook ----------
+# Confirmed live against real accounts: facebook/profile/reels carries a real view_count, but no engagement
+# counts; facebook/profile/posts carries reactionCount/commentCount/share_count for every post, and — only for
+# a video post — a real videoViewCount too (null for photo/text posts). The two feeds are joined by
+# reel.post_id == post.id: every Reel also reappears inside profile/posts (confirmed live), which is how that
+# feed's engagement gets matched to each Reel, and is also why a Reel found there must be skipped rather than
+# double-counted as its own post.
+#
+# Reels and non-Reel videos (both have a real view count) are scored by views like any other video, via
+# logic.performance(). Photo/text posts have no view count at all — like LinkedIn, they are still tracked
+# (likes/comments/shares) but upserted with views left at 0 and views_updated_at never set, which keeps them
+# out of the view-based winner/normal engine entirely rather than feeding it a fake number.
 
 def facebook_profile_url(handle: str) -> str:
     h = handle.lstrip("@").strip("/")
@@ -444,6 +450,18 @@ def facebook_profile_posts(url: str, api_key: str, cursor: Optional[str] = None)
     if cursor:
         params["cursor"] = cursor
     return _get("facebook/profile/posts", params, api_key)
+
+
+def _facebook_content_type(p: dict) -> str:
+    """For a facebook/profile/posts item that isn't a Reel (those are classified by the plain platform
+    default instead). videoViewCount is only ever non-null on a real video post, confirmed live; 'image' is
+    FB's own flat 'image'/'images' field, which (confirmed live) is a single photo's URLs, not a real
+    multi-photo carousel — there is no carousel signal here the way Instagram has one."""
+    if p.get("videoViewCount") is not None:
+        return "short_video"
+    if p.get("image") or p.get("images"):
+        return "image"
+    return "text"
 
 
 # ---------- Sync into HookTrack ----------
@@ -1231,8 +1249,8 @@ def sync_linkedin_account(workspace_id: int, account_id: int, days_back: int = 1
 
 def sync_facebook_account(workspace_id: int, account_id: int, days_back: int = 14,
                           mode: str = "full") -> dict:
-    """Reels only: joins facebook/profile/reels (views) with facebook/profile/posts (reactions/comments) by
-    post_id. Plain text/image posts are never synced (see the module note above)."""
+    """Joins facebook/profile/reels (views) with facebook/profile/posts (reactions/comments) by post_id, then
+    tracks every other post_id profile/posts returns too — video, photo or text (see the module note above)."""
     acc = db.one("SELECT * FROM accounts WHERE id=%s AND workspace_id=%s", (account_id, workspace_id))
     if not acc:
         raise SociaVaultError("Account not found")
@@ -1259,7 +1277,8 @@ def sync_facebook_account(workspace_id: int, account_id: int, days_back: int = 1
     today = logic.today_in(tz)
     pages = MAX_PAGES_LIGHT if light else (MAX_PAGES_HISTORY if days_back > 14 else MAX_PAGES_FULL)
 
-    def _reel_ts(r: dict) -> Optional[float]:
+    def _facebook_ts(r: dict) -> Optional[float]:
+        """Both facebook/profile/reels and facebook/profile/posts items carry 'creation_time' in this same form."""
         ct = r.get("creation_time")
         if not ct:
             return None
@@ -1280,7 +1299,7 @@ def sync_facebook_account(workspace_id: int, account_id: int, days_back: int = 1
             break
         stop_early = False
         for r in items:
-            ts = _reel_ts(r)
+            ts = _facebook_ts(r)
             if ts is not None and ts < cutoff:
                 stop_early = True
                 continue
@@ -1291,32 +1310,41 @@ def sync_facebook_account(workspace_id: int, account_id: int, days_back: int = 1
 
     db.execute("UPDATE accounts SET external_id=COALESCE(%s, external_id), last_synced_at=now() "
                "WHERE id=%s AND workspace_id=%s", (external_id, account_id, workspace_id))
-    if not reels:
-        return {"platform": "Facebook", "handle": handle, "mode": "light" if light else "full",
-                "upserted": 0, "days": 0, "manual_kept": 0, "credits_est": credits,
-                "last_synced_at": datetime.now(timezone.utc).isoformat()}
 
-    # 2) engagement (reactions/comments) from profile/posts, matched by post_id. That endpoint returns far
-    # fewer items per page than reels does, so it gets proportionally more pages — and stops early once every
-    # reel we pulled has been matched, rather than reading on for nothing.
+    # 2) facebook/profile/posts, read for two purposes at once: engagement (reactions/comments) for the
+    # reels above, matched by post_id — AND, since this endpoint also carries every plain text/image post
+    # (and the rare non-Reel video, which has a real videoViewCount of its own), every item that is NOT a
+    # Reel we already have becomes its own tracked post too. A Reel always appears again in this same feed
+    # (confirmed live), so wanted_ids doubles as the de-dupe: skip anything already covered above.
+    #
+    # Stops only on the cutoff (an item older than days_back) or running out of pages — NOT once reel
+    # engagement is fully matched: an account with few Reels but lots of plain posts would otherwise cut
+    # off right after page 1, silently missing most of its real content.
     engagement: dict[str, dict] = {}
+    other_posts: list[dict] = []
     wanted_ids = {str(r.get("post_id") or "") for r in reels}
     cursor = None
     for _ in range(pages * 4):
-        if wanted_ids <= set(engagement):
-            break
         page = facebook_profile_posts(url, key, cursor=cursor)
         credits += 1
         data = _payload(page)
         items = _listify(data.get("posts"))
         if not items:
             break
+        stop_early = False
         for p in items:
             pid = str(p.get("id") or "")
             if pid:
                 engagement[pid] = {"likes": _n(p.get("reactionCount")), "comments": _n(p.get("commentCount")) or 0}
+            if not pid or pid in wanted_ids:
+                continue
+            ts = _facebook_ts(p)
+            if ts is not None and ts < cutoff:
+                stop_early = True
+                continue
+            other_posts.append(p)
         cursor = data.get("cursor")
-        if not cursor:
+        if not cursor or stop_early:
             break
 
     upserted = 0
@@ -1324,7 +1352,7 @@ def sync_facebook_account(workspace_id: int, account_id: int, days_back: int = 1
         pid = str(r.get("post_id") or "")
         views = _n(r.get("view_count")) or 0
         eng = engagement.get(pid) or {}
-        ts = _reel_ts(r)
+        ts = _facebook_ts(r)
         date_estimated = ts is None
         post_date = _ts_to_date(ts, tz) if ts else today
         desc = (r.get("description") or "").strip()
@@ -1338,6 +1366,24 @@ def sync_facebook_account(workspace_id: int, account_id: int, days_back: int = 1
             url=str(r.get("url") or ""), platform="facebook")
         upserted += 1
         _record_post(workspace_id, account_id, post_id, views, today)
+
+    for p in other_posts:
+        pid = str(p.get("id") or "")
+        text = (p.get("text") or "").strip()
+        ts = _facebook_ts(p)
+        date_estimated = ts is None
+        post_date = _ts_to_date(ts, tz) if ts else today
+        vvc = _n(p.get("videoViewCount"))
+        views = vvc or 0
+        post_id = _upsert_post(
+            workspace_id, account_id, ext_id=pid, post_date=post_date,
+            date_estimated=date_estimated, hook=text[:200], caption=text[:2200], views=views,
+            comments=_n(p.get("commentCount")) or 0, likes=_n(p.get("reactionCount")),
+            shares=_n(p.get("share_count")), url=str(p.get("url") or ""), platform="facebook",
+            content_type=_facebook_content_type(p))
+        upserted += 1
+        if vvc is not None:
+            _record_post(workspace_id, account_id, post_id, views, today)
 
     daily = _apply_daily_gain(workspace_id, account_id, today)
     return {
