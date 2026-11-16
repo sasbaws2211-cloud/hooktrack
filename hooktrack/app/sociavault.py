@@ -349,27 +349,25 @@ def _twitter_date(s: str, tz: str = "UTC") -> date:
         return logic.today_in(tz)
 
 
-def _twitter_content_type(legacy: dict) -> str:
+def _twitter_content_type(t: dict) -> str:
     """Confirmed live against real tweets: legacy.extended_entities.media[].type is 'photo', 'video' or
     'animated_gif' when a tweet carries media, and the key is simply absent/empty for a plain text tweet.
     Unlike Instagram, X reports a real view count for every one of these, so (unlike image/carousel there)
     this is purely about comparing a post only against others of its own kind — not about missing data.
 
-    A retweet's own legacy always has empty media — the real media sits nested under its
-    retweeted_status_result.result.legacy, confirmed live on three real retweets that each looked media-less
-    at the outer level while actually reposting a video. Checked second, after the tweet's own media, so a
-    retweet of the account's own media-carrying tweet still classifies by that media, not a false negative.
+    Takes the whole tweet-result object, not just legacy, because the two fallbacks below live at different
+    depths — confirmed live, not assumed, after the first attempt at the quote-tweet one got this wrong:
 
-    By request, a quote-tweet with no media of its own now inherits the quoted tweet's media type too, via
-    quoted_status_result.result.legacy — same shape as retweeted_status_result, by this same API's own
-    convention, but NOT live-confirmed on a real quote-tweet (SociaVault credits ran out while checking):
-    verified so far only against realistically-shaped mocked data, not a real quoted_status_result payload.
+    A retweet's own legacy always has empty media — the real media sits nested under
+    legacy.retweeted_status_result.result.legacy, confirmed live on three real retweets that each looked
+    media-less at the outer level while actually reposting a video.
 
-    is_quote_status and a 'RT @' retweet are NOT mutually exclusive — confirmed live on a real tweet that was
-    both (a retweet of a tweet that was itself a quote-tweet). That case still classifies correctly here,
-    because the retweeted_status_result fallback reaches the retweeted tweet's own media regardless of
-    whether that tweet happens to also be a quote-tweet; the quoted_status_result fallback below only applies
-    when the tweet reached (outer or, after a retweet, the retweeted one) has no media of its own."""
+    A quote-tweet's legacy never holds the quoted tweet at all (only quoted_status_id_str, a bare id) — the
+    quoted tweet sits at quoted_status_result, a SIBLING of legacy on the outer tweet object. Confirmed live
+    by inspecting a real quote-tweet's raw fields directly (the first version of this fallback read
+    legacy.quoted_status_result, which is never populated on real data, so it could never have matched)."""
+    legacy = t.get("legacy") or {}
+
     def media_types(lgc: dict) -> set:
         media = (lgc.get("extended_entities") or lgc.get("entities") or {}).get("media") or []
         return {m.get("type") for m in media if isinstance(m, dict)} if isinstance(media, list) else set()
@@ -380,7 +378,7 @@ def _twitter_content_type(legacy: dict) -> str:
         rt_legacy = ((rt.get("result") or {}).get("legacy")) or {}
         types = media_types(rt_legacy)
     if not types:
-        qt = legacy.get("quoted_status_result") or {}
+        qt = t.get("quoted_status_result") or {}
         qt_legacy = ((qt.get("result") or {}).get("legacy")) or {}
         types = media_types(qt_legacy)
     if types & {"video", "animated_gif"}:
@@ -1125,7 +1123,7 @@ def sync_twitter_account(workspace_id: int, account_id: int, days_back: int = 14
                 workspace_id, account_id, ext_id=ext_id, post_date=post_date,
                 date_estimated=not created_at, hook=text.strip()[:200], caption=text.strip()[:2200],
                 views=views, comments=comments, likes=likes, shares=shares, saves=saves, url=url, platform="x",
-                content_type=_twitter_content_type(legacy))
+                content_type=_twitter_content_type(t))
             upserted += 1
             _record_post(workspace_id, account_id, post_id, views, today)
 
