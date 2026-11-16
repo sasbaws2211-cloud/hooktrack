@@ -2524,7 +2524,11 @@ function studioSeedEdit(post) {
       start: i * 3, length: 3 }));
     return { timeline: { background: '#000000', tracks: [{ clips }] }, output: { format: 'mp4', resolution: 'sd' } };
   }
-  return { timeline: { background: '#000000', tracks: [{ clips: [] }] }, output: { format: 'mp4', resolution: 'sd' } };
+  // A track needs at least one clip - Shotstack's own Edit constructor rejects an empty one outright - so
+  // a post with no media yet gets a placeholder text clip instead of a literally empty timeline. The user
+  // replaces it with "+ Add media" or "+ Add AI clip".
+  return { timeline: { background: '#000000', tracks: [{ clips: [{ asset: { type: 'text', text: 'Add your media above to get started' }, start: 0, length: 3 }] }] },
+    output: { format: 'mp4', resolution: 'sd' } };
 }
 pages.studio = async app => {
   const q = new URLSearchParams((location.hash.split('?')[1] || ''));
@@ -2543,9 +2547,13 @@ pages.studio = async app => {
       <div id="studio-toolbar" class="row" style="padding:10px;border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn sm" id="studio-add-media">+ Add media</button>
         <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
+        <button class="btn sm" id="studio-add-audio" disabled>+ Add audio</button>
+        <input type="file" id="studio-audio-upload" accept="audio/mpeg,audio/mp3,audio/mp4,audio/wav,audio/x-wav,audio/aac,audio/ogg" hidden>
+        <button class="btn sm" id="studio-add-text" disabled>+ Add text</button>
         ${state.shotstack && state.shotstack.configured ? '<button class="btn sm" id="studio-add-ai" disabled>+ Add AI clip</button>' : ''}
         <button class="btn sm" id="studio-save-draft" disabled>Save draft</button>
         ${post.studio_draft ? '<button class="btn sm" id="studio-discard-draft" disabled>Start over</button>' : ''}
+        ${!isImageFormat(post.content_type) && state.shotstack && state.shotstack.configured ? '<button class="btn sm" id="studio-render-cloud" disabled title="Renders on Shotstack\'s servers - uses your Shotstack account\'s render credits, unlike the free Finish below">Render in cloud</button>' : ''}
         <button class="btn sm primary" id="studio-finish" disabled ${locked ? `title="Move this card back to Scripted first"` : ''}>${isImageFormat(post.content_type) ? 'Finish &amp; attach images' : 'Finish &amp; attach video'}</button>
         <span class="spacer"></span>
         <span class="small muted" id="studio-status">Loading editor…</span>
@@ -2562,6 +2570,13 @@ pages.studio = async app => {
     await pages.studio(app);   // re-enter fresh with the draft gone, same hash won't fire hashchange on its own
   });
   const setStatus = t => { const el = $('#studio-status', app); if (el) el.textContent = t; };
+  // The track actually holding the image/video clips, wherever it ended up - text overlays insert a new
+  // track at index 0 (so they render on top), which shifts this one down, so its index can't be assumed.
+  const baseTrackIndex = () => {
+    const tracks = edit.getEdit().timeline.tracks;
+    const idx = tracks.findIndex(t => (t.clips || []).some(c => c.asset && (c.asset.type === 'image' || c.asset.type === 'video')));
+    return idx >= 0 ? idx : 0;
+  };
 
   let edit, canvas, timeline, controls, ui, StudioSdk, draftDirty = false;
   try {
@@ -2584,8 +2599,11 @@ pages.studio = async app => {
     setStatus(post.studio_draft ? 'Ready — restored your saved draft' : 'Ready');
     $('#studio-finish', app).disabled = locked;
     $('#studio-save-draft', app).disabled = false;
+    $('#studio-add-audio', app).disabled = false;
+    $('#studio-add-text', app).disabled = false;
     if ($('#studio-discard-draft', app)) $('#studio-discard-draft', app).disabled = false;
     if ($('#studio-add-ai', app)) $('#studio-add-ai', app).disabled = false;
+    if ($('#studio-render-cloud', app)) $('#studio-render-cloud', app).disabled = locked;
     edit.events.on('edit:changed', () => { draftDirty = true; });
     // Studio's own "Generate" toolbar only appears on a clip once a generator is registered - this is
     // the whole UI, we just resolve the prompt to a real asset. Billed in Shotstack's own generation
@@ -2636,7 +2654,7 @@ pages.studio = async app => {
       const m = openModal(`<h2>Add an AI-generated clip</h2>
         <p class="small muted" style="margin:6px 0 10px">Shotstack generates the asset from your prompt - billed to your Shotstack account's generation credits.</p>
         <label class="small muted">Type</label>
-        <select id="ai-type" style="width:100%;margin-bottom:10px"><option value="image">Image</option><option value="video">Video</option></select>
+        <select id="ai-type" style="width:100%;margin-bottom:10px"><option value="image">Image</option><option value="video">Video</option><option value="audio">Audio (text-to-speech)</option></select>
         <label class="small muted">Prompt</label>
         <textarea id="ai-prompt" rows="3" style="width:100%" placeholder="A lighthouse on a rocky coast at sunset, cinematic lighting"></textarea>
         <div class="actions"><span class="spacer"></span><button class="btn" data-close type="button">Cancel</button>
@@ -2652,9 +2670,39 @@ pages.studio = async app => {
       $('#ai-prompt', m).focus();
     });
     if (!picked) return;
-    await edit.addClip(0, { asset: { type: picked.type, prompt: picked.prompt },
-      start: 0, length: picked.type === 'video' ? 5 : 3 });
+    const clip = { asset: { type: picked.type, prompt: picked.prompt }, start: 0, length: picked.type === 'image' ? 3 : 5 };
+    // Audio needs its own track so it plays alongside the visual clips rather than sequentially after
+    // them, the way two clips sharing one track would - a new track needs its first clip in the same call.
+    if (picked.type === 'audio') await edit.addTrack(edit.getEdit().timeline.tracks.length, { clips: [clip] });
+    else await edit.addClip(baseTrackIndex(), clip);
   });
+  $('#studio-add-text').onclick = guard(async () => {
+    const text = await askText('Text to show on the video', { title: 'Add text', placeholder: 'Your text here' });
+    if (!text) return;
+    // Track 0 renders on top of later tracks, so an overlay goes at index 0 (shifting the rest down) -
+    // appending at the end would put it UNDER the existing visual track, hidden behind it. A new track
+    // needs its first clip right in the same call, addTrack rejects an empty one.
+    await edit.addTrack(0, { clips: [{ asset: { type: 'text', text }, start: 0, length: 3 }] });
+  });
+
+  $('#studio-add-audio').onclick = () => $('#studio-audio-upload', app).click();
+  $('#studio-audio-upload').onchange = guard(async e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    setStatus('Uploading audio…');
+    const fd = new FormData();
+    fd.append('file', f);
+    try {
+      const r = await api('POST', `/api/posts/${post.id}/studio-audio/upload`, fd);
+      const ext = { 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg' }[r.type] || 'mp3';
+      const src = `${location.origin}/api/posts/${post.id}/studio-audio/${r.id}/file.${ext}`;
+      const trackIdx = edit.getEdit().timeline.tracks.length;
+      await edit.addTrack(trackIdx, { clips: [{ asset: { type: 'audio', src }, start: 0, length: 5 }] });
+      setStatus('Added');
+    } catch (err) { toast(err.message || 'Could not upload that audio file', true); setStatus('Ready'); }
+  });
+
   $('#studio-upload').onchange = guard(async e => {
     const f = e.target.files && e.target.files[0];
     e.target.value = '';
@@ -2667,12 +2715,35 @@ pages.studio = async app => {
       const r = await api('POST', `/api/posts/${post.id}/${isImg ? 'images/upload' : 'video/upload'}`, fd);
       const ext = MIME_EXT[r.type] || (isImg ? 'jpg' : 'mp4');
       const src = `${location.origin}/api/posts/${post.id}/${isImg ? `images/${r.id}/file.${ext}` : `video/file.${ext}`}`;
-      await edit.addClip(0, { asset: { type: isImg ? 'image' : 'video', src }, start: 0, length: isImg ? 3 : 'auto' });
+      await edit.addClip(baseTrackIndex(), { asset: { type: isImg ? 'image' : 'video', src }, start: 0, length: isImg ? 3 : 'auto' });
       setStatus('Added');
     } catch (err) { toast(err.message || 'Could not upload that file', true); setStatus('Ready'); }
   });
 
   $('#studio-finish').onclick = guard(isImageFormat(post.content_type) ? finishImages : finishVideo);
+  if ($('#studio-render-cloud')) $('#studio-render-cloud').onclick = guard(async () => {
+    const renderBtn = $('#studio-render-cloud', app), finishBtn = $('#studio-finish', app);
+    renderBtn.disabled = true; finishBtn.disabled = true;
+    try {
+      setStatus('Submitting to Shotstack…');
+      let row = await api('POST', '/api/shotstack/render', { edit: edit.getEdit(), post_id: post.id });
+      while (row.status && !['done', 'failed'].includes(row.status)) {
+        setStatus(`Rendering… (${row.status})`);
+        await new Promise(r => setTimeout(r, 2000));
+        row = await api('GET', `/api/shotstack/render/${row.render_id}`);
+      }
+      if (row.status !== 'done' || !row.output_url) throw new Error(row.error || 'Render failed.');
+      await api('PATCH', `/api/posts/${post.id}`, { video_url: row.output_url });
+      await finishedDraftCleanup();
+      setStatus('Done — cloud-rendered video attached to this post');
+      toast('Cloud-rendered video attached to this post');
+    } catch (err) {
+      toast(err.message || 'Could not render this in the cloud.', true);
+      setStatus('Ready');
+    } finally {
+      renderBtn.disabled = locked; finishBtn.disabled = locked;
+    }
+  });
 
   async function finishVideo() {
     const finishBtn = $('#studio-finish', app), addBtn = $('#studio-add-media', app);
@@ -2715,7 +2786,9 @@ pages.studio = async app => {
     const finishBtn = $('#studio-finish', app), addBtn = $('#studio-add-media', app);
     finishBtn.disabled = true; addBtn.disabled = true;
     try {
-      const clips = ((edit.getEdit().timeline.tracks[0] || {}).clips || [])
+      // Image clips can be on any track now that text/audio get their own (text goes in at index 0 so it
+      // overlays on top, pushing the original image track down) - search all of them, not just track 0.
+      const clips = edit.getEdit().timeline.tracks.flatMap(t => t.clips || [])
         .filter(c => c.asset && c.asset.type === 'image')
         .sort((a, b) => a.start - b.start);
       if (!clips.length) { toast('No images on the timeline to finish.', true); return; }

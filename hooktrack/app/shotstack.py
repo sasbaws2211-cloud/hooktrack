@@ -14,8 +14,10 @@ dict-construction for) for no benefit.
 """
 from __future__ import annotations
 
+import copy
 import logging
 import os
+import re
 from typing import Optional
 
 import httpx
@@ -28,6 +30,44 @@ from .sociavault import platform_delete, platform_get, platform_set
 
 log = logging.getLogger("hooktrack.shotstack")
 router = APIRouter(prefix="/api/shotstack", tags=["shotstack"])
+
+# Studio builds asset URLs as same-origin, cookie-authenticated routes - the browser can fetch those
+# (Phase 4/6's free export relies on exactly that), but Shotstack's cloud render servers have no cookie
+# of ours and, in dev, no path to our loopback address at all either way. Before a cloud render these get
+# swapped for their signed, unauthenticated equivalents (the same ones publish.py already uses for other
+# providers) - matched by path alone, so it doesn't matter what origin the browser happened to use.
+_SELF_VIDEO_RE = re.compile(r"/api/posts/(\d+)/video/file(?:\.\w+)?(?:\?.*)?$")
+_SELF_IMAGE_RE = re.compile(r"/api/posts/(\d+)/images/(\d+)/file(?:\.\w+)?(?:\?.*)?$")
+_SELF_AUDIO_RE = re.compile(r"/api/posts/(\d+)/studio-audio/(\d+)/file(?:\.\w+)?(?:\?.*)?$")
+
+
+def _rewrite_src(workspace_id: int, src: str) -> str:
+    if not isinstance(src, str):
+        return src
+    from . import media
+    m = _SELF_VIDEO_RE.search(src)
+    if m:
+        return media.signed_url(workspace_id, int(m.group(1)))
+    m = _SELF_IMAGE_RE.search(src)
+    if m:
+        return media.signed_image_url_by_id(workspace_id, int(m.group(1)), int(m.group(2)))
+    m = _SELF_AUDIO_RE.search(src)
+    if m:
+        return media.signed_audio_url_by_id(workspace_id, int(m.group(1)), int(m.group(2)))
+    return src                                                   # not one of ours - leave untouched
+
+
+def _rewrite_edit_for_cloud(workspace_id: int, edit_json: dict) -> dict:
+    out = copy.deepcopy(edit_json)
+    for track in (out.get("timeline") or {}).get("tracks") or []:
+        for clip in track.get("clips") or []:
+            asset = clip.get("asset") or {}
+            if isinstance(asset.get("src"), str):
+                try:
+                    asset["src"] = _rewrite_src(workspace_id, asset["src"])
+                except ValueError as e:
+                    raise ShotstackError(str(e))
+    return out
 
 KEY_ENC, KEY_HINT, ENV_KEY = "shotstack_api_key_enc", "shotstack_key_hint", "shotstack_env"
 # Confirmed against Shotstack's own docs (request-api-keys page): sandbox and production are different hosts,
@@ -96,7 +136,7 @@ def submit_render(workspace_id: int, edit_json: dict, post_id: Optional[int] = N
     shotstack_renders row, not Shotstack's raw response."""
     if not available():
         raise ShotstackError("Video editing is not set up on this server yet.")
-    body = dict(edit_json)
+    body = _rewrite_edit_for_cloud(workspace_id, edit_json)
     if callback_url:
         body["callback"] = callback_url
     with httpx.Client(timeout=TIMEOUT) as client:

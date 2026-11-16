@@ -78,6 +78,22 @@ def sniff_image(head: bytes) -> Optional[str]:
     return None
 
 
+AUDIO_TYPES = {"mp3": "audio/mpeg", "wav": "audio/wav", "m4a": "audio/mp4", "ogg": "audio/ogg"}
+
+
+def sniff_audio(head: bytes) -> Optional[str]:
+    """The audio type from the first bytes, or None when it is not an audio file we accept."""
+    if head[:3] == b"ID3" or head[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xfa"):
+        return "mp3"
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        return "wav"
+    if head[:4] == b"OggS":
+        return "ogg"
+    if len(head) >= 12 and head[4:8] == b"ftyp":                  # m4a is an MP4 container, same as video
+        return "m4a"
+    return None
+
+
 def _post(ws: int, pid: int) -> dict:
     row = db.one("SELECT id, video_file, video_file_name, video_file_size, video_file_type, video_url "
                  "FROM posts WHERE id=%s AND workspace_id=%s", (pid, ws))
@@ -263,6 +279,24 @@ def signed_image_urls(ws: int, pid: int, ttl: int = SIGNED_TTL_S) -> list[str]:
     base = _public_base_or_raise("image")
     exp = int(time.time()) + ttl
     return [f"{base}/media/i/{ws}/{pid}/{r['id']}/{exp}/{_sign(ws, pid, r['file_path'], exp)}" for r in rows]
+
+
+def signed_image_url_by_id(ws: int, pid: int, media_id: int, ttl: int = SIGNED_TTL_S) -> str:
+    row = db.one("SELECT file_path FROM post_media WHERE id=%s AND post_id=%s AND workspace_id=%s", (media_id, pid, ws))
+    if not row:
+        raise ValueError("Image not found.")
+    base = _public_base_or_raise("image")
+    exp = int(time.time()) + ttl
+    return f"{base}/media/i/{ws}/{pid}/{media_id}/{exp}/{_sign(ws, pid, row['file_path'], exp)}"
+
+
+def signed_audio_url_by_id(ws: int, pid: int, audio_id: int, ttl: int = SIGNED_TTL_S) -> str:
+    row = db.one("SELECT file_path FROM post_audio WHERE id=%s AND post_id=%s AND workspace_id=%s", (audio_id, pid, ws))
+    if not row:
+        raise ValueError("Audio file not found.")
+    base = _public_base_or_raise("audio")
+    exp = int(time.time()) + ttl
+    return f"{base}/media/a/{ws}/{pid}/{audio_id}/{exp}/{_sign(ws, pid, row['file_path'], exp)}"
 
 
 # ---------- routes ----------
@@ -455,6 +489,91 @@ def signed_image(ws: int, pid: int, media_id: int, exp: int, sig: str):
         raise HTTPException(404, "Not found")
     return FileResponse(f, media_type=row["content_type"] or "image/jpeg",
                         headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"})
+
+
+@router.get("/media/a/{ws}/{pid}/{audio_id}/{exp}/{sig}")
+def signed_audio(ws: int, pid: int, audio_id: int, exp: int, sig: str):
+    """What Shotstack's cloud render downloads for a Studio audio clip. No cookie: the signature is the credential."""
+    row = db.one("SELECT file_path, content_type FROM post_audio WHERE id=%s AND post_id=%s AND workspace_id=%s",
+                 (audio_id, pid, ws))
+    if (not row or exp < int(time.time())
+            or not hmac.compare_digest(sig, _sign(ws, pid, row["file_path"], exp))):
+        raise HTTPException(404, "Not found")
+    f = _abs(row["file_path"])
+    if not f:
+        raise HTTPException(404, "Not found")
+    return FileResponse(f, media_type=row["content_type"] or "audio/mpeg",
+                        headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"})
+
+
+# ---------- Studio audio: voiceover/music clips added in the editor, not part of a post's real media ----------
+
+def list_audio(ws: int, pid: int) -> list[dict]:
+    return db.query(
+        "SELECT id, file_name, file_size, content_type, position FROM post_audio "
+        "WHERE post_id=%s AND workspace_id=%s ORDER BY position, id", (pid, ws))
+
+
+@router.post("/api/posts/{pid}/studio-audio/upload")
+async def studio_audio_upload(pid: int, request: Request, file: UploadFile = File(...), ctx: Ctx = Depends(current)):
+    ws = ctx.workspace_id
+    _post(ws, pid)
+    limit = max_image_bytes() * 5    # audio runs bigger than a photo but doesn't need its own env var yet
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > limit + 4096:
+        raise HTTPException(413, f"That file is too large. The limit is {limit // (1024 * 1024)} MB.")
+    folder = UPLOAD_ROOT / str(ws) / "studio-audio" / str(pid)
+    folder.mkdir(parents=True, exist_ok=True)
+    tmp = folder / f".incoming-{secrets.token_hex(6)}"
+    size, kind = 0, None
+    try:
+        with open(tmp, "wb") as out:
+            while True:
+                chunk = await file.read(CHUNK)
+                if not chunk:
+                    break
+                if kind is None:
+                    kind = sniff_audio(chunk[:16])
+                    if kind is None:
+                        raise HTTPException(415, "That is not a supported audio file. Upload an MP3, WAV, M4A or OGG file.")
+                size += len(chunk)
+                if size > limit:
+                    raise HTTPException(413, f"That file is too large. The limit is {limit // (1024 * 1024)} MB.")
+                out.write(chunk)
+        if size == 0 or kind is None:
+            raise HTTPException(400, "The file is empty.")
+        final = folder / f"{secrets.token_urlsafe(18)}.{kind}"
+        os.replace(tmp, final)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+    name = (file.filename or "audio").replace("\\", "/").rsplit("/", 1)[-1][:120]
+    next_pos = db.one("SELECT COALESCE(MAX(position), -1) + 1 AS n FROM post_audio WHERE post_id=%s AND workspace_id=%s",
+                      (pid, ws))["n"]
+    row = db.one(
+        """INSERT INTO post_audio (workspace_id, post_id, position, file_path, file_name, file_size, content_type)
+           VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (ws, pid, next_pos, f"{ws}/studio-audio/{pid}/{final.name}", name, size, AUDIO_TYPES[kind]))
+    return {"id": row["id"], "name": name, "size": size, "type": AUDIO_TYPES[kind], "position": next_pos}
+
+
+@router.get("/api/posts/{pid}/studio-audio/{audio_id}/file")
+@router.get("/api/posts/{pid}/studio-audio/{audio_id}/file.{ext}")
+@router.head("/api/posts/{pid}/studio-audio/{audio_id}/file")
+@router.head("/api/posts/{pid}/studio-audio/{audio_id}/file.{ext}")
+def studio_audio_file(pid: int, audio_id: int, ctx: Ctx = Depends(current), ext: str = ""):
+    row = db.one("SELECT * FROM post_audio WHERE id=%s AND post_id=%s AND workspace_id=%s",
+                 (audio_id, pid, ctx.workspace_id))
+    if row is None:
+        raise HTTPException(404, "Audio file not found")
+    f = _abs(row["file_path"])
+    if not f:
+        raise HTTPException(404, "Audio file not found")
+    return FileResponse(f, media_type=row["content_type"] or "audio/mpeg",
+                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
 
 
 # ---------- Studio draft: in-progress editor state, separate from the post's real video/images ----------
