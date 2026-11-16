@@ -484,7 +484,7 @@ def extract_views(cfg, text: str, images: list, accounts: list, today: date) -> 
 
 BLUEPRINT_TOOL = {
     "name": "describe_blueprint",
-    "description": "Describe how a winning short-form video is built so it can be imitated.",
+    "description": "Describe how a winning video is built so it can be imitated.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -510,7 +510,7 @@ BLUEPRINT_TOOL = {
 def structure_blueprint(cfg, post: dict, transcript: str, spoken: str, perf: dict | None, notes: str) -> dict:
     """Read the winning video's words and say how it is built. Only what the transcript and notes support."""
     system = (
-        "You study short-form videos that beat their own account's normal and explain how they are built, so a "
+        "You study videos that beat their own account's normal and explain how they are built, so a "
         "creator can make more like them. Describe mechanics, not praise. Use ONLY the transcript, caption, numbers "
         "and the owner's notes: do not invent visuals, sounds or on-screen text that are not stated. If something "
         "cannot be known, leave it out. For beat_roles describe what each beat DOES in your own words; never quote the "
@@ -561,7 +561,7 @@ HOOKS_TOOL = {
 def generate_hooks(cfg, account: dict, winners: list, losers: list, n: int, brief: str = "",
                    inspirations: list | None = None) -> list:
     system = (
-        "You write short-form video hooks for a portfolio of accounts. Winners are posts that beat their own "
+        "You write hooks for a portfolio of accounts' posts - video, photo, carousel or text. Winners are posts that beat their own "
         "account's normal performance and drew saves, shares and comments, so study what made people act, not only watch. "
         "Study the winners' patterns, "
         "avoid the losers' patterns, and use competitor/inspiration examples as few-shot style references "
@@ -617,7 +617,7 @@ PLAN_TOOL = {
 
 def plan_week(cfg, start: date, accounts: list, winners: list, days: int = 7) -> list:
     system = (
-        "You plan a week of short-form posts. Honor each account's posts-per-day. Reuse winning patterns "
+        "You plan a week of posts. Honor each account's posts-per-day. Reuse winning patterns "
         "with fresh angles; never repeat a hook verbatim. Skip accounts with 0 posts/day or status killed/paused."
     )
     acc = "\n".join(f"- {a['handle']} | niche {a['niche']} | {a['times_per_day']}/day | style {a['content_hook']}"
