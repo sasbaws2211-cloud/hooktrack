@@ -69,6 +69,26 @@ class PublishError(Exception):
         self.status = status
 
 
+def _media_items_for(post: dict, conf: dict, when=None) -> list[dict]:
+    """Every media item to send with this post, in provider-neutral form: [{"type": "image"|"video", "url": ...}].
+    A post's images (a photo post, or a carousel's several) take priority over its video - today a post is
+    planned as one or the other, never both. An uploaded image is handed over as a short-lived signed link,
+    exactly like an uploaded video already is; the same "no public address" error applies."""
+    from . import media
+    images = media.list_images(post["workspace_id"], post["id"])
+    if images:
+        ttl = media.SIGNED_TTL_S
+        if when is not None:
+            ttl = max(ttl, int((when - datetime.now(timezone.utc)).total_seconds()) + 24 * 3600)
+        try:
+            urls = media.signed_image_urls(post["workspace_id"], post["id"], ttl=ttl)
+        except ValueError as e:
+            raise PublishError(str(e))
+        return [{"type": "image", "url": u} for u in urls]
+    video_url = _media_for(post, conf, when)
+    return [{"type": "video", "url": video_url}] if video_url else []
+
+
 def _media_for(post: dict, conf: dict, when=None, stored: str = "") -> str:
     """Where the provider downloads the video from. An uploaded file is handed over as a short-lived signed link;
     that needs a public address, and if there is none we say so rather than send a link nobody can open."""
@@ -292,9 +312,11 @@ def publish_post(
                 "An earlier publish of this post was sent but never confirmed, so it may already be live. "
                 "Open Scheduled and say whether it was posted first.")
 
+    from . import media as media_mod
+    has_images = bool(media_mod.list_images(workspace_id, post_id))
     caption = (post.get("caption") or post.get("hook") or "").strip()
-    if not caption and not post.get("video_url") and not post.get("video_file"):
-        raise PublishError("Post needs a caption or a video before publishing")
+    if not caption and not post.get("video_url") and not post.get("video_file") and not has_images:
+        raise PublishError("Post needs a caption, a video or at least one image before publishing")
 
     provider, secret, conf = _dispatch_settings(workspace_id, cfg)
 
@@ -324,15 +346,17 @@ def publish_post(
                      "twitter": "X", "linkedin": "LinkedIn", "facebook": "Facebook"}
             raise PublishError("Connect your " + ", ".join(names.get(m, m) for m in missing) +
                                " account first (Connect in the publish window, or Settings, Publishing).", 409)
-    media_url = _media_for(post, conf, when_hint)
-    if provider != "mock" and not media_url and any(x.lower() in ("tiktok", "instagram", "youtube") for x in platforms):
-        raise PublishError("Attach a video first: this card has no video file or video link to publish.")
+    media_items = _media_items_for(post, conf, when_hint)
+    media_url = media_items[0]["url"] if media_items and media_items[0]["type"] == "video" else _media_for(post, conf, when_hint)
+    if provider != "mock" and not media_items and any(x.lower() in ("tiktok", "instagram", "youtube") for x in platforms):
+        raise PublishError("Attach a video or at least one image first: this card has no media to publish.")
     payload = {
         "post_id": post_id,
         "caption": caption,
         "hook": post.get("hook") or "",
         "body": post.get("body") or "",
-        "media_url": media_url,
+        "media_url": media_url,          # video only, for upload_post/ayrshare - unchanged shape, back-compatible
+        "media_items": media_items,      # video OR every image, in order - what the 'late' provider actually sends
         "platforms": platforms,
         "account_handle": (account or {}).get("handle") or "",
         "schedule_at": schedule_at,
@@ -534,6 +558,7 @@ def _dispatch(provider: str, secret: str, conf: dict, payload: dict, account: Op
 
     caption = payload["caption"]
     media_url = payload.get("media_url") or ""
+    media_items = payload.get("media_items") or []
     platforms = payload["platforms"]
     schedule_at = payload.get("schedule_at")
 
@@ -627,7 +652,12 @@ def _dispatch(provider: str, secret: str, conf: dict, payload: dict, account: Op
                 "content": caption,
                 "platforms": [{"platform": p, "accountId": ids[p]} for p in platforms],
             }
-            if media_url:
+            if media_items:
+                # Confirmed against Late/Zernio's own docs: mediaItems is an array of {type, url}, type is
+                # "image"/"video"/"gif"/"document", and several image items make a carousel (Instagram allows
+                # up to 20). Not live-verified against the real API - no API key is configured to test with.
+                body["mediaItems"] = media_items
+            elif media_url:
                 body["mediaItems"] = [{"type": "video", "url": media_url}]
             if schedule_at:
                 body["scheduledFor"] = schedule_at

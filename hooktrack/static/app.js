@@ -1228,24 +1228,29 @@ function vscDecision(t) {
 }
 
 // A card of your own is planned as one of these (never 'mixed': that's logic.py's own placeholder for a
-// synced item the sync hasn't told apart yet, not something a person planning a post would pick). Only
-// short_video/long_video can actually be filmed, uploaded and published here today - the rest fall back to
-// "post it on the platform yourself, then paste the link" until that is built.
+// synced item the sync hasn't told apart yet, not something a person planning a post would pick). Video,
+// photo and carousel can be uploaded and published here; a text post has nothing to attach, so it falls back
+// to "post it on the platform yourself, then paste the link" the same way every format did before this.
 const FORMAT_OPTIONS = [['short_video', '🎬 Short video'], ['long_video', '🎥 Long-form video'],
   ['image', '🖼 Photo'], ['carousel', '🖼 Carousel'], ['text', '📝 Text post']];
 const isVideoFormat = ct => ct === 'short_video' || ct === 'long_video';
+const isImageFormat = ct => ct === 'image' || ct === 'carousel';
+const canUpload = ct => isVideoFormat(ct) || isImageFormat(ct);
 function postModal(post, defaults, onDone) {
   const p = post || { account_id: '', post_date: iso(nowLocal()), status: 'scripted', ai_prompt: '', hook: '', body: '', caption: '', views: 0, comments: 0, intent: false, v: null, s: null, c: null, content_type: 'short_video', ...defaults };
   const initialFormat = p.content_type || 'short_video';
   // ---- the editor shows what this stage needs and tucks the rest away ----
   const STEPS = [['idea', 'Idea'], ['scripted', 'Scripted'], ['filmed', 'Filmed'], ['posted', 'Posted']];
   const stepOf = st => (st === 'analysed' ? 3 : Math.max(0, STEPS.findIndex(x => x[0] === st)));
-  const stageHelp = (st, video) => ({
+  const stageHelp = (st, fmt) => ({
     idea: 'An idea. Write the hook and caption, then mark it as scripted.',
-    scripted: video ? 'Scripted. Film it, then drag your video into the box below.'
+    scripted: isVideoFormat(fmt) ? 'Scripted. Film it, then drag your video into the box below.'
+      : isImageFormat(fmt) ? 'Scripted. Add your image' + (fmt === 'carousel' ? 's' : '') + ' below.'
       : 'Scripted. Post it directly on the platform, then paste its link below.',
-    filmed: video ? 'Filmed and ready. Choose when it goes out.' : 'Ready. Post it on the platform, then paste its link below.',
-    posted: video ? 'Posted. Paste the video’s link so its real results come back.' : 'Posted. Paste its link so its real results come back.',
+    filmed: isVideoFormat(fmt) ? 'Filmed and ready. Choose when it goes out.'
+      : isImageFormat(fmt) ? 'Ready. Choose when it goes out.'
+      : 'Ready. Post it on the platform, then paste its link below.',
+    posted: 'Posted. Paste its link so its real results come back.',
     analysed: 'Analysed. This is how it did.',
   }[st] || '');
   const ctaButtons = (() => {
@@ -1255,12 +1260,14 @@ function postModal(post, defaults, onDone) {
         ? `<button class="btn primary" id="topost" title="Add this hook to Posts as ${POST_AS[post.decision]}">Post</button>` : '';
     }
     const on = !!(state.publish && state.publish.enabled);
-    const media = !!(p.has_video_file || p.video_url || (state.publish && state.publish.config && state.publish.config.default_media_url));
+    const media = !!(p.has_video_file || p.video_url || (p.image_count > 0) || (state.publish && state.publish.config && state.publish.config.default_media_url));
     const held = !!(state.publish && state.publish.held);
     const why = held ? state.publish.held_message
       : !on ? 'Publishing is not set up on this server yet'
-      : !isVideoFormat(initialFormat) ? 'Only video can be published from here today: post this directly on the platform, then paste its link'
-      : !media ? 'Attach a video first: move the card back to Scripted, upload it, then move it to Filmed' : 'Publish to social platforms';
+      : !canUpload(initialFormat) ? 'Only video, photo and carousel posts can be published from here today: post this directly on the platform, then paste its link'
+      : !media ? (isVideoFormat(initialFormat) ? 'Attach a video first: move the card back to Scripted, upload it, then move it to Filmed'
+          : 'Add at least one image first: move the card back to Scripted, upload it, then move it to Filmed')
+      : 'Publish to social platforms';
     return `<button class="btn primary" id="dopub" ${normStatus(p.status) === 'filmed' ? '' : 'hidden'} ${on && media && !held ? '' : 'disabled'} title="${esc(why)}">📤 Publish</button>
       <button class="btn primary" id="filmsched" hidden ${on && !held ? '' : 'disabled'} title="The video is attached: mark this card Filmed and choose when it goes out">🎬 Mark filmed &amp; schedule</button>`;
   })();
@@ -1277,18 +1284,18 @@ function postModal(post, defaults, onDone) {
       <div class="full"><label class="f">Caption + hashtags</label><textarea id="caption">${esc(p.caption)}</textarea></div>
     </div>
     <div class="stage-panel" id="stage-panel">
-      ${p.external_id ? '' : `<p class="stage-help" id="stage-help">${esc(stageHelp(st0, isVideoFormat(initialFormat)))}</p>`}
+      ${p.external_id ? '' : `<p class="stage-help" id="stage-help">${esc(stageHelp(st0, initialFormat))}</p>`}
       ${p.external_id ? '' : '<div class="row" style="gap:8px;margin:6px 0"><button class="btn primary" id="nextstage" type="button" hidden>Mark as scripted</button></div>'}
-      <div id="vidupload" style="margin-top:6px">${post ? '' : '<div class="small muted">Create the post first' + (isVideoFormat(initialFormat) ? ', then drag your video in here.' : '.') + '</div>'}</div>
+      <div id="vidupload" style="margin-top:6px">${post ? '' : '<div class="small muted">Create the post first' + (isVideoFormat(initialFormat) ? ', then drag your video in here.' : isImageFormat(initialFormat) ? ', then add your image(s) here.' : '.') + '</div>'}</div>
       <div id="vidstatus" class="small" style="margin-top:6px">${p.video_url ? `🎬 <a href="${esc(p.video_url)}" target="_blank" rel="noopener">Video ready</a>` : ''}</div>
       <div id="pubstatus" class="small" style="margin-top:4px">${p.external_post_id ? `📤 Published · ${esc(p.publish_platforms || '')} · id ${esc(p.external_post_id)}`
         : approvalStatusLine(p.approval) || (p.scheduled_for ? `📅 Scheduled ${esc(fmtWhen(p.scheduled_for))} (${esc(wsTz())})` : '')}</div>
-    ${p.external_id ? '' : `<div class="full" id="linkblock" ${['posted', 'analysed'].includes(normStatus(p.status)) || p.url || p.result_post_id || !isVideoFormat(initialFormat) ? '' : 'hidden'}><label for="posturl" id="posturl-label">Posted video link</label>
+    ${p.external_id ? '' : `<div class="full" id="linkblock" ${['posted', 'analysed'].includes(normStatus(p.status)) || p.url || p.result_post_id || !canUpload(initialFormat) ? '' : 'hidden'}><label for="posturl" id="posturl-label">Posted video link</label>
       <input id="posturl" type="url" inputmode="url" placeholder="https://www.tiktok.com/@you/video/…" value="${esc(p.url || '')}">
       ${!p.result_post_id && p.id ? '<div style="margin-top:6px"><button class="btn sm" id="findvid" type="button">🔎 Find it in synced videos</button></div>' : ''}
       <div class="small muted" style="margin-top:4px">${p.result_post_id
         ? '✓ Linked to the synced post: its results show on this card.'
-        : `Paste the full address once it is posted. After the next sync this card shows how it really did. (Short vm.tiktok.com links cannot be matched: open the ${isVideoFormat(initialFormat) ? 'video' : 'post'} and copy the address bar.)`}</div></div>`}
+        : `Paste the full address once it is posted. After the next sync this card shows how it really did. (Short vm.tiktok.com links cannot be matched: open the ${isVideoFormat(initialFormat) ? 'video' : isImageFormat(initialFormat) ? 'photo' : 'post'} and copy the address bar.)`}</div></div>`}
       <div class="row pm-cta" style="gap:8px;margin-top:10px;flex-wrap:wrap">${ctaButtons}</div>
     </div>
     <details class="pm-more" id="pm-more"><summary>More details</summary>
@@ -1598,23 +1605,139 @@ function postModal(post, defaults, onDone) {
     });
   };
 
+  // ---- images: a photo post (one image) or a carousel (several, in order) ----
+  // post.images (from _get_post) only ever reaches here when the post object came from that exact endpoint;
+  // a card opened from the Pipeline board or Hooks table carries only image_count, not the full list - so
+  // this is always loaded fresh on demand instead of trusted from whatever object postModal was opened with.
+  let imgList = (post && post.id) ? null : [];   // null = not loaded yet
+  const ensureImages = async () => {
+    if (imgList !== null) return;
+    try { imgList = await api('GET', `/api/posts/${post.id}/images`); } catch { imgList = []; }
+  };
+  const IMAGE_EXT = /\.(jpe?g|png|webp)$/i;
+  const checkImage = f => {
+    if (!(String(f.type).startsWith('image/') || IMAGE_EXT.test(f.name || ''))) throw new Error('Drop a JPEG, PNG or WebP image.');
+    if (f.size > 20 * 1024 * 1024) throw new Error('That image is over 20 MB. Export a smaller one.');
+  };
+  const imgCap = () => (curFormat() === 'carousel' ? 20 : 1);
+  const zoneHtmlImg = (main, sub) => `<div id="imgdrop" class="dropzone compact" role="button" tabindex="0" aria-label="${esc(main)}">
+      <div class="dz-main">${esc(main)}</div><div class="dz-sub">${esc(sub)}</div></div>
+      <input type="file" id="imgfile" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden>`;
+  const saveImageOrder = () => api('PATCH', `/api/posts/${post.id}/images/reorder`, { ids: imgList.map(x => x.id) });
+  const wireImageActions = () => {
+    $$('[data-img-rm]', m).forEach(b => b.onclick = guard(async () => {
+      const id = +b.dataset.imgRm;
+      if (!await askConfirm('Remove this image?')) return;
+      await api('DELETE', `/api/posts/${post.id}/images/${id}`);
+      imgList = imgList.filter(x => x.id !== id);
+      imageBlock(); if (m._afterUpload) m._afterUpload(); if (onDone) onDone();
+    }));
+    $$('[data-img-up]', m).forEach(b => b.onclick = guard(async () => {
+      const i = imgList.findIndex(x => x.id === +b.dataset.imgUp);
+      if (i > 0) { [imgList[i - 1], imgList[i]] = [imgList[i], imgList[i - 1]]; await saveImageOrder(); imageBlock(); }
+    }));
+    $$('[data-img-down]', m).forEach(b => b.onclick = guard(async () => {
+      const i = imgList.findIndex(x => x.id === +b.dataset.imgDown);
+      if (i < imgList.length - 1) { [imgList[i], imgList[i + 1]] = [imgList[i + 1], imgList[i]]; await saveImageOrder(); imageBlock(); }
+    }));
+  };
+  const wireImageZone = () => {
+    const zone = $('#imgdrop', m), input = $('#imgfile', m);
+    if (!zone || !input) return;
+    const choose = () => input.click();
+    zone.onclick = choose;
+    zone.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(); } };
+    const handleFiles = async files => {
+      const room = Math.max(0, imgCap() - imgList.length);
+      const list = Array.from(files || []).slice(0, room);
+      if (!list.length) { toast(imgCap() === 1 ? 'A photo post takes one image. Switch Format to Carousel to add more.' : 'This carousel is full.', true); return; }
+      zone.classList.add('busy');
+      let added = 0;
+      try {
+        for (const f of list) {
+          try {
+            checkImage(f);
+            const fd = new FormData(); fd.append('file', f);
+            const r = await api('POST', `/api/posts/${post.id}/images/upload`, fd);
+            imgList.push({ id: r.id, file_name: r.name, file_size: r.size, content_type: r.type, position: r.position });
+            added++;
+          } catch (e) { toast(e.message || 'Could not upload that image', true); }
+        }
+      } finally {
+        if (added) { toast(added > 1 ? `${added} images added` : 'Image added'); if (m._afterUpload) m._afterUpload(); if (onDone) onDone(); }
+        imageBlock();
+      }
+    };
+    input.onchange = guard(async e => { const files = e.target.files; e.target.value = ''; await handleFiles(files); });
+    const hasFiles = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+    zone.addEventListener('dragenter', e => { if (hasFiles(e)) { e.preventDefault(); zone.classList.add('over'); } });
+    zone.addEventListener('dragover', e => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; zone.classList.add('over'); } });
+    zone.addEventListener('dragleave', e => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('over'); });
+    zone.addEventListener('drop', guard(async e => {
+      e.preventDefault(); e.stopPropagation(); zone.classList.remove('over');
+      if (hasFiles(e)) await handleFiles(e.dataTransfer.files);
+    }));
+  };
+  const imageBlock = () => {
+    const el = $('#vidupload', m);
+    if (!el) return;
+    const label = curFormat() === 'carousel' ? 'Carousel images' : 'Photo';
+    const grid = imgList.map((img, i) => `<div class="img-thumb">
+        <img src="/api/posts/${post.id}/images/${img.id}/file" alt="" loading="lazy">
+        <div class="img-thumb-bar">
+          ${i > 0 ? `<button type="button" data-img-up="${img.id}" title="Move earlier">↑</button>` : ''}
+          ${i < imgList.length - 1 ? `<button type="button" data-img-down="${img.id}" title="Move later">↓</button>` : ''}
+          <button type="button" data-img-rm="${img.id}" title="Remove">✕</button>
+        </div></div>`).join('');
+    const canAddMore = imgList.length < imgCap();
+    el.innerHTML = `<div class="sig-row"><div class="sig-title">${esc(label)}</div>
+      ${grid ? `<div class="img-grid">${grid}</div>` : ''}
+      ${canAddMore ? zoneHtmlImg(imgList.length ? 'Add another image' : 'Drag and drop image(s) here, or click to choose',
+          curFormat() === 'carousel' ? 'JPEG, PNG or WebP · up to 20 images' : 'JPEG, PNG or WebP · up to 20 MB')
+        : `<div class="small muted" style="margin-top:6px">${curFormat() === 'carousel' ? 'This carousel has its maximum 20 images.' : 'A photo post takes one image. Switch Format to Carousel to add more.'}</div>`}
+      </div>`;
+    wireImageZone();
+    wireImageActions();
+  };
 
   const uploadBlock = () => {
     const el = $('#vidupload', m);
     if (!el) return;
     // a card that is already posted (or analysed) is past the filming step: no matching-video section on it
     if (post && post.id && !post.external_id && ['posted', 'analysed'].includes($('#status', m) ? $('#status', m).value : normStatus(post.status))) { el.innerHTML = ''; return; }
-    // only short_video/long_video can be filmed, uploaded and published here today; everything else is posted
-    // directly on the platform and linked by its posted address instead (see #linkblock)
-    if (post && post.id && !post.external_id && !isVideoFormat(curFormat())) {
-      const label = (FORMAT_OPTIONS.find(([v]) => v === curFormat()) || [, 'this'])[1].replace(/^\S+\s/, '').toLowerCase();
+    // a text post has nothing to attach: it is posted directly on the platform and linked by its posted
+    // address instead (see #linkblock) - video and photo/carousel both upload and publish from here
+    if (post && post.id && !post.external_id && !canUpload(curFormat())) {
       el.innerHTML = `<div class="sig-row"><div class="sig-title">No upload needed</div>
-        <div class="small">HookTrack can't upload or publish a ${esc(label)} yet. Post it directly on the platform, then paste its link below once it's live: the next sync links it automatically and its real results show here.</div></div>`;
+        <div class="small">HookTrack can't upload or publish a text post yet. Post it directly on the platform, then paste its link below once it's live: the next sync links it automatically and its real results show here.</div></div>`;
+      return;
+    }
+    const curStatusForLock = $('#status', m) ? $('#status', m).value : normStatus(post && post.status);
+    // a Filmed card keeps the media it was filmed with: no changes until it is back on Scripted
+    if (post && post.id && !post.external_id && curStatusForLock === 'filmed' && isImageFormat(curFormat())) {
+      if (imgList === null) {
+        el.innerHTML = '<div class="small muted">Loading…</div>';
+        ensureImages().then(() => { if (m._afterUpload) m._afterUpload(); if (($('#status', m) ? $('#status', m).value : normStatus(post.status)) === 'filmed') uploadBlock(); });
+        return;
+      }
+      const lockedGrid = imgList.map(img => `<div class="img-thumb"><img src="/api/posts/${post.id}/images/${img.id}/file" alt="" loading="lazy"></div>`).join('');
+      el.innerHTML = `<div class="sig-row"><div class="sig-title">${curFormat() === 'carousel' ? 'Carousel images' : 'Photo'}</div>
+        ${lockedGrid ? `<div class="img-grid">${lockedGrid}</div>` : '<div class="small muted">No image is attached to this card.</div>'}
+        <div class="small muted" style="margin-top:6px">🔒 Changes are disabled on a Filmed card. To add, remove or reorder images, move the card back to Scripted.</div></div>`;
+      return;
+    }
+    if (post && post.id && !post.external_id && isImageFormat(curFormat())) {
+      if (imgList === null) {
+        el.innerHTML = '<div class="small muted">Loading…</div>';
+        ensureImages().then(() => { if (m._afterUpload) m._afterUpload(); if (isImageFormat(curFormat())) imageBlock(); });
+        return;
+      }
+      imageBlock();
       return;
     }
     const has = !!(post && post.id && post.has_video_file);
     // a Filmed card keeps the video it was filmed with: uploading and drag and drop are off until it is back on Scripted
-    if (post && post.id && !post.external_id && ($('#status', m) ? $('#status', m).value : normStatus(post.status)) === 'filmed') {
+    if (post && post.id && !post.external_id && curStatusForLock === 'filmed') {
       el.innerHTML = `<div class="sig-row"><div class="sig-title">Video</div>
         ${has ? fileCard() : '<div class="small muted">No video file is attached to this card.</div>'}
         <div class="small muted" style="margin-top:6px">🔒 Upload and drag and drop are disabled on a Filmed card. To add or change the video, move the card back to Scripted.</div></div>`;
@@ -1755,7 +1878,7 @@ function postModal(post, defaults, onDone) {
     const st = $('#status', m) ? $('#status', m).value : normStatus(post && post.status);
     const si = stepOf(st);
     $$('#steps li', m).forEach((li, i) => { li.className = i < si ? 'done' : i === si ? 'now' : ''; });
-    const help = $('#stage-help', m); if (help) help.textContent = stageHelp(st, isVideoFormat(curFormat()));
+    const help = $('#stage-help', m); if (help) help.textContent = stageHelp(st, curFormat());
     const pf = $('#postedfields', m); if (pf) pf.hidden = !(['posted', 'analysed'].includes(st) || (post && post.external_id));
     const ns = $('#nextstage', m); if (ns) ns.hidden = !(st === 'idea' && post && post.id);
   };
@@ -1768,11 +1891,12 @@ function postModal(post, defaults, onDone) {
     toast('Marked as scripted');
     if (onDone) onDone();
   });
-  const hasVideo = () => !!(post && (post.has_video_file || post.video_url));
+  const hasMedia = () => !!(post && (post.has_video_file || post.video_url
+    || (isImageFormat(curFormat()) && Array.isArray(imgList) && imgList.length > 0)));
   const refreshFilmSched = () => {
     const fs = $('#filmsched', m); if (!fs) return;
     const st = $('#status', m) ? $('#status', m).value : normStatus(post && post.status);
-    fs.hidden = !(post && post.id && ['idea', 'scripted'].includes(st) && hasVideo());
+    fs.hidden = !(post && post.id && ['idea', 'scripted'].includes(st) && hasMedia());
   };
   refreshFilmSched();
   if ($('#status', m)) $('#status', m).addEventListener('change', refreshFilmSched);
@@ -1782,12 +1906,13 @@ function postModal(post, defaults, onDone) {
   const refreshLinkBlock = () => {
     const lb = $('#linkblock', m); if (!lb) return;
     const st = $('#status', m) ? $('#status', m).value : normStatus(post && post.status);
-    lb.hidden = !(['posted', 'analysed'].includes(st) || (post && (post.url || post.result_post_id)) || !isVideoFormat(curFormat()));
-    const lbl = $('#posturl-label', m); if (lbl) lbl.textContent = isVideoFormat(curFormat()) ? 'Posted video link' : 'Posted link';
+    lb.hidden = !(['posted', 'analysed'].includes(st) || (post && (post.url || post.result_post_id)) || !canUpload(curFormat()));
+    const lbl = $('#posturl-label', m);
+    if (lbl) lbl.textContent = isVideoFormat(curFormat()) ? 'Posted video link' : 'Posted link';
   };
   refreshLinkBlock();
   if ($('#status', m)) $('#status', m).addEventListener('change', refreshLinkBlock);
-  if ($('#format', m)) $('#format', m).addEventListener('change', () => { uploadBlock(); refreshStage(); refreshLinkBlock(); });
+  if ($('#format', m)) $('#format', m).addEventListener('change', () => { uploadBlock(); refreshStage(); refreshLinkBlock(); refreshFilmSched(); });
   const startPublish = async () => {
     await save();
     scheduleDialog(post, {

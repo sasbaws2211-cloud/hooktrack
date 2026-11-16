@@ -1,12 +1,16 @@
-"""Videos the owner uploads from their own machine, as an alternative to provider-generated ones.
+"""Video and image files the owner uploads from their own machine, as an alternative to provider-generated ones.
 
-* Stored per workspace under uploads/<ws>/videos/<post>/ with a random name, streamed to disk with a size cap, and
-  accepted only if the first bytes really are an MP4/MOV or WebM container (a renamed file is refused).
-* The owner previews it through an authenticated route (cookie + workspace check), with range requests so the
-  player can seek.
-* A publishing provider has no cookie, so it fetches the file from a short-lived, signed, per-post link.
-  That only works when the server has a public address (HOOKTRACK_PUBLIC_URL); otherwise publishing says so
-  plainly instead of sending the provider a link it cannot open.
+* A video is stored per workspace under uploads/<ws>/videos/<post>/ with a random name, streamed to disk with a
+  size cap, and accepted only if the first bytes really are an MP4/MOV or WebM container (a renamed file is
+  refused). One per post; a new upload replaces the old one (posts.video_file et al).
+* Images (a photo post, or several for a carousel) live the same way under uploads/<ws>/images/<post>/, but as
+  an ORDERED LIST in the post_media table - a photo is one image, a carousel is several, in the order they'll
+  post. Accepted only if the first bytes really are a JPEG, PNG or WebP.
+* The owner previews either through an authenticated route (cookie + workspace check); video previews support
+  range requests so the player can seek.
+* A publishing provider has no cookie, so it fetches files from short-lived, signed, per-file links. That only
+  works when the server has a public address (HOOKTRACK_PUBLIC_URL); otherwise publishing says so plainly
+  instead of sending the provider a link it cannot open.
 """
 from __future__ import annotations
 
@@ -32,6 +36,8 @@ UPLOAD_ROOT = Path(__file__).parent.parent / "uploads"
 CHUNK = 1024 * 1024
 SIGNED_TTL_S = 48 * 3600
 TYPES = {"mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm"}
+IMAGE_TYPES = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+MAX_IMAGES = 20   # Instagram's own documented carousel ceiling; the highest of any platform we publish to
 
 
 def max_bytes() -> int:
@@ -49,6 +55,25 @@ def sniff(head: bytes) -> Optional[str]:
         return "mov" if brand == b"qt  " else "mp4"
     if head[:4] == b"\x1a\x45\xdf\xa3":                       # EBML: WebM / Matroska
         return "webm"
+    return None
+
+
+def max_image_bytes() -> int:
+    try:
+        mb = int(os.environ.get("HOOKTRACK_MAX_IMAGE_MB", "20"))
+    except ValueError:
+        mb = 20
+    return max(1, mb) * 1024 * 1024
+
+
+def sniff_image(head: bytes) -> Optional[str]:
+    """The image type from the first bytes, or None when it is not an image we accept."""
+    if head[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if head[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
     return None
 
 
@@ -95,6 +120,97 @@ def remove_file(ws: int, pid: int) -> None:
 
 def purge_post_files(ws: int, pid: int) -> None:
     shutil.rmtree(UPLOAD_ROOT / str(ws) / "videos" / str(pid), ignore_errors=True)
+    shutil.rmtree(UPLOAD_ROOT / str(ws) / "images" / str(pid), ignore_errors=True)
+
+
+# ---------- images (photo post or carousel): an ordered list per post, in post_media ----------
+
+def list_images(ws: int, pid: int) -> list[dict]:
+    return db.query(
+        "SELECT id, file_name, file_size, content_type, position FROM post_media "
+        "WHERE post_id=%s AND workspace_id=%s ORDER BY position, id", (pid, ws))
+
+
+def image_counts(ws: int, pids: list[int]) -> dict:
+    """post_id -> image count, for a batch of posts (the posts list annotates each row with this)."""
+    if not pids:
+        return {}
+    return {r["post_id"]: r["n"] for r in db.query(
+        "SELECT post_id, COUNT(*) AS n FROM post_media WHERE workspace_id=%s AND post_id = ANY(%s) GROUP BY post_id",
+        (ws, pids))}
+
+
+def _image_row(ws: int, pid: int, media_id: int) -> dict:
+    row = db.one("SELECT * FROM post_media WHERE id=%s AND post_id=%s AND workspace_id=%s", (media_id, pid, ws))
+    if row is None:
+        raise HTTPException(404, "Image not found")
+    return row
+
+
+def remove_image(ws: int, pid: int, media_id: int) -> None:
+    row = _image_row(ws, pid, media_id)
+    f = _abs(row["file_path"])
+    if f:
+        try:
+            f.unlink()
+        except OSError:
+            pass
+    db.execute("DELETE FROM post_media WHERE id=%s AND workspace_id=%s", (media_id, ws))
+
+
+def reorder_images(ws: int, pid: int, ordered_ids: list[int]) -> None:
+    """ordered_ids must be exactly this post's image ids, in the order they should post in."""
+    have = {r["id"] for r in list_images(ws, pid)}
+    if set(ordered_ids) != have:
+        raise HTTPException(400, "The list must contain exactly this post's images, each once.")
+    for i, mid in enumerate(ordered_ids):
+        db.execute("UPDATE post_media SET position=%s WHERE id=%s AND workspace_id=%s", (i, mid, ws))
+
+
+async def _store_image_upload(ws: int, pid: int, file: UploadFile, request: Request) -> dict:
+    """Validate, stream to disk and append one image to this post's ordered list."""
+    existing = list_images(ws, pid)
+    if len(existing) >= MAX_IMAGES:
+        raise HTTPException(400, f"A post can hold at most {MAX_IMAGES} images.")
+    limit = max_image_bytes()
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > limit + 4096:
+        raise HTTPException(413, f"That image is too large. The limit is {limit // (1024 * 1024)} MB.")
+    folder = UPLOAD_ROOT / str(ws) / "images" / str(pid)
+    folder.mkdir(parents=True, exist_ok=True)
+    tmp = folder / f".incoming-{secrets.token_hex(6)}"
+    size, kind = 0, None
+    try:
+        with open(tmp, "wb") as out:
+            while True:
+                chunk = await file.read(CHUNK)
+                if not chunk:
+                    break
+                if kind is None:
+                    kind = sniff_image(chunk[:16])
+                    if kind is None:
+                        raise HTTPException(415, "That is not a supported image. Upload a JPEG, PNG or WebP file.")
+                size += len(chunk)
+                if size > limit:
+                    raise HTTPException(413, f"That image is too large. The limit is {limit // (1024 * 1024)} MB.")
+                out.write(chunk)
+        if size == 0 or kind is None:
+            raise HTTPException(400, "The file is empty.")
+        final = folder / f"{secrets.token_urlsafe(18)}.{kind}"
+        os.replace(tmp, final)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+    name = (file.filename or "image").replace("\\", "/").rsplit("/", 1)[-1][:120]
+    next_pos = (max((r["position"] for r in existing), default=-1)) + 1
+    row = db.one(
+        """INSERT INTO post_media (workspace_id, post_id, position, file_path, file_name, file_size, content_type)
+           VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (ws, pid, next_pos, f"{ws}/images/{pid}/{final.name}", name, size, IMAGE_TYPES[kind]))
+    return {"id": row["id"], "name": name, "size": size, "type": IMAGE_TYPES[kind], "position": next_pos}
 
 
 # ---------- signed links for providers ----------
@@ -114,21 +230,38 @@ def _is_private_host(url: str) -> bool:
         or host.startswith("10.") or host.startswith("172.16.")
 
 
+def _public_base_or_raise(kind: str) -> str:
+    base = public_base()
+    if not base:
+        raise ValueError(f"The {kind} is stored on this server, and publishing providers need a public address "
+                         f"to download it from. Set HOOKTRACK_PUBLIC_URL to this site's public address, or use a "
+                         f"{kind} URL instead.")
+    if _is_private_host(base):
+        raise ValueError(f"HOOKTRACK_PUBLIC_URL ({base}) is not reachable from the internet, so a publishing "
+                         f"provider could not download the {kind}. Use a public address, or a {kind} URL instead.")
+    return base
+
+
 def signed_url(ws: int, pid: int, ttl: int = SIGNED_TTL_S) -> str:
     """A link a provider can use to download the uploaded video. Raises ValueError with a reason when it cannot."""
     row = db.one("SELECT video_file FROM posts WHERE id=%s AND workspace_id=%s", (pid, ws))
     if not row or not row["video_file"] or not _abs(row["video_file"]):
         raise ValueError("This post has no uploaded video file.")
-    base = public_base()
-    if not base:
-        raise ValueError("The video is stored on this server, and publishing providers need a public address to "
-                         "download it from. Set HOOKTRACK_PUBLIC_URL to this site's public address, or use a "
-                         "video URL instead.")
-    if _is_private_host(base):
-        raise ValueError(f"HOOKTRACK_PUBLIC_URL ({base}) is not reachable from the internet, so a publishing "
-                         f"provider could not download the video. Use a public address, or a video URL instead.")
+    base = _public_base_or_raise("video")
     exp = int(time.time()) + ttl
     return f"{base}/media/v/{ws}/{pid}/{exp}/{_sign(ws, pid, row['video_file'], exp)}"
+
+
+def signed_image_urls(ws: int, pid: int, ttl: int = SIGNED_TTL_S) -> list[str]:
+    """Links a provider can use to download each of this post's images, in posting order. Raises ValueError with
+    a reason when it cannot (no images, or no public address to serve them from)."""
+    rows = db.query("SELECT id, file_path FROM post_media WHERE post_id=%s AND workspace_id=%s ORDER BY position, id",
+                    (pid, ws))
+    if not rows:
+        raise ValueError("This post has no uploaded images.")
+    base = _public_base_or_raise("image")
+    exp = int(time.time()) + ttl
+    return [f"{base}/media/i/{ws}/{pid}/{r['id']}/{exp}/{_sign(ws, pid, r['file_path'], exp)}" for r in rows]
 
 
 # ---------- routes ----------
@@ -249,4 +382,66 @@ def signed_media(ws: int, pid: int, exp: int, sig: str):
     if not f:
         raise HTTPException(404, "Not found")
     return FileResponse(f, media_type=row["video_file_type"] or "video/mp4",
+                        headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"})
+
+
+# ---------- image routes (a photo post, or a carousel's several photos) ----------
+
+@router.get("/api/posts/{pid}/images")
+def images_list(pid: int, ctx: Ctx = Depends(current)):
+    _post(ctx.workspace_id, pid)
+    return list_images(ctx.workspace_id, pid)
+
+
+@router.post("/api/posts/{pid}/images/upload")
+async def images_upload(pid: int, request: Request, file: UploadFile = File(...), ctx: Ctx = Depends(current)):
+    """Append one image to this post's ordered list (a second upload adds a second carousel slide, not a
+    replacement - unlike the single video slot)."""
+    _post(ctx.workspace_id, pid)
+    _unlocked(ctx.workspace_id, pid)
+    return await _store_image_upload(ctx.workspace_id, pid, file, request)
+
+
+@router.delete("/api/posts/{pid}/images/{media_id}")
+def images_delete(pid: int, media_id: int, ctx: Ctx = Depends(current)):
+    _post(ctx.workspace_id, pid)
+    _unlocked(ctx.workspace_id, pid)
+    remove_image(ctx.workspace_id, pid, media_id)
+    return {"ok": True}
+
+
+@router.patch("/api/posts/{pid}/images/reorder")
+def images_reorder(pid: int, body: dict, ctx: Ctx = Depends(current)):
+    _post(ctx.workspace_id, pid)
+    _unlocked(ctx.workspace_id, pid)
+    ids = body.get("ids")
+    if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+        raise HTTPException(400, "Body must be {\"ids\": [media_id, ...]} in the new order.")
+    reorder_images(ctx.workspace_id, pid, ids)
+    return {"ok": True}
+
+
+@router.get("/api/posts/{pid}/images/{media_id}/file")
+def image_file(pid: int, media_id: int, ctx: Ctx = Depends(current)):
+    """The owner's preview. Cookie + workspace checked."""
+    row = _image_row(ctx.workspace_id, pid, media_id)
+    f = _abs(row["file_path"])
+    if not f:
+        raise HTTPException(404, "Image not found")
+    return FileResponse(f, media_type=row["content_type"] or "image/jpeg",
+                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@router.get("/media/i/{ws}/{pid}/{media_id}/{exp}/{sig}")
+def signed_image(ws: int, pid: int, media_id: int, exp: int, sig: str):
+    """What a publishing provider downloads for one image. No cookie: the signature is the credential."""
+    row = db.one("SELECT file_path, content_type FROM post_media WHERE id=%s AND post_id=%s AND workspace_id=%s",
+                 (media_id, pid, ws))
+    if (not row or exp < int(time.time())
+            or not hmac.compare_digest(sig, _sign(ws, pid, row["file_path"], exp))):
+        raise HTTPException(404, "Not found")
+    f = _abs(row["file_path"])
+    if not f:
+        raise HTTPException(404, "Not found")
+    return FileResponse(f, media_type=row["content_type"] or "image/jpeg",
                         headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"})

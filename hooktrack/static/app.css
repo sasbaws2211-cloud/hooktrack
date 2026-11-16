@@ -353,6 +353,16 @@ td .up, .up { color: var(--good); } td .down, .down { color: var(--bad); }
 .dropzone .dz-main { font-weight: 650; }
 .dropzone .dz-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
 
+/* a photo post's image, or a carousel's several, in posting order */
+.img-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.img-thumb { position: relative; width: 84px; height: 84px; border-radius: 8px; overflow: hidden; background: var(--surface-2); }
+.img-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.img-thumb-bar { position: absolute; inset: auto 0 0 0; display: flex; justify-content: center; gap: 2px;
+  background: rgba(0,0,0,.55); padding: 2px; opacity: 0; transition: opacity .1s; }
+.img-thumb:hover .img-thumb-bar, .img-thumb:focus-within .img-thumb-bar { opacity: 1; }
+.img-thumb-bar button { background: none; border: 0; color: #fff; cursor: pointer; font-size: 12px; padding: 2px 5px; border-radius: 4px; }
+.img-thumb-bar button:hover { background: rgba(255,255,255,.2); }
+
 /* the original winning video, played in the page on request */
 .embed .embed-frame { margin-top: 8px; }
 .embed .embed-wrap { width: 100%; margin: 0 auto 0 0; }

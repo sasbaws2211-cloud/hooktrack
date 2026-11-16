@@ -324,6 +324,7 @@ def _get_post(ws: int, post_id: int) -> dict:
     if row is None:
         raise HTTPException(404, "Post not found")
     out = _post_out(row, logic.get_settings(ws))
+    out["images"] = media.list_images(ws, post_id)
     approvals.annotate(ws, [out])
     return out
 
@@ -941,8 +942,10 @@ def posts(start: Optional[date] = None, end: Optional[date] = None, account_id: 
     st = logic.get_settings(ws)
     perf = logic.performance(ws)
     out = [_post_out(r, st) for r in db.query(sql, (*params, min(limit, 2000)))]
+    image_counts = media.image_counts(ws, [p["id"] for p in out])
     for p in out:
         p["perf"] = perf.get(p["id"])
+        p["image_count"] = image_counts.get(p["id"], 0)
     if source == "synced":
         from . import followups
         made = followups.for_hooks(ws, [p["id"] for p in out])
@@ -1250,13 +1253,15 @@ def pipeline_board(account_id: Optional[int] = None, ctx: Ctx = Depends(current)
         if status not in columns:
             status = "idea"
         columns[status].append(_post_out(r, st))
-    results.attach(ws, [c for col in columns.values() for c in col])
+    all_cards = [c for col in columns.values() for c in col]
+    results.attach(ws, all_cards)
     failed = {f["post_id"]: f["error"] for f in publish.list_failed(ws)}
-    for col in columns.values():
-        for c in col:
-            if c["id"] in failed:
-                c["publish_failed"] = failed[c["id"]] or "The scheduled publish did not go out"
-    approvals.annotate(ws, [c for col in columns.values() for c in col])
+    image_counts = media.image_counts(ws, [c["id"] for c in all_cards])
+    for c in all_cards:
+        c["image_count"] = image_counts.get(c["id"], 0)
+        if c["id"] in failed:
+            c["publish_failed"] = failed[c["id"]] or "The scheduled publish did not go out"
+    approvals.annotate(ws, all_cards)
     return {
         "stages": PIPELINE_ORDER,
         "columns": columns,
