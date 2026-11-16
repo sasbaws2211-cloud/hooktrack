@@ -801,66 +801,79 @@ def sync_instagram_account(workspace_id: int, account_id: int, days_back: int = 
             external_id = None
 
     cutoff = datetime.now(timezone.utc).timestamp() - days_back * 86400
+    cursor = None
     upserted = 0
     tz = logic.workspace_tz(workspace_id)
     today = logic.today_in(tz)
-    page = instagram_posts(handle, key)
-    credits += 1
-    data = _payload(page)
-    items = data.get("items") or data.get("reels") or data.get("posts") or data.get("data") or []
-    if isinstance(items, dict):
-        items = list(items.values())
+    pages = MAX_PAGES_LIGHT if light else (MAX_PAGES_HISTORY if days_back > 14 else MAX_PAGES_FULL)
 
-    for item in items if isinstance(items, list) else []:
-        # common IG shapes
-        media = item.get("media") or item
-        ts = (
-            media.get("taken_at")
-            or media.get("taken_at_timestamp")
-            or media.get("timestamp")
-            or media.get("create_time")
-            or 0
-        )
-        try:
-            ts = int(ts)
-        except (TypeError, ValueError):
-            ts = 0
-        if ts and ts < cutoff:
-            continue
-        vd = media.get("video_duration")
-        duration_s = float(vd) if isinstance(vd, (int, float)) and vd > 0 else None
-        content_type = _instagram_content_type(media, duration_s)
-        is_video = content_type == "short_video"
-        views = int(
-            media.get("video_play_count")
-            or media.get("play_count")
-            or media.get("view_count")
-            or media.get("ig_play_count")
-            or 0
-        ) if is_video else 0
-        comments = int(media.get("comment_count") or media.get("comments_count") or 0)
-        caption_obj = media.get("caption")
-        if isinstance(caption_obj, dict):
-            desc = (caption_obj.get("text") or "").strip()
-        else:
-            desc = (caption_obj or media.get("text") or "").strip() if caption_obj else ""
-        ext = str(media.get("id") or media.get("pk") or media.get("code") or "")
-        date_estimated = not ts
-        post_date = _ts_to_date(ts, tz) if ts else today
-        hook = desc[:200]
+    for _ in range(pages):
+        page = instagram_posts(handle, key, next_max_id=cursor)
+        credits += 1
+        data = _payload(page)
+        items = data.get("items") or data.get("reels") or data.get("posts") or data.get("data") or []
+        if isinstance(items, dict):
+            items = list(items.values())
+        if not items:
+            break
+        stop_early = False
 
-        likes = _n(media.get("like_count"))
-        shares = _n(media.get("reshare_count"))
-        saves = None
-        post_id = _upsert_post(
-            workspace_id, account_id, ext_id=ext, post_date=post_date,
-            date_estimated=date_estimated, hook=hook, caption=desc[:2200], views=views, comments=comments,
-            likes=likes, shares=shares, saves=saves, duration_s=duration_s if is_video else None,
-            platform="instagram", content_type=content_type,
-                url=(f"https://www.instagram.com/{'reel' if is_video else 'p'}/{media.get('code')}/" if media.get("code") else ""),)
-        upserted += 1
-        if is_video:
-            _record_post(workspace_id, account_id, post_id, views, today)
+        for item in items:
+            # common IG shapes
+            media = item.get("media") or item
+            ts = (
+                media.get("taken_at")
+                or media.get("taken_at_timestamp")
+                or media.get("timestamp")
+                or media.get("create_time")
+                or 0
+            )
+            try:
+                ts = int(ts)
+            except (TypeError, ValueError):
+                ts = 0
+            if ts and ts < cutoff:
+                stop_early = True
+                continue
+            vd = media.get("video_duration")
+            duration_s = float(vd) if isinstance(vd, (int, float)) and vd > 0 else None
+            content_type = _instagram_content_type(media, duration_s)
+            is_video = content_type == "short_video"
+            views = int(
+                media.get("video_play_count")
+                or media.get("play_count")
+                or media.get("view_count")
+                or media.get("ig_play_count")
+                or 0
+            ) if is_video else 0
+            comments = int(media.get("comment_count") or media.get("comments_count") or 0)
+            caption_obj = media.get("caption")
+            if isinstance(caption_obj, dict):
+                desc = (caption_obj.get("text") or "").strip()
+            else:
+                desc = (caption_obj or media.get("text") or "").strip() if caption_obj else ""
+            ext = str(media.get("id") or media.get("pk") or media.get("code") or "")
+            date_estimated = not ts
+            post_date = _ts_to_date(ts, tz) if ts else today
+            hook = desc[:200]
+
+            likes = _n(media.get("like_count"))
+            shares = _n(media.get("reshare_count"))
+            saves = None
+            post_id = _upsert_post(
+                workspace_id, account_id, ext_id=ext, post_date=post_date,
+                date_estimated=date_estimated, hook=hook, caption=desc[:2200], views=views, comments=comments,
+                likes=likes, shares=shares, saves=saves, duration_s=duration_s if is_video else None,
+                platform="instagram", content_type=content_type,
+                    url=(f"https://www.instagram.com/{'reel' if is_video else 'p'}/{media.get('code')}/" if media.get("code") else ""),)
+            upserted += 1
+            if is_video:
+                _record_post(workspace_id, account_id, post_id, views, today)
+
+        more_available = data.get("more_available") in (1, True, "1", "true")
+        cursor = data.get("next_max_id")
+        if not more_available or not cursor or stop_early:
+            break
 
     daily = _apply_daily_gain(workspace_id, account_id, today)
 
