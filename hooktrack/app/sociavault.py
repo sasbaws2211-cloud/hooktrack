@@ -323,7 +323,14 @@ def twitter_user_tweets_all(user_id: str, api_key: str, cursor: Optional[str] = 
 
 
 def _twitter_tweet_items(page: dict) -> list:
-    """Tweets sit at entries[].content.itemContent.tweet_results.result, inside a GraphQL-shaped timeline."""
+    """Tweets sit at entries[].content.itemContent.tweet_results.result, inside a GraphQL-shaped timeline.
+
+    Confirmed live: a tweet X flags as limited-visibility (e.g. a sensitive-content warning) comes back
+    wrapped as {__typename: 'TweetWithVisibilityResults', tweet: {...the real Tweet, with its own rest_id
+    and legacy...}, limitedActionResults: ...} instead of being the Tweet object directly. Found on ~19% of
+    one real account's timeline (15 of levelsio's tweets, plus 4 of BBCBreaking's) — unwrapped here so these
+    tweets are tracked and classified like any other, rather than silently dropped for lacking a top-level
+    rest_id."""
     data = _payload(page)
     instructions = (((data.get("result") or {}).get("timeline") or {}).get("instructions")) or []
     out = []
@@ -334,6 +341,8 @@ def _twitter_tweet_items(page: dict) -> list:
             item = _deep(entry, "itemContent") or {}
             tweet = _deep(item, "tweet_results")
             result = (tweet or {}).get("result") if isinstance(tweet, dict) else None
+            if isinstance(result, dict) and not result.get("rest_id") and isinstance(result.get("tweet"), dict):
+                result = result["tweet"]
             if isinstance(result, dict) and result.get("rest_id"):
                 out.append(result)
     return out
