@@ -2543,6 +2543,7 @@ pages.studio = async app => {
       <div id="studio-toolbar" class="row" style="padding:10px;border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn sm" id="studio-add-media">+ Add media</button>
         <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
+        ${state.shotstack && state.shotstack.configured ? '<button class="btn sm" id="studio-add-ai" disabled>+ Add AI clip</button>' : ''}
         <button class="btn sm" id="studio-save-draft" disabled>Save draft</button>
         ${post.studio_draft ? '<button class="btn sm" id="studio-discard-draft" disabled>Start over</button>' : ''}
         <button class="btn sm primary" id="studio-finish" disabled ${locked ? `title="Move this card back to Scripted first"` : ''}>${isImageFormat(post.content_type) ? 'Finish &amp; attach images' : 'Finish &amp; attach video'}</button>
@@ -2584,7 +2585,22 @@ pages.studio = async app => {
     $('#studio-finish', app).disabled = locked;
     $('#studio-save-draft', app).disabled = false;
     if ($('#studio-discard-draft', app)) $('#studio-discard-draft', app).disabled = false;
+    if ($('#studio-add-ai', app)) $('#studio-add-ai', app).disabled = false;
     edit.events.on('edit:changed', () => { draftDirty = true; });
+    // Studio's own "Generate" toolbar only appears on a clip once a generator is registered - this is
+    // the whole UI, we just resolve the prompt to a real asset. Billed in Shotstack's own generation
+    // credits (separate pool from render credits), same account as the cloud-render path.
+    edit.registerAssetGenerator(async request => {
+      let row = await api('POST', '/api/shotstack/generate',
+        { asset: { type: request.asset.type, prompt: request.asset.prompt, model: request.asset.model, options: request.asset.options },
+          post_id: post.id });
+      while (row.status === 'queued' || row.status === 'processing') {
+        await new Promise(r => setTimeout(r, 1500));
+        row = await api('GET', `/api/shotstack/generate/${row.generation_id}`);
+      }
+      if (row.status !== 'done' || !row.output_url) throw new Error(row.error || 'Generation failed.');
+      return { url: row.output_url };
+    });
   } catch (e) {
     setStatus('');
     $('[data-shotstack-studio]', app).outerHTML = `<div class="empty" style="padding:20px"><p class="muted">The editor could not load: ${esc(e.message || e)}</p></div>`;
@@ -2613,6 +2629,32 @@ pages.studio = async app => {
   }
 
   $('#studio-add-media').onclick = () => $('#studio-upload', app).click();
+  if ($('#studio-add-ai')) $('#studio-add-ai').onclick = guard(async () => {
+    const picked = await new Promise(resolve => {
+      let settled = false;
+      const finish = v => { if (!settled) { settled = true; obs.disconnect(); resolve(v); } };
+      const m = openModal(`<h2>Add an AI-generated clip</h2>
+        <p class="small muted" style="margin:6px 0 10px">Shotstack generates the asset from your prompt - billed to your Shotstack account's generation credits.</p>
+        <label class="small muted">Type</label>
+        <select id="ai-type" style="width:100%;margin-bottom:10px"><option value="image">Image</option><option value="video">Video</option></select>
+        <label class="small muted">Prompt</label>
+        <textarea id="ai-prompt" rows="3" style="width:100%" placeholder="A lighthouse on a rocky coast at sunset, cinematic lighting"></textarea>
+        <div class="actions"><span class="spacer"></span><button class="btn" data-close type="button">Cancel</button>
+          <button class="btn primary" type="button" id="ai-ok">Add clip</button></div>`);
+      const obs = new MutationObserver(() => { if (!document.body.contains(m)) finish(null); });
+      obs.observe(document.body, { childList: true, subtree: true });
+      $('#ai-ok', m).onclick = () => {
+        const prompt = $('#ai-prompt', m).value.trim();
+        if (!prompt) { toast('Enter a prompt first', true); return; }
+        finish({ type: $('#ai-type', m).value, prompt });
+        m.close();
+      };
+      $('#ai-prompt', m).focus();
+    });
+    if (!picked) return;
+    await edit.addClip(0, { asset: { type: picked.type, prompt: picked.prompt },
+      start: 0, length: picked.type === 'video' ? 5 : 3 });
+  });
   $('#studio-upload').onchange = guard(async e => {
     const f = e.target.files && e.target.files[0];
     e.target.value = '';

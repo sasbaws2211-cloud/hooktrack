@@ -154,6 +154,89 @@ def _callback_url() -> str:
     return f"{base}/api/shotstack/webhook" if base and not media._is_private_host(base) else ""
 
 
+# ---------- asset generation (Studio's own "Generate" toolbar - one prompt-bearing image/video/audio
+# clip, not a full render; registered from the browser via edit.registerAssetGenerator) ----------
+
+def _unwrap(body: dict) -> dict:
+    """Shotstack wraps /render responses in {"response": {...}}; be tolerant either way for /generate."""
+    return body.get("response", body) if isinstance(body, dict) else {}
+
+
+def submit_generation(workspace_id: int, asset: dict, length: Optional[float] = None,
+                      post_id: Optional[int] = None) -> dict:
+    """POST /generate: generate one prompt-bearing asset. Shotstack answers either immediately (200, cached
+    or fast models) or queued (202, poll /generate/{id}) - same GenerationResponse body either way."""
+    if not available():
+        raise ShotstackError("Video editing is not set up on this server yet.")
+    body: dict = {"asset": asset}
+    if length:
+        body["length"] = length
+    with httpx.Client(timeout=TIMEOUT) as client:
+        try:
+            r = client.post(f"{base_url()}/generate", json=body, headers=_headers())
+        except httpx.HTTPError as e:
+            raise ShotstackError(f"Could not reach Shotstack: {e}")
+    if r.status_code == 402:
+        raise ShotstackError("Your Shotstack account doesn't have enough generation credits for this.", 402)
+    if r.status_code >= 400:
+        raise ShotstackError(f"Shotstack generation request failed ({r.status_code}): {r.text[:300]}", r.status_code)
+    data = _unwrap(r.json() or {})
+    generation_id = data.get("id") or ""
+    if not generation_id:
+        raise ShotstackError(f"Shotstack did not return a generation id: {r.text[:300]}")
+    row = db.one(
+        """INSERT INTO shotstack_generations (workspace_id, post_id, generation_id, environment, asset_json,
+                                               status, output_url, error)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+        (workspace_id, post_id, generation_id, environment(), db.Json(body),
+         data.get("status") or "queued", data.get("url") or "", data.get("error") or ""))
+    return row
+
+
+def _fetch_generation_status(generation_id: str) -> dict:
+    if not available():
+        raise ShotstackError("Video editing is not set up on this server yet.")
+    with httpx.Client(timeout=TIMEOUT) as client:
+        try:
+            r = client.get(f"{base_url()}/generate/{generation_id}", headers=_headers())
+        except httpx.HTTPError as e:
+            raise ShotstackError(f"Could not reach Shotstack: {e}")
+    if r.status_code >= 400:
+        raise ShotstackError(f"Could not check generation status ({r.status_code}): {r.text[:300]}", r.status_code)
+    return _unwrap(r.json() or {})
+
+
+def sync_generation(workspace_id: int, generation_id: str) -> dict:
+    row = db.one("SELECT * FROM shotstack_generations WHERE generation_id=%s AND workspace_id=%s",
+                 (generation_id, workspace_id))
+    if not row:
+        raise ShotstackError("Unknown generation id for this workspace", 404)
+    data = _fetch_generation_status(generation_id)
+    row = db.one(
+        """UPDATE shotstack_generations SET status=%s, output_url=%s, error=%s, updated_at=now()
+           WHERE generation_id=%s AND workspace_id=%s RETURNING *""",
+        (data.get("status") or row["status"], data.get("url") or "", data.get("error") or "",
+         generation_id, workspace_id))
+    return row
+
+
+def generation_quote(asset: dict, length: Optional[float] = None) -> dict:
+    """POST /generate/quote: an estimate only - no credits spent, no job created."""
+    if not available():
+        raise ShotstackError("Video editing is not set up on this server yet.")
+    body: dict = {"asset": asset}
+    if length:
+        body["length"] = length
+    with httpx.Client(timeout=TIMEOUT) as client:
+        try:
+            r = client.post(f"{base_url()}/generate/quote", json=body, headers=_headers())
+        except httpx.HTTPError as e:
+            raise ShotstackError(f"Could not reach Shotstack: {e}")
+    if r.status_code >= 400:
+        raise ShotstackError(f"Could not get a quote ({r.status_code}): {r.text[:300]}", r.status_code)
+    return _unwrap(r.json() or {})
+
+
 # ---------- routes ----------
 
 class RenderIn(BaseModel):
@@ -185,6 +268,46 @@ def render_status(render_id: str, ctx: Ctx = Depends(current)):
         return sync_render(ctx.workspace_id, render_id)
     except ShotstackError as e:
         raise HTTPException(e.status or 502, str(e))
+
+
+class GenerateIn(BaseModel):
+    asset: dict = Field(..., description="{type, prompt, model?, options?} - the prompt-bearing asset Studio's "
+                                          "own 'Generate' toolbar built")
+    length: Optional[float] = None
+    post_id: Optional[int] = None
+
+
+class GenerateQuoteIn(BaseModel):
+    asset: dict
+    length: Optional[float] = None
+
+
+@router.post("/generate")
+def generate_asset(b: GenerateIn, ctx: Ctx = Depends(current)):
+    if b.post_id is not None and not db.one(
+            "SELECT 1 FROM posts WHERE id=%s AND workspace_id=%s", (b.post_id, ctx.workspace_id)):
+        raise HTTPException(404, "Post not found")
+    try:
+        row = submit_generation(ctx.workspace_id, b.asset, length=b.length, post_id=b.post_id)
+    except ShotstackError as e:
+        raise HTTPException(e.status if e.status in (400, 401, 402, 403, 404) else 502, str(e))
+    return row
+
+
+@router.get("/generate/{generation_id}")
+def generate_status(generation_id: str, ctx: Ctx = Depends(current)):
+    try:
+        return sync_generation(ctx.workspace_id, generation_id)
+    except ShotstackError as e:
+        raise HTTPException(e.status or 502, str(e))
+
+
+@router.post("/generate/quote")
+def generate_quote(b: GenerateQuoteIn, ctx: Ctx = Depends(current)):
+    try:
+        return generation_quote(b.asset, length=b.length)
+    except ShotstackError as e:
+        raise HTTPException(e.status if e.status in (400, 401, 403, 404) else 502, str(e))
 
 
 @router.post("/webhook")
