@@ -360,16 +360,16 @@ def _twitter_content_type(legacy: dict) -> str:
     at the outer level while actually reposting a video. Checked second, after the tweet's own media, so a
     retweet of the account's own media-carrying tweet still classifies by that media, not a false negative.
 
-    Deliberately does NOT fall into quoted_status_result: a quote-tweet is the account's own written
-    commentary, with the quoted tweet only a reference alongside it, not the account's own payload — unlike a
-    retweet, which has no original content of its own at all. A quote-tweet with no media of its own lands as
-    'text' even when the tweet it quotes has a video.
+    By request, a quote-tweet with no media of its own now inherits the quoted tweet's media type too, via
+    quoted_status_result.result.legacy — same shape as retweeted_status_result, by this same API's own
+    convention, but NOT live-confirmed on a real quote-tweet (SociaVault credits ran out while checking):
+    verified so far only against realistically-shaped mocked data, not a real quoted_status_result payload.
 
     is_quote_status and a 'RT @' retweet are NOT mutually exclusive — confirmed live on a real tweet that was
     both (a retweet of a tweet that was itself a quote-tweet). That case still classifies correctly here,
-    because the retweeted_status_result fallback above reaches the retweeted tweet's own media regardless of
-    whether that tweet happens to also be a quote-tweet; only a quote-tweet reached with NO retweet wrapper at
-    all depends on its own media, per the paragraph above."""
+    because the retweeted_status_result fallback reaches the retweeted tweet's own media regardless of
+    whether that tweet happens to also be a quote-tweet; the quoted_status_result fallback below only applies
+    when the tweet reached (outer or, after a retweet, the retweeted one) has no media of its own."""
     def media_types(lgc: dict) -> set:
         media = (lgc.get("extended_entities") or lgc.get("entities") or {}).get("media") or []
         return {m.get("type") for m in media if isinstance(m, dict)} if isinstance(media, list) else set()
@@ -379,6 +379,10 @@ def _twitter_content_type(legacy: dict) -> str:
         rt = legacy.get("retweeted_status_result") or {}
         rt_legacy = ((rt.get("result") or {}).get("legacy")) or {}
         types = media_types(rt_legacy)
+    if not types:
+        qt = legacy.get("quoted_status_result") or {}
+        qt_legacy = ((qt.get("result") or {}).get("legacy")) or {}
+        types = media_types(qt_legacy)
     if types & {"video", "animated_gif"}:
         return "short_video"
     if "photo" in types:
