@@ -2541,7 +2541,7 @@ pages.studio = async app => {
       <div id="studio-toolbar" class="row" style="padding:10px;border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn sm" id="studio-add-media">+ Add media</button>
         <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
-        <button class="btn sm primary" id="studio-finish" disabled>Finish &amp; attach video</button>
+        <button class="btn sm primary" id="studio-finish" disabled>${isImageFormat(post.content_type) ? 'Finish &amp; attach images' : 'Finish &amp; attach video'}</button>
         <span class="spacer"></span>
         <span class="small muted" id="studio-status">Loading editor…</span>
       </div>
@@ -2592,7 +2592,9 @@ pages.studio = async app => {
     } catch (err) { toast(err.message || 'Could not upload that file', true); setStatus('Ready'); }
   });
 
-  $('#studio-finish').onclick = guard(async () => {
+  $('#studio-finish').onclick = guard(isImageFormat(post.content_type) ? finishImages : finishVideo);
+
+  async function finishVideo() {
     const finishBtn = $('#studio-finish', app), addBtn = $('#studio-add-media', app);
     finishBtn.disabled = true; addBtn.disabled = true;
     const exporter = new StudioSdk.VideoExporter(edit, canvas);
@@ -2617,7 +2619,49 @@ pages.studio = async app => {
       exporter.dispose();
       finishBtn.disabled = false; addBtn.disabled = false;
     }
-  });
+  }
+
+  // A photo/carousel post publishes as still images, not a video, so "finish" here means capturing each
+  // image clip's own edited frame (crop, filter, text overlay, whatever Studio applied) and replacing the
+  // post's images with those stills, in timeline order - not exporting a slideshow video. New images are
+  // uploaded first and the old ones only removed once every capture has succeeded, so a failed capture or
+  // upload never leaves the post with fewer images than it started with.
+  async function finishImages() {
+    const finishBtn = $('#studio-finish', app), addBtn = $('#studio-add-media', app);
+    finishBtn.disabled = true; addBtn.disabled = true;
+    try {
+      const clips = ((edit.getEdit().timeline.tracks[0] || {}).clips || [])
+        .filter(c => c.asset && c.asset.type === 'image')
+        .sort((a, b) => a.start - b.start);
+      if (!clips.length) { toast('No images on the timeline to finish.', true); return; }
+      const before = await api('GET', `/api/posts/${post.id}/images`);
+      const captured = [];
+      for (let i = 0; i < clips.length; i++) {
+        setStatus(`Capturing image ${i + 1} of ${clips.length}…`);
+        edit.seek(clips[i].start + clips[i].length / 2);
+        // captureFrame renders its own frame rather than reading back whatever the live ticker last drew,
+        // so this only needs to wait for seek()'s own state update to land, not a real animation frame -
+        // which matters because rAF never fires at all while this tab sits in the background.
+        await new Promise(r => setTimeout(r, 50));
+        const dataUrl = await canvas.captureFrame({ format: 'jpeg', quality: 0.92 });
+        captured.push(await (await fetch(dataUrl)).blob());
+      }
+      setStatus('Uploading…');
+      for (let i = 0; i < captured.length; i++) {
+        const fd = new FormData();
+        fd.append('file', captured[i], `studio-export-${i + 1}.jpg`);
+        await api('POST', `/api/posts/${post.id}/images/upload`, fd);
+      }
+      for (const img of before) await api('DELETE', `/api/posts/${post.id}/images/${img.id}`);
+      setStatus(`Done — ${captured.length} image${captured.length === 1 ? '' : 's'} attached to this post`);
+      toast('Images attached to this post');
+    } catch (err) {
+      toast(err.message || 'Could not finish these images in the browser.', true);
+      setStatus('Ready');
+    } finally {
+      finishBtn.disabled = false; addBtn.disabled = false;
+    }
+  }
 };
 
 
