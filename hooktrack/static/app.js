@@ -1421,7 +1421,7 @@ function postModal(post, defaults, onDone) {
       const scale = br.kind === 'scale';
       el.innerHTML = `<div class="sig-row"><div class="sig-title">Brief ${scale ? '<span class="pill SCALE">scale</span>' : (br.promoted ? '' : '<span class="pill MUTATE">tweak</span>')}</div>
         <div class="small" style="margin:0 0 6px"><b>${scale
-          ? 'Make a new video that works like the winner: the same opening move and format, with a new subject.'
+          ? 'Make a new post that works like the winner: the same opening move and format, with a new subject.'
           : 'Rework this hook a little: keep what worked and change one thing (the first words, the first shot or the angle).'}</b></div>
         <div class="small"><b>Original hook:</b> “${esc(br.hook || '(no hook)')}”
           ${br.multiple != null ? `<span class="muted"> · ${fmt(br.views)} views · ${br.multiple}× its account's normal</span>` : ''}</div>
@@ -1446,6 +1446,25 @@ function postModal(post, defaults, onDone) {
       });
       const op = $('#br-open', m);
       if (op) op.onclick = guard(async () => { const h = await api('GET', `/api/posts/${br.hook_id}`); postModal(h, null, onDone || route); });
+      return;
+    }
+    const fmt = b.content_type || post.content_type || 'short_video';
+    if (!isVideoFormat(fmt)) {
+      // no transcript to read on a photo, carousel or text post: the reference is just its own hook/caption
+      const isImg = isImageFormat(fmt);
+      const noun = isImg ? (fmt === 'carousel' ? 'carousel' : 'photo') : 'text post';
+      const verb = isImg ? 'shows' : 'says';
+      el.innerHTML = `<div class="sig-row"><div class="sig-title">Post baseline ${b.is_winner ? '<span class="pill SCALE">winner</span>' : ''}</div>
+        <div class="small"><b>Hook:</b> ${post.hook ? `“${esc(post.hook)}”` : '<span class="muted">(none saved)</span>'}</div>
+        <div class="small muted" style="margin-top:4px">This ${esc(noun)} has nothing to transcribe: match it by its hook and caption${isImg ? " - and, for a photo or carousel, what's actually in the image" : ''}.</div>
+        <label class="f" style="margin-top:8px">What this ${esc(noun)} ${verb} (your note, optional)</label>
+        <textarea id="vnotes" rows="2" maxlength="1500" placeholder="${isImg ? "e.g. a 3-slide carousel: bold claim on slide 1, proof on slide 2, offer on slide 3" : 'e.g. opens with a bold claim, backs it up with one stat, ends with a direct ask'}">${esc(b.video_notes || '')}</textarea>
+        <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn sm" id="bl-notes" type="button">Save note</button></div>
+        <div class="small muted" style="margin-top:6px">Use this on your own posts. For other people's, take the pattern, not their words.</div>
+      </div>`;
+      if ($('#bl-notes', m)) $('#bl-notes', m).onclick = guard(async () => {
+        await api('PUT', `/api/posts/${post.id}/video-notes`, { notes: $('#vnotes', m).value }); toast('Note saved');
+      });
       return;
     }
     const chips = [
@@ -1473,7 +1492,7 @@ function postModal(post, defaults, onDone) {
 </div>
       <div class="small muted" style="margin-top:6px">Use this on your own videos. For other people's, take the pattern, not their script.</div>
 </div>`;
-    $('#bl-read', m).onclick = guard(async () => {
+    if ($('#bl-read', m)) $('#bl-read', m).onclick = guard(async () => {
       busy($('#bl-read', m), true, 'Reading…');
       let r;
       try { r = await api('POST', `/api/posts/${post.id}/baseline${b.has_transcript || b.read || b.skipped ? '?refresh=true' : ''}`); }
@@ -1486,7 +1505,7 @@ function postModal(post, defaults, onDone) {
       finally { await baselinePanel(); }
       toast('Marked as no speech. Add a note describing what is on screen.');
     });
-    $('#bl-notes', m).onclick = guard(async () => {
+    if ($('#bl-notes', m)) $('#bl-notes', m).onclick = guard(async () => {
       await api('PUT', `/api/posts/${post.id}/video-notes`, { notes: $('#vnotes', m).value }); toast('Note saved');
     });
   };
@@ -1750,15 +1769,17 @@ function postModal(post, defaults, onDone) {
     if (!winner && !matching && !has && !plainCard) { el.innerHTML = ''; return; }
 
     if (winner && !matching && !plainCard) {
-      const clones = bl.clones || [];
       const mult = post.perf && post.perf.multiple;
-      el.innerHTML = `<div class="sig-row"><div class="sig-title">Winning Hook Video</div>
-        <div class="small" style="margin:0 0 8px">This is the video that proved the hook converts. Press <b>Post</b> to send it to Posts and make a new video that matches it.</div>
+      const fmt = post.content_type || 'short_video';
+      const title = isVideoFormat(fmt) ? 'Winning Hook Video' : isImageFormat(fmt) ? 'Winning Hook Post' : 'Winning Hook Text';
+      const what = isVideoFormat(fmt) ? 'video' : isImageFormat(fmt) ? (fmt === 'carousel' ? 'carousel' : 'photo') : 'text post';
+      el.innerHTML = `<div class="sig-row"><div class="sig-title">${title}</div>
+        <div class="small" style="margin:0 0 8px">This is the ${esc(what)} that proved the hook converts. Press <b>Post</b> to send it to Posts and make a new one that matches it.</div>
         ${mult ? `<div class="small muted">${mult}× this account's normal</div>` : ''}
         ${embedHtml(bl.embed, bl.source_url)}
-        ${bl.spoken_hook ? `<div class="small" style="margin-top:4px"><b>First words:</b> “${esc(bl.spoken_hook)}”</div>` : ''}
-        ${bl.sound ? `<div class="small"><b>Sound:</b> ${esc(bl.sound)}</div>` : ''}
-        ${has ? `<div style="margin-top:8px">${fileCard()}<div class="row" style="margin-top:6px"><button class="btn sm danger" id="vidrm" type="button">Remove this file</button></div></div>` : ''}</div>`;
+        ${isVideoFormat(fmt) && bl.spoken_hook ? `<div class="small" style="margin-top:4px"><b>First words:</b> “${esc(bl.spoken_hook)}”</div>` : ''}
+        ${isVideoFormat(fmt) && bl.sound ? `<div class="small"><b>Sound:</b> ${esc(bl.sound)}</div>` : ''}
+        ${isVideoFormat(fmt) && has ? `<div style="margin-top:8px">${fileCard()}<div class="row" style="margin-top:6px"><button class="btn sm danger" id="vidrm" type="button">Remove this file</button></div></div>` : ''}</div>`;
       wireRemove();
       wireEmbeds(el, bl.embed);
       return;

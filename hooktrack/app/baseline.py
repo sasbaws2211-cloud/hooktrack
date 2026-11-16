@@ -461,7 +461,8 @@ def _view(ws: int, pid: int) -> dict:
         bp = json.loads(bp)
     perf = logic.performance(ws).get(pid) or {}
     return {
-        "post_id": pid, "has_transcript": bool(row["transcript"]), "transcript_at": row["transcript_at"],
+        "post_id": pid, "content_type": row.get("content_type"),
+        "has_transcript": bool(row["transcript"]), "transcript_at": row["transcript_at"],
         "read": bool(row["transcript_at"]), "skipped": bool(row.get("transcript_skipped")),
         "no_speech": bool(row["transcript_at"]) and not (row["transcript"] or "").strip()
                      or bool(row.get("transcript_skipped")) and not row["transcript"],
