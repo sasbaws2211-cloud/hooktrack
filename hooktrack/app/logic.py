@@ -46,7 +46,8 @@ def content_type_for(platform: str, duration_s=None) -> str:
         return "text"
     if p in ("x", "twitter"):
         return "mixed"
-    return "short_video"   # tiktok, instagram (reels today), facebook (reels today)
+    return "short_video"   # tiktok, and a Facebook Reel. Instagram and plain Facebook posts (photo/text/
+                            # non-Reel video) classify themselves explicitly instead and never reach this line.
 
 
 @cache.workspace_cached("settings", ttl=120)
