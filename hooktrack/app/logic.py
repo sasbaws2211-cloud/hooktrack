@@ -29,6 +29,25 @@ SETTLED_DAYS = 8                 # younger than this, a video is still being dis
 SHORTS_MAX_SECONDS = 180       # YouTube Shorts can run up to 3 minutes
 HIGH_INTENT_MULTIPLE = 1.5     # intent rate this many times the account's median counts as "high intent"
 
+# A post is only ever a "winner" against others of the SAME content type on the SAME account — a carousel's
+# normal is not a Reel's normal. One place decides the type so sync (which stamps it on insert) and scoring
+# (which groups by it) can never disagree about what a post is.
+CONTENT_TYPES = ("short_video", "long_video", "image", "carousel", "text", "mixed")
+
+
+def content_type_for(platform: str, duration_s=None) -> str:
+    """Best content type for a freshly-synced post, from what the sync already knows (platform + duration).
+    Per-post media detection (is this tweet a photo or a video?) comes later; 'mixed' is an honest placeholder
+    for a feed that mixes real types we don't yet tell apart, not a guess."""
+    p = (platform or "").strip().lower()
+    if p.startswith("youtube"):
+        return "long_video" if (duration_s is not None and duration_s > SHORTS_MAX_SECONDS) else "short_video"
+    if p == "linkedin":
+        return "text"
+    if p in ("x", "twitter"):
+        return "mixed"
+    return "short_video"   # tiktok, instagram (reels today), facebook (reels today)
+
 
 @cache.workspace_cached("settings", ttl=120)
 def get_settings(ws: int) -> dict:
@@ -429,7 +448,7 @@ def performance(ws: int, today: date | None = None, days: int = 180) -> dict:
     since = today - timedelta(days=days)
     rows = db.query(
         """SELECT p.id, p.account_id, p.post_date, p.views, p.likes, p.comments, p.shares, p.saves, p.duration_s,
-                  p.date_estimated, p.views_updated_at, a.platform, a.niche,
+                  p.date_estimated, p.views_updated_at, p.content_type, a.platform, a.niche,
                   p.comments_fetched, p.buy_comments, p.ask_comments, p.more_comments
            FROM posts p LEFT JOIN accounts a ON a.id = p.account_id
            WHERE p.workspace_id = %s AND p.status IN ('posted', 'analysed') AND p.post_date >= %s
@@ -463,9 +482,9 @@ def performance(ws: int, today: date | None = None, days: int = 180) -> dict:
                 if 0 <= (day - r["post_date"]).days <= 14][:15]
 
     def fmt_group(r):
-        """YouTube channels mix Shorts and long-form, which are different products with different normals."""
-        is_yt = (r["platform"] or "").lower().startswith("youtube")
-        return "short" if is_yt and r["duration_s"] is not None and r["duration_s"] <= SHORTS_MAX_SECONDS else "main"
+        """The post's content type, straight from the column sync stamped on insert (content_type_for): a
+        carousel is only ever compared with other carousels on the same account, never with its Reels."""
+        return r["content_type"] or content_type_for(r["platform"], r["duration_s"])
 
     by_acc = {}
     for r in rows:

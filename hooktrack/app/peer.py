@@ -215,7 +215,7 @@ def refresh_from_users() -> int:
     enough older posts count, and a group is used only when it has MIN_USERS accounts (see _pick). Sample accounts are excluded."""
     from . import logic
     rows = db.query(
-        """SELECT a.id, a.platform, a.niche, p.views, p.duration_s, p.post_date,
+        """SELECT a.id, a.platform, a.niche, p.views, p.duration_s, p.post_date, p.content_type,
                   (SELECT s.followers FROM account_snapshots s WHERE s.account_id = a.id AND s.followers IS NOT NULL
                    ORDER BY s.day DESC LIMIT 1) AS followers
            FROM accounts a JOIN posts p ON p.account_id = a.id
@@ -226,7 +226,7 @@ def refresh_from_users() -> int:
     per: dict = {}
     for r in rows:
         plat = canonical_platform(r["platform"])
-        fmt = "short" if plat == "youtube" and r["duration_s"] is not None and r["duration_s"] <= logic.SHORTS_MAX_SECONDS else "main"
+        fmt = r["content_type"] or logic.content_type_for(plat, r["duration_s"])
         e = per.setdefault((r["id"], fmt), {"platform": plat, "fmt": fmt, "niche": r["niche"],
                                              "followers": r["followers"], "views": []})
         if len(e["views"]) < MAX_POSTS_PER_ACCOUNT:

@@ -433,8 +433,13 @@ def _n(v):
 
 
 def _upsert_post(workspace_id: int, account_id: int, *, ext_id, post_date, date_estimated, hook, caption,
-                 views, comments, likes=None, shares=None, saves=None, duration_s=None, url="") -> int:
-    """Create or refresh one synced post. Metrics the platform did not send never overwrite stored ones."""
+                 views, comments, likes=None, shares=None, saves=None, duration_s=None, url="",
+                 platform: str = "") -> int:
+    """Create or refresh one synced post. Metrics the platform did not send never overwrite stored ones.
+
+    content_type is always recomputed from (platform, duration_s) via logic.content_type_for: it is how a post
+    gets compared only against others of its own kind on the same account (see logic.performance())."""
+    content_type = logic.content_type_for(platform, duration_s)
     existing = None
     if ext_id:
         existing = db.one("SELECT id FROM posts WHERE workspace_id=%s AND account_id=%s AND external_id=%s",
@@ -443,22 +448,23 @@ def _upsert_post(workspace_id: int, account_id: int, *, ext_id, post_date, date_
         db.execute(
             """UPDATE posts SET views=%s, comments=%s, status='posted',
                  likes=COALESCE(%s, likes), shares=COALESCE(%s, shares), saves=COALESCE(%s, saves),
-                 duration_s=COALESCE(%s, duration_s),
+                 duration_s=COALESCE(%s, duration_s), content_type=%s,
                  url=CASE WHEN %s <> '' THEN %s ELSE url END,
                  post_date=CASE WHEN date_estimated AND NOT %s THEN %s ELSE post_date END,
                  date_estimated=(date_estimated AND %s),
                  caption=CASE WHEN caption='' THEN %s ELSE caption END,
                  hook=CASE WHEN hook='' THEN %s ELSE hook END
                WHERE id=%s""",
-            (views, comments, likes, shares, saves, duration_s, url or '', url or '', date_estimated, post_date,
-             date_estimated, caption, hook, existing["id"]))
+            (views, comments, likes, shares, saves, duration_s, content_type, url or '', url or '', date_estimated,
+             post_date, date_estimated, caption, hook, existing["id"]))
         return existing["id"]
     return db.one(
         """INSERT INTO posts (workspace_id, account_id, post_date, status, hook, caption, views, comments,
-                              likes, shares, saves, duration_s, external_id, score_by, date_estimated, url)
-           VALUES (%s,%s,%s,'posted',%s,%s,%s,%s,%s,%s,%s,%s,%s,'imported',%s,%s) RETURNING id""",
+                              likes, shares, saves, duration_s, external_id, score_by, date_estimated, url,
+                              content_type)
+           VALUES (%s,%s,%s,'posted',%s,%s,%s,%s,%s,%s,%s,%s,%s,'imported',%s,%s,%s) RETURNING id""",
         (workspace_id, account_id, post_date, hook, caption, views, comments, likes, shares, saves, duration_s,
-         ext_id or None, date_estimated, url or ""))["id"]
+         ext_id or None, date_estimated, url or "", content_type))["id"]
 
 
 FOLLOWER_EVERY_HOURS = float(os.environ.get("HOOKTRACK_FOLLOWER_SNAPSHOT_HOURS", "168"))   # weekly by default
@@ -698,7 +704,7 @@ def sync_tiktok_account(workspace_id: int, account_id: int, days_back: int = 14,
             post_id = _upsert_post(
                 workspace_id, account_id, ext_id=aweme_id, post_date=post_date,
                 date_estimated=date_estimated, hook=hook, caption=desc[:2200], views=views, comments=comments,
-                likes=likes, shares=shares, saves=saves, duration_s=duration_s,
+                likes=likes, shares=shares, saves=saves, duration_s=duration_s, platform="tiktok",
                     url=f"https://www.tiktok.com/@{handle}/video/{aweme_id}" if aweme_id else "",)
             upserted += 1
             _record_post(workspace_id, account_id, post_id, views, today)
@@ -817,7 +823,7 @@ def sync_instagram_account(workspace_id: int, account_id: int, days_back: int = 
         post_id = _upsert_post(
             workspace_id, account_id, ext_id=ext, post_date=post_date,
             date_estimated=date_estimated, hook=hook, caption=desc[:2200], views=views, comments=comments,
-            likes=likes, shares=shares, saves=saves, duration_s=duration_s,
+            likes=likes, shares=shares, saves=saves, duration_s=duration_s, platform="instagram",
                 url=(f"https://www.instagram.com/reel/{media.get('code')}/" if media.get("code") else ""),)
         upserted += 1
         _record_post(workspace_id, account_id, post_id, views, today)
@@ -936,7 +942,7 @@ def sync_youtube_account(workspace_id: int, account_id: int, days_back: int = 14
         post_id = _upsert_post(
             workspace_id, account_id, ext_id=ext, post_date=post_date,
             date_estimated=date_estimated, hook=hook, caption=desc[:2200], views=views, comments=comments,
-            likes=likes, shares=shares, saves=saves, duration_s=duration_s,
+            likes=likes, shares=shares, saves=saves, duration_s=duration_s, platform="youtube",
                 url=str(item.get("url") or (f"https://www.youtube.com/watch?v={ext}" if ext else "")),)
         upserted += 1
         _record_post(workspace_id, account_id, post_id, views, today)
@@ -1030,7 +1036,7 @@ def sync_twitter_account(workspace_id: int, account_id: int, days_back: int = 14
             post_id = _upsert_post(
                 workspace_id, account_id, ext_id=ext_id, post_date=post_date,
                 date_estimated=not created_at, hook=text.strip()[:200], caption=text.strip()[:2200],
-                views=views, comments=comments, likes=likes, shares=shares, saves=saves, url=url)
+                views=views, comments=comments, likes=likes, shares=shares, saves=saves, url=url, platform="x")
             upserted += 1
             _record_post(workspace_id, account_id, post_id, views, today)
 
@@ -1115,7 +1121,7 @@ def sync_linkedin_account(workspace_id: int, account_id: int, days_back: int = 1
         post_id = _upsert_post(
             workspace_id, account_id, ext_id=ext_id, post_date=post_date,
             date_estimated=date_estimated, hook=text[:200], caption=text[:2200],
-            views=0, comments=comments, likes=likes, url=url)
+            views=0, comments=comments, likes=likes, url=url, platform="linkedin")
         upserted += 1
 
     db.execute("UPDATE accounts SET last_synced_at=now() WHERE id=%s AND workspace_id=%s", (account_id, workspace_id))
@@ -1233,7 +1239,7 @@ def sync_facebook_account(workspace_id: int, account_id: int, days_back: int = 1
             workspace_id, account_id, ext_id=ext_id, post_date=post_date,
             date_estimated=date_estimated, hook=desc[:200], caption=desc[:2200], views=views,
             comments=eng.get("comments") or 0, likes=eng.get("likes"), duration_s=duration_s,
-            url=str(r.get("url") or ""))
+            url=str(r.get("url") or ""), platform="facebook")
         upserted += 1
         _record_post(workspace_id, account_id, post_id, views, today)
 
@@ -1304,7 +1310,7 @@ def sync_youtube_account_official(workspace_id: int, account_id: int, days_back:
             workspace_id, account_id, ext_id=v["id"], post_date=_ts_to_date(ts, tz) if ts else today,
             date_estimated=not ts, hook=(title or desc)[:200], caption=desc[:2200], views=v["views"],
             comments=v["comments"] or 0, likes=v["likes"], shares=None, saves=None, duration_s=v["duration_s"],
-            url=f"https://www.youtube.com/watch?v={v['id']}")
+            url=f"https://www.youtube.com/watch?v={v['id']}", platform="youtube")
         upserted += 1
         _record_post(workspace_id, account_id, post_id, v["views"], today)
     daily = _apply_daily_gain(workspace_id, account_id, today)
