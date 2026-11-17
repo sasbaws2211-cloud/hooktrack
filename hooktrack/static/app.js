@@ -656,8 +656,9 @@ function updateNav() {
     help.id = 'help-btn';
     help.type = 'button';
     help.className = 'btn sm help-btn';
-    help.textContent = '?';
+    help.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.6 9a2.5 2.5 0 1 1 4.7 1.2c-.8 1.2-2.3 1.4-2.3 3"></path><path d="M12 17h.01"></path></svg>';
     help.title = 'How HookTrack works';
+    help.setAttribute('aria-label', 'Help');
     const tools = $('#top-utilities');
     if (tools) tools.appendChild(help);
     help.onclick = () => openHelpGlossary();
@@ -668,11 +669,11 @@ function updateNav() {
     searchBtn.id = 'search-btn';
     searchBtn.type = 'button';
     searchBtn.className = 'btn sm';
-    searchBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg><span>Search</span><kbd>Ctrl K</kbd>';
+    searchBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg><span>Search anything</span><kbd>Ctrl K</kbd>';
     searchBtn.title = 'Search (Ctrl/⌘ K)';
     searchBtn.setAttribute('aria-label', 'Search (Ctrl/⌘ K)');
-    const tools = $('#top-utilities');
-    if (tools) tools.appendChild(searchBtn);
+    const search = $('#utility-search');
+    if (search) search.appendChild(searchBtn);
     searchBtn.onclick = () => openCommandPalette();
   }
   let themeBtn = $('#theme-btn');
