@@ -2633,6 +2633,7 @@ pages.studio = async app => {
     <div class="card" style="padding:0;overflow:hidden">
       <div id="studio-toolbar" class="row" style="padding:10px;border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn sm" id="studio-add-media">+ Add media</button>
+        <button class="btn sm" id="studio-split-clip" disabled title="Select a video clip and place the playhead inside it">Split at playhead</button>
         <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
         <button class="btn sm" id="studio-add-audio" disabled>+ Add audio</button>
         <input type="file" id="studio-audio-upload" accept="audio/mpeg,audio/mp3,audio/mp4,audio/wav,audio/x-wav,audio/aac,audio/ogg" hidden>
@@ -2678,7 +2679,7 @@ pages.studio = async app => {
     return idx >= 0 ? idx : 0;
   };
 
-  let edit, canvas, timeline, controls, ui, StudioSdk, draftDirty = false;
+  let edit, canvas, timeline, controls, ui, StudioSdk, draftDirty = false, selectedClipLocation = null;
   try {
     StudioSdk = await loadStudioSdk();
     const { Edit, Canvas, Controls, Timeline, UIController } = StudioSdk;
@@ -2705,6 +2706,97 @@ pages.studio = async app => {
     if ($('#studio-add-ai', app)) $('#studio-add-ai', app).disabled = false;
     if ($('#studio-render-cloud', app)) $('#studio-render-cloud', app).disabled = locked;
     edit.events.on('edit:changed', () => { draftDirty = true; setStatus('Edited', true); });
+    const splitButton = $('#studio-split-clip', app);
+    const syncSplitButton = () => {
+      const clip = selectedClipLocation && edit.getClip(selectedClipLocation.trackIndex, selectedClipLocation.clipIndex);
+      const videoClip = clip && clip.asset && clip.asset.type === 'video';
+      splitButton.disabled = !videoClip;
+      splitButton.title = videoClip
+        ? 'Split the selected video at the playhead'
+        : 'Select a video clip to split it at the playhead';
+    };
+    edit.events.on('clip:selected', selection => {
+      selectedClipLocation = { trackIndex: selection.trackIndex, clipIndex: selection.clipIndex };
+      syncSplitButton();
+    });
+    edit.events.on('selection:cleared', () => {
+      selectedClipLocation = null;
+      syncSplitButton();
+    });
+    splitButton.onclick = guard(async () => {
+      if (!selectedClipLocation) return;
+      const { trackIndex, clipIndex } = selectedClipLocation;
+      const clip = edit.getClip(trackIndex, clipIndex);
+      if (!clip || !clip.asset || clip.asset.type !== 'video') {
+        selectedClipLocation = null;
+        syncSplitButton();
+        return;
+      }
+      const start = typeof clip.start === 'number' ? clip.start : NaN;
+      const splitAt = edit.playbackTime;
+      const elapsed = splitAt - start;
+      if (!Number.isFinite(start) || elapsed <= 0.05) {
+        toast('Move the playhead inside the selected video clip before splitting.', true);
+        return;
+      }
+      let length = typeof clip.length === 'number' ? clip.length : NaN;
+      if (!Number.isFinite(length) && clip.length === 'auto' && clip.asset.src) {
+        setStatus('Checking video duration…');
+        length = await new Promise(resolve => {
+          const video = document.createElement('video');
+          const timeout = setTimeout(() => finish(NaN), 10000);
+          const finish = value => {
+            clearTimeout(timeout);
+            video.onloadedmetadata = null;
+            video.onerror = null;
+            video.removeAttribute('src');
+            video.load();
+            resolve(value);
+          };
+          video.preload = 'metadata';
+          video.onloadedmetadata = () => {
+            const duration = Number.isFinite(video.duration) ? video.duration : NaN;
+            const trim = Number(clip.asset.trim) || 0;
+            const speed = typeof clip.asset.speed === 'number' && clip.asset.speed > 0 ? clip.asset.speed : 1;
+            finish(Number.isFinite(duration) ? Math.max(0, duration - trim) / speed : NaN);
+          };
+          video.onerror = () => finish(NaN);
+          video.src = clip.asset.src;
+          video.load();
+        });
+      }
+      if (!Number.isFinite(length) || elapsed >= length - 0.05) {
+        setStatus('Ready', true);
+        toast('The playhead must be inside the selected video clip, not at its start or end.', true);
+        return;
+      }
+      const speed = typeof clip.asset.speed === 'number' && clip.asset.speed > 0 ? clip.asset.speed : 1;
+      const nextClip = structuredClone(clip);
+      delete nextClip.id;
+      nextClip.start = splitAt;
+      nextClip.length = length - elapsed;
+      nextClip.asset.trim = (Number(clip.asset.trim) || 0) + elapsed * speed;
+      splitButton.disabled = true;
+      setStatus('Splitting clip…');
+      try {
+        const updated = await edit.updateClip(trackIndex, clipIndex, { length: elapsed });
+        if (updated.status !== 'success') throw new Error(updated.message || 'Could not shorten the first part of the clip.');
+        try {
+          const added = await edit.addClip(trackIndex, nextClip);
+          if (added.status !== 'success') throw new Error(added.message || 'Could not add the second part of the clip.');
+        } catch (error) {
+          await edit.updateClip(trackIndex, clipIndex, { length: clip.length });
+          throw error;
+        }
+        setStatus('Clip split', true);
+        toast('Video split at the playhead. Select and delete either part to trim it.');
+      } catch (error) {
+        setStatus('Ready', true);
+        throw error;
+      } finally {
+        syncSplitButton();
+      }
+    });
     // Studio's own "Generate" toolbar only appears on a clip once a generator is registered - this is
     // the whole UI, we just resolve the prompt to a real asset. Billed in Shotstack's own generation
     // credits (separate pool from render credits), same account as the cloud-render path.
