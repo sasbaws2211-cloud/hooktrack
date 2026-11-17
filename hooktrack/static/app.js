@@ -658,8 +658,8 @@ function updateNav() {
     help.className = 'btn sm help-btn';
     help.textContent = '?';
     help.title = 'How HookTrack works';
-    const tr = $('.top-right');
-    if (tr) tr.insertBefore(help, tr.firstChild);
+    const tools = $('#top-utilities');
+    if (tools) tools.appendChild(help);
     help.onclick = () => openHelpGlossary();
   }
   let searchBtn = $('#search-btn');
@@ -668,10 +668,11 @@ function updateNav() {
     searchBtn.id = 'search-btn';
     searchBtn.type = 'button';
     searchBtn.className = 'btn sm';
-    searchBtn.textContent = 'Search';
+    searchBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg><span>Search</span><kbd>Ctrl K</kbd>';
     searchBtn.title = 'Search (Ctrl/⌘ K)';
-    const tr = $('.top-right');
-    if (tr) tr.insertBefore(searchBtn, help);
+    searchBtn.setAttribute('aria-label', 'Search (Ctrl/⌘ K)');
+    const tools = $('#top-utilities');
+    if (tools) tools.appendChild(searchBtn);
     searchBtn.onclick = () => openCommandPalette();
   }
   let themeBtn = $('#theme-btn');
@@ -681,11 +682,19 @@ function updateNav() {
     themeBtn.type = 'button';
     themeBtn.className = 'btn sm theme-btn';
     themeBtn.title = 'Toggle theme: system / dark / light';
-    const tr = $('.top-right');
-    if (tr) tr.insertBefore(themeBtn, searchBtn);
+    const tools = $('#top-utilities');
+    if (tools) tools.appendChild(themeBtn);
     const syncThemeLabel = () => {
       const t = localStorage.getItem('hooktrack_theme') || 'system';
-      themeBtn.textContent = t === 'dark' ? 'Light' : (t === 'light' ? 'Auto' : 'Dark');
+      const next = t === 'dark' ? 'light' : (t === 'light' ? 'system' : 'dark');
+      const label = next === 'light' ? 'Light' : (next === 'system' ? 'Auto' : 'Dark');
+      const icon = next === 'system'
+        ? '<rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8m-4-4v4"></path>'
+        : next === 'light'
+          ? '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"></path>'
+          : '<path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path>';
+      themeBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg><span>${label}</span>`;
+      themeBtn.setAttribute('aria-label', `Switch to ${label.toLowerCase()} theme`);
     };
     syncThemeLabel();
     themeBtn.onclick = () => {
