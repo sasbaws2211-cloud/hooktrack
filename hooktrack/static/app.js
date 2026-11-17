@@ -2653,30 +2653,54 @@ pages.studio = async app => {
   app.innerHTML = `<div class="page-head"><div><h1>Edit in Studio</h1><div class="sub">${esc(short(post.hook || post.caption || 'Untitled', 90))}</div></div>
     <div class="row"><button class="btn" id="studio-back">← Back</button></div></div>
     ${locked ? '<div class="card" style="margin-bottom:10px"><p class="muted">This card is Filmed, so its finished video/images are locked for publishing. You can still draft here, but move it back to Scripted before using "Finish".</p></div>' : ''}
-    <div class="card" style="padding:0;overflow:hidden">
-      <div id="studio-toolbar" class="row" style="padding:10px;border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="btn sm" id="studio-add-media">+ Add media</button>
-        <button class="btn sm" id="studio-undo" disabled title="Undo the last edit">Undo</button>
-        <button class="btn sm" id="studio-redo" disabled title="Redo the last undone edit">Redo</button>
-        <button class="btn sm" id="studio-duplicate-clip" disabled title="Select a clip to duplicate it at the end of the timeline">Duplicate clip</button>
-        <button class="btn sm" id="studio-delete-clip" disabled title="Select a clip to delete it">Delete clip</button>
-        <button class="btn sm" id="studio-trim-start" disabled title="Select a video and place the playhead inside it">Trim start</button>
-        <button class="btn sm" id="studio-trim-end" disabled title="Select a video and place the playhead inside it">Trim end</button>
-        <button class="btn sm" id="studio-split-clip" disabled title="Select a video clip and place the playhead inside it">Split at playhead</button>
-        <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
-        <button class="btn sm" id="studio-add-audio" disabled>+ Add audio</button>
-        <input type="file" id="studio-audio-upload" accept="audio/mpeg,audio/mp3,audio/mp4,audio/wav,audio/x-wav,audio/aac,audio/ogg" hidden>
-        <button class="btn sm" id="studio-add-text" disabled>+ Add text</button>
-        ${state.shotstack && state.shotstack.configured ? '<button class="btn sm" id="studio-add-ai" disabled>+ Add AI clip</button>' : ''}
-        <button class="btn sm" id="studio-save-draft" disabled>Save draft</button>
-        ${post.studio_draft || sessionDraft ? '<button class="btn sm" id="studio-discard-draft" disabled>Start over</button>' : ''}
-        ${!isImageFormat(post.content_type) && state.shotstack && state.shotstack.configured ? '<button class="btn sm" id="studio-render-cloud" disabled title="Renders on Shotstack\'s servers - uses your Shotstack account\'s render credits, unlike the free Finish below">Render in cloud</button>' : ''}
-        <button class="btn sm primary" id="studio-finish" disabled ${locked ? `title="Move this card back to Scripted first"` : ''}>${isImageFormat(post.content_type) ? 'Finish &amp; attach images' : 'Finish &amp; attach video'}</button>
-        <span class="spacer"></span>
-        <span class="small muted" id="studio-status">Loading editor…</span>
+    <div class="card studio-workspace">
+      <div id="studio-toolbar" class="studio-toolbar" role="toolbar" aria-label="Studio editing tools">
+        <div class="studio-toolbar-groups">
+          <section class="studio-tool-group" aria-label="Add to timeline">
+            <div class="studio-tool-label">Add to timeline</div>
+            <div class="studio-tool-buttons">
+              <button class="btn sm primary" id="studio-add-media" title="Add a video or image from your device">+ Media</button>
+              <button class="btn sm" id="studio-add-audio" disabled title="Add audio without needing another clip selected">+ Audio</button>
+              <button class="btn sm" id="studio-add-text" disabled title="Add text without needing another clip selected">+ Text</button>
+              ${state.shotstack && state.shotstack.configured ? '<button class="btn sm" id="studio-add-ai" disabled title="Generate and add a clip">+ AI clip</button>' : ''}
+              <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
+              <input type="file" id="studio-audio-upload" accept="audio/mpeg,audio/mp3,audio/mp4,audio/wav,audio/x-wav,audio/aac,audio/ogg" hidden>
+            </div>
+          </section>
+          <section class="studio-tool-group studio-tool-group-selection" aria-label="Selected clip tools">
+            <div class="studio-tool-label">Selected clip</div>
+            <div class="studio-tool-buttons">
+              <button class="btn sm" id="studio-duplicate-clip" disabled title="Select a clip to duplicate it at the end of the timeline">Duplicate</button>
+              <button class="btn sm danger" id="studio-delete-clip" disabled title="Select a clip to delete it">Delete</button>
+              <button class="btn sm" id="studio-trim-start" disabled title="Select a video and place the playhead inside it">Trim start</button>
+              <button class="btn sm" id="studio-trim-end" disabled title="Select a video and place the playhead inside it">Trim end</button>
+              <button class="btn sm" id="studio-split-clip" disabled title="Select a video clip and place the playhead inside it">Split</button>
+            </div>
+          </section>
+          <section class="studio-tool-group" aria-label="Draft and history">
+            <div class="studio-tool-label">Draft</div>
+            <div class="studio-tool-buttons">
+              <button class="btn sm" id="studio-undo" disabled title="Undo the last edit">Undo</button>
+              <button class="btn sm" id="studio-redo" disabled title="Redo the last undone edit">Redo</button>
+              <button class="btn sm" id="studio-save-draft" disabled>Save draft</button>
+              ${post.studio_draft || sessionDraft ? '<button class="btn sm" id="studio-discard-draft" disabled>Start over</button>' : ''}
+            </div>
+          </section>
+          <section class="studio-tool-group studio-tool-group-export" aria-label="Export">
+            <div class="studio-tool-label">Export</div>
+            <div class="studio-tool-buttons">
+              ${!isImageFormat(post.content_type) && state.shotstack && state.shotstack.configured ? '<button class="btn sm" id="studio-render-cloud" disabled title="Renders on Shotstack servers and uses your account render credits">Cloud render</button>' : ''}
+              <button class="btn sm primary" id="studio-finish" disabled ${locked ? `title="Move this card back to Scripted first"` : ''}>${isImageFormat(post.content_type) ? 'Finish images' : 'Finish video'}</button>
+            </div>
+          </section>
+        </div>
+        <div class="studio-toolbar-status">
+          <span class="studio-start-hint">You can add media, audio, text, or AI clips before selecting anything.</span>
+          <span class="small muted" id="studio-status" role="status" aria-live="polite">Loading editor…</span>
+        </div>
       </div>
-      <div data-shotstack-studio style="width:100%;height:420px;background:#000"></div>
-      <div data-shotstack-timeline style="width:100%;height:280px;overflow:hidden;background:#0d1117"></div>
+      <div data-shotstack-studio style="width:100%;background:#000"></div>
+      <div data-shotstack-timeline style="width:100%;overflow:hidden;background:#0d1117"></div>
     </div>`;
   $('#studio-back').onclick = () => { location.hash = '#/pipeline'; };
   if ($('#studio-discard-draft')) $('#studio-discard-draft').onclick = guard(async () => {
@@ -2718,11 +2742,16 @@ pages.studio = async app => {
     const idx = tracks.findIndex(t => (t.clips || []).some(c => c.asset && (c.asset.type === 'image' || c.asset.type === 'video')));
     return idx >= 0 ? idx : 0;
   };
+  const hasStudioContent = () => edit.getEdit().timeline.tracks.some(track =>
+    (track.clips || []).some(clip => clip.asset &&
+      !(clip.asset.type === 'text' && clip.asset.text === 'Add your media above to get started')));
+  const hasStudioImage = () => edit.getEdit().timeline.tracks.some(track =>
+    (track.clips || []).some(clip => clip.asset && clip.asset.type === 'image'));
 
   let edit, canvas, timeline, controls, ui, StudioSdk, draftDirty = !!sessionDraft, draftRevision = sessionDraft ? 1 : 0;
   let draftSaveTimer = null, draftSaveInFlight = null, scheduleDraftSave = () => {}, selectedClipLocation = null, selectedClipId = null;
   let localCacheFailureNotified = false;
-  let syncStudioClipActions = () => {};
+  let syncStudioClipActions = () => {}, syncStudioOutputButtons = () => {};
   const cacheStudioDraft = () => {
     try {
       sessionStorage.setItem(sessionDraftKey, JSON.stringify({ edit: edit.getEdit(), updatedAt: Date.now() }));
@@ -2772,13 +2801,24 @@ pages.studio = async app => {
     controls = new Controls(edit);
     await controls.load();
     setStatus(sessionDraft ? 'Restored pending changes from this tab' : post.studio_draft ? 'Ready — restored your saved draft' : 'Ready', true);
-    $('#studio-finish', app).disabled = locked;
+    syncStudioOutputButtons = () => {
+      const hasContent = hasStudioContent();
+      const canFinish = isImageFormat(post.content_type) ? hasStudioImage() : hasContent;
+      const finish = $('#studio-finish', app);
+      finish.disabled = locked || !canFinish;
+      finish.title = locked
+        ? 'Move this card back to Scripted first'
+        : canFinish ? '' : isImageFormat(post.content_type)
+          ? 'Add at least one image to the timeline before finishing'
+          : 'Add content to the timeline before finishing';
+      if ($('#studio-render-cloud', app)) $('#studio-render-cloud', app).disabled = locked || !hasContent;
+    };
+    syncStudioOutputButtons();
     $('#studio-save-draft', app).disabled = false;
     $('#studio-add-audio', app).disabled = false;
     $('#studio-add-text', app).disabled = false;
     if ($('#studio-discard-draft', app)) $('#studio-discard-draft', app).disabled = false;
     if ($('#studio-add-ai', app)) $('#studio-add-ai', app).disabled = false;
-    if ($('#studio-render-cloud', app)) $('#studio-render-cloud', app).disabled = locked;
     const undoButton = $('#studio-undo', app), redoButton = $('#studio-redo', app);
     const syncHistoryButtons = () => {
       undoButton.disabled = !edit.canUndo;
@@ -2794,6 +2834,7 @@ pages.studio = async app => {
         localCacheFailureNotified = true;
       }
       syncHistoryButtons();
+      syncStudioOutputButtons();
       scheduleDraftSave();
     };
     edit.events.on('edit:changed', markEditChanged);
@@ -2822,10 +2863,14 @@ pages.studio = async app => {
     };
     syncStudioClipActions = () => {
       const clip = getSelectedClip();
+      const clipCount = edit.getEdit().timeline.tracks.reduce(
+        (count, track) => count + (track.clips || []).length, 0);
       duplicateButton.disabled = !clip;
-      deleteButton.disabled = !clip;
+      deleteButton.disabled = !clip || (clipCount <= 1 && clip.asset.type !== 'audio');
       duplicateButton.title = clip ? 'Duplicate this clip at the end of the timeline' : 'Select a clip to duplicate it';
-      deleteButton.title = clip ? 'Delete this clip' : 'Select a clip to delete it';
+      deleteButton.title = clipCount <= 1 && clip && clip.asset.type !== 'audio'
+        ? 'The timeline must keep at least one clip'
+        : clip ? 'Delete this clip' : 'Select a clip to delete it';
       const selected = !!getSelectedVideo();
       splitButton.disabled = !selected;
       trimStartButton.disabled = !selected;
@@ -3199,7 +3244,7 @@ pages.studio = async app => {
       toast(err.message || 'Could not render this in the cloud.', true);
       setStatus('Ready');
     } finally {
-      renderBtn.disabled = locked; finishBtn.disabled = locked;
+      syncStudioOutputButtons();
     }
   });
 
@@ -3227,7 +3272,7 @@ pages.studio = async app => {
       setStatus('Ready');
     } finally {
       exporter.dispose();
-      finishBtn.disabled = false; addBtn.disabled = false;
+      syncStudioOutputButtons(); addBtn.disabled = false;
     }
   }
 
@@ -3278,7 +3323,7 @@ pages.studio = async app => {
       toast(err.message || 'Could not finish these images in the browser.', true);
       setStatus('Ready');
     } finally {
-      finishBtn.disabled = false; addBtn.disabled = false;
+      syncStudioOutputButtons(); addBtn.disabled = false;
     }
   }
 };
