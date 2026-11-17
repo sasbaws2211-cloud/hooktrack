@@ -3908,6 +3908,11 @@ pages.inbox = async app => {
   const acctFilter = state.inboxAccount || '';
   const acctSelect = `<select id="ia" style="width:auto"><option value="">All connected accounts</option>${accounts.map(a =>
     `<option value="${a.id}" ${String(acctFilter) === String(a.id) ? 'selected' : ''}>${esc(a.handle)}</option>`).join('')}</select>`;
+  const inboxSearch = `<input id="inbox-search" type="search" value="${esc(state.inboxQuery || '')}" placeholder="Search ${view === 'messages' ? 'messages' : 'comments'}…" aria-label="Search inbox">`;
+  const inboxStatusValue = view === 'messages' ? (state.inboxMessageFilter || 'all') : (state.inboxCommentFilter || 'all');
+  const inboxStatus = view === 'messages'
+    ? `<select id="inbox-status" aria-label="Filter conversations"><option value="all" ${inboxStatusValue === 'all' ? 'selected' : ''}>All conversations</option><option value="unread" ${inboxStatusValue === 'unread' ? 'selected' : ''}>Unread</option></select>`
+    : `<select id="inbox-status" aria-label="Filter comments"><option value="all" ${inboxStatusValue === 'all' ? 'selected' : ''}>All comments</option><option value="needs-reply" ${inboxStatusValue === 'needs-reply' ? 'selected' : ''}>Needs reply</option><option value="replied" ${inboxStatusValue === 'replied' ? 'selected' : ''}>Replied</option></select>`;
 
   const dmNote = `<div class="notice small" style="margin-bottom:12px">
       <b>Platform rules for DMs, not a HookTrack limit:</b>
@@ -3930,20 +3935,22 @@ pages.inbox = async app => {
         <div class="card inbox-metric"><span class="inbox-metric-icon accounts">◉</span><div><span>Connected accounts</span><b>${accounts.length}</b><small>Available for messages</small></div></div>
       </div>
       <div class="inbox-toolbar"><div class="inbox-toolbar-note"><b>Direct messages</b><span>Choose an account or open a conversation</span></div>
-        <div class="row inbox-actions">${toggle}${acctSelect}<button class="btn sm" id="irefresh">Refresh</button></div></div>
+        <div class="row inbox-actions">${toggle}${acctSelect}${inboxStatus}${inboxSearch}<button class="btn sm" id="irefresh">Refresh</button></div></div>
       ${dmNote}
-      ${convos.length ? `<ul class="list">${convos.map(c => `<li data-open-convo="${c.id}" style="cursor:pointer">
+      ${convos.length ? `<ul class="list inbox-list">${convos.map(c => `<li data-inbox-row data-inbox-status="${c.unread ? 'unread' : 'read'}" data-inbox-search="${esc([c.participant_name, c.handle, c.platform, c.last_message_preview].filter(Boolean).join(' ').toLowerCase())}" data-open-convo="${c.id}" style="cursor:pointer">
           <div style="flex:1;min-width:0"><b>${esc(c.participant_name || 'Someone')}</b> <span class="muted small">· ${esc(c.handle)} · ${esc((c.platform || '').replace(/^\w/, s => s.toUpperCase()))}</span>
             ${c.unread ? '<span class="pill hot" style="margin-left:6px">New</span>' : ''}
             <div class="small muted">${esc(short(c.last_message_preview || '', 100))}</div></div>
           <span class="small muted">${c.last_message_at ? esc(String(c.last_message_at).slice(0, 10)) : ''}</span></li>`).join('')}</ul>`
         : `<div class="empty card inbox-empty"><span class="inbox-empty-icon">✉</span><h2>No conversations yet</h2><p>Press Refresh to check for new DMs on your connected accounts.</p></div>`}
+      ${convos.length ? '<div class="empty card inbox-empty inbox-filter-empty" id="inbox-filter-empty" hidden><h2>No matches</h2><p>Try a different search or filter.</p></div>' : ''}
     </div>`;
+    wireInboxFilters(app, 'inboxMessageFilter');
     $('#irefresh').onclick = guard(async () => { await api('GET', `/api/inbox/conversations?refresh=true${acctFilter ? '&account_id=' + acctFilter : ''}`); route(); });
     $$('[data-open-convo]', app).forEach(li => (li.onclick = () => conversationModal(+li.dataset.openConvo)));
   } else {
     const comments = await api('GET', `/api/inbox/comments${acctFilter ? '?account_id=' + acctFilter : ''}`);
-    const needsReply = comments.filter(c => !c.replied_at).length;
+    const needsReply = comments.filter(c => !c.replied_at && !c.hidden_at).length;
     app.innerHTML = `<div class="inbox-page">
       <div class="page-head inbox-head"><div><div class="eyebrow">COMMUNITY</div><h1>Comments</h1>
         <div class="sub">Follow up on the conversations happening around your posts.</div></div></div>
@@ -3953,9 +3960,9 @@ pages.inbox = async app => {
         <div class="card inbox-metric"><span class="inbox-metric-icon accounts">◉</span><div><span>Connected accounts</span><b>${accounts.length}</b><small>Available for comments</small></div></div>
       </div>
       <div class="inbox-toolbar"><div class="inbox-toolbar-note"><b>Recent comments</b><span>Reply directly from your inbox</span></div>
-        <div class="row inbox-actions">${toggle}${acctSelect}<button class="btn sm" id="irefresh">Refresh</button></div></div>
+        <div class="row inbox-actions">${toggle}${acctSelect}${inboxStatus}${inboxSearch}<button class="btn sm" id="irefresh">Refresh</button></div></div>
       ${commentsNote}
-      ${comments.length ? `<ul class="list">${comments.map(c => `<li style="align-items:flex-start;flex-direction:column;gap:6px${c.parent_comment_id ? ';margin-left:28px;border-left:2px solid var(--border);padding-left:10px' : ''}">
+      ${comments.length ? `<ul class="list inbox-list">${comments.map(c => `<li data-inbox-row data-inbox-status="${c.replied_at ? 'replied' : c.hidden_at ? 'hidden' : 'needs-reply'}" data-inbox-search="${esc([c.author_name, c.post_title, c.handle, c.platform, c.body].filter(Boolean).join(' ').toLowerCase())}" style="align-items:flex-start;flex-direction:column;gap:6px${c.parent_comment_id ? ';margin-left:28px;border-left:2px solid var(--border);padding-left:10px' : ''}">
           <div class="row" style="width:100%">${c.parent_comment_id ? '<span class="muted small">↳ reply ·</span>' : ''}<b>${esc(c.author_name || 'Someone')}</b> <span class="muted small">on "${esc(short(c.post_title || 'your post', 60))}" · ${esc(c.handle)}</span>
             <span class="spacer"></span><span class="small muted">${c.posted_at ? esc(String(c.posted_at).slice(0, 10)) : ''}</span></div>
           <div>${esc(c.body)}</div>
@@ -3965,7 +3972,9 @@ pages.inbox = async app => {
                <div class="small" id="reply-err-${c.id}" style="color:var(--bad);display:none"></div>`}
         </li>`).join('')}</ul>`
         : `<div class="empty card inbox-empty"><span class="inbox-empty-icon">☷</span><h2>No comments yet</h2><p>Press Refresh to check for new comments on your connected accounts' posts.</p></div>`}
+      ${comments.length ? '<div class="empty card inbox-empty inbox-filter-empty" id="inbox-filter-empty" hidden><h2>No matches</h2><p>Try a different search or filter.</p></div>' : ''}
     </div>`;
+    wireInboxFilters(app, 'inboxCommentFilter');
     $('#irefresh').onclick = guard(async () => { await api('GET', `/api/inbox/comments?refresh=true${acctFilter ? '&account_id=' + acctFilter : ''}`); route(); });
     $$('[data-reply]', app).forEach(b => (b.onclick = async () => {
       const input = $(`.reply-in[data-comment="${b.dataset.reply}"]`, app);
@@ -3982,6 +3991,31 @@ pages.inbox = async app => {
   $('#ia', app).onchange = e => { state.inboxAccount = e.target.value; route(); };
   $$('[data-view]', app).forEach(b => (b.onclick = () => { state.inboxView = b.dataset.view; route(); }));
 };
+
+function wireInboxFilters(app, filterKey) {
+  const search = $('#inbox-search', app), status = $('#inbox-status', app);
+  const empty = $('#inbox-filter-empty', app);
+  const filter = () => {
+    const query = search.value.trim().toLowerCase();
+    let shown = 0;
+    $$('[data-inbox-row]', app).forEach(row => {
+      const matches = (!query || row.dataset.inboxSearch.includes(query)) &&
+        (status.value === 'all' || row.dataset.inboxStatus === status.value);
+      row.hidden = !matches;
+      if (matches) shown++;
+    });
+    empty.hidden = shown > 0;
+  };
+  search.oninput = () => {
+    state.inboxQuery = search.value;
+    filter();
+  };
+  status.onchange = () => {
+    state[filterKey] = status.value;
+    filter();
+  };
+  filter();
+}
 
 function conversationModal(conversationId) {
   const m = openModal(`<h2>Conversation</h2><div id="cv-msgs" class="muted small">Loading…</div>

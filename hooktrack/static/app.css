@@ -1110,6 +1110,9 @@ th { font-size: 10.5px; letter-spacing: .075em; }
 .inbox-page .inbox-toolbar-note span { color: var(--muted); font-size: 10.5px; }
 .inbox-page .inbox-actions { justify-content: flex-end; gap: 8px; }
 .inbox-page .inbox-actions select { min-height: 35px; max-width: 230px; }
+.inbox-page .inbox-actions input[type="search"] { width: min(210px, 22vw); min-width: 150px; min-height: 35px; }
+.inbox-page .inbox-list [hidden],
+.inbox-page .inbox-filter-empty[hidden] { display: none; }
 .inbox-page .inbox-empty { padding: 42px 20px; }
 .inbox-page .inbox-empty-icon { display: grid; place-items: center; width: 44px; height: 44px; margin: 0 auto 12px; border-radius: 13px; color: var(--accent); background: var(--accent-soft); font-size: 22px; }
 @media (max-width: 800px) {
@@ -1121,10 +1124,12 @@ th { font-size: 10.5px; letter-spacing: .075em; }
   .inbox-page .inbox-metric { gap: 9px; padding: 12px; }
   .inbox-page .inbox-metric-icon { flex-basis: 32px; height: 32px; }
   .inbox-page .inbox-metric b { font-size: 17px; }
-  .inbox-page .inbox-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .inbox-page .inbox-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .inbox-page .inbox-actions .seg { grid-column: 1 / -1; width: 100%; }
   .inbox-page .inbox-actions .seg-btn { flex: 1; }
-  .inbox-page .inbox-actions select { width: 100% !important; max-width: none; }
+  .inbox-page .inbox-actions select,
+  .inbox-page .inbox-actions input[type="search"] { width: 100% !important; min-width: 0; max-width: none; }
+  .inbox-page .inbox-actions #inbox-search { grid-column: 1 / -1; }
 }
 
 /* Clients: surface account coverage, approvals, and report links before the client roster */
