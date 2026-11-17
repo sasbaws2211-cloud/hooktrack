@@ -284,15 +284,7 @@ button.settings-toggle:hover { color: var(--text); }
 .demo-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 10px; background: var(--accent-soft); margin-bottom: 14px; flex-wrap: wrap; }
 .demo-banner.subtle { background: var(--surface-2); }
 
-/* P3: setup progress, help, next banner, glossary */
-.setup-progress {
-  display: inline-flex; align-items: center; gap: 8px; margin-left: 10px;
-  border: 1px solid var(--border); background: var(--surface); border-radius: 99px;
-  padding: 4px 10px 4px 6px; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--muted);
-}
-.setup-progress:hover { color: var(--text); border-color: var(--accent); }
-.sp-bar { width: 36px; height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; display: inline-block; }
-.sp-bar > span { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+/* P3: help, next banner, glossary */
 .help-btn { border-radius: 99px; width: 28px; height: 28px; padding: 0; font-weight: 700; }
 .glossary { display: flex; flex-direction: column; gap: 12px; max-height: 60vh; overflow: auto; margin: 8px 0 4px; }
 .g-item b { display: block; margin-bottom: 2px; }
@@ -451,7 +443,6 @@ td .up, .up { color: var(--good); } td .down, .down { color: var(--bad); }
 .sidebar .brand { padding: 4px 8px 14px; }
 .sidebar nav { display: flex; flex-direction: column; gap: 2px; flex: initial; overflow: visible; }
 .sidebar nav a { padding: 9px 12px; }
-.sidebar .setup-progress { margin: 10px 0 0; width: 100%; justify-content: center; }
 .sidebar-toggle { display: none; border: none; background: none; font-size: 18px; padding: 4px 8px; }
 .sidebar-backdrop[hidden] { display: none; }
 
@@ -1551,19 +1542,6 @@ th { font-size: 10.5px; letter-spacing: .075em; }
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.sidebar .setup-progress {
-  flex: 0 0 auto;
-  justify-content: flex-start;
-  gap: 10px;
-  min-height: 44px;
-  margin: 0;
-  padding: 9px 11px;
-  border-radius: 10px;
-  color: var(--muted);
-  background: var(--surface-2);
-}
-.sidebar .setup-progress:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
-.sidebar .sp-label { font-size: 11px; }
 @media (max-width: 860px) {
   .sidebar {
     width: min(86vw, 292px);
@@ -1771,8 +1749,7 @@ body.studio-fit .studio-workspace [data-shotstack-timeline] {
   .app-shell.sidebar-collapsed .sidebar { width: 76px; flex-basis: 76px; padding-right: 10px; padding-left: 10px; }
   .app-shell.sidebar-collapsed .sidebar .brand { justify-content: center; padding-right: 0; padding-left: 0; }
   .app-shell.sidebar-collapsed .sidebar .brand-name,
-  .app-shell.sidebar-collapsed .sidebar .nav-label,
-  .app-shell.sidebar-collapsed .sidebar .setup-progress { display: none; }
+  .app-shell.sidebar-collapsed .sidebar .nav-label { display: none; }
   .app-shell.sidebar-collapsed .sidebar nav { gap: 12px; }
   .app-shell.sidebar-collapsed .sidebar .nav-group { align-items: center; width: 100%; }
   .app-shell.sidebar-collapsed .sidebar .nav-group-bottom { padding-top: 12px; }

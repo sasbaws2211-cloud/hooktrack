@@ -676,26 +676,6 @@ function updateNav() {
   const hash = (location.hash.replace('#/', '') || 'dashboard').split('?')[0];
   // only judge once the account data is in; before that every gated tab looks "locked" and a refresh/bookmark would bounce
 
-  // Setup progress + help in header
-  let prog = $('#setup-progress');
-  if (!prog) {
-    prog = document.createElement('button');
-    prog.id = 'setup-progress';
-    prog.type = 'button';
-    prog.className = 'setup-progress';
-    prog.title = 'Setup progress';
-    const nav = $('#nav');
-    if (nav && nav.parentNode) nav.parentNode.insertBefore(prog, nav.nextSibling);
-  }
-  const setup = state.setup || {};
-  if (!setup.complete && phase < 3) {
-    const done = [setup.has_accounts, setup.has_views, setup.has_scored_hook].filter(Boolean).length;
-    prog.style.display = '';
-    prog.innerHTML = `<span class="sp-bar"><span style="width:${Math.round(done/3*100)}%"></span></span><span class="sp-label">${done}/3 setup</span>`;
-    prog.onclick = () => { location.hash = '#/dashboard'; };
-  } else {
-    prog.style.display = 'none';
-  }
   let help = $('#help-btn');
   if (!help) {
     help = document.createElement('button');
