@@ -907,9 +907,9 @@ pages.dashboard = async app => {
   ${showNext ? `<div class="card next-banner" id="next-banner">
     <div><b>You’re set up — what’s next?</b>
       <ul class="next-list">
-        <li><a href="#/pipeline">Plan posts</a> on the board or calendar</li>
         <li><a href="#/discover">See what is working</a> for creators like you</li>
         <li><a href="#/inspiration">Keep saved ideas</a> from competitors (optional)</li>
+        <li><a href="#/pipeline">Plan posts</a> on the board or calendar</li>
         <li><a href="#/settings">Settings</a> — connect your accounts to publish (TikTok, Instagram, YouTube, X, LinkedIn or Facebook)</li>
       </ul>
     </div>
