@@ -923,47 +923,49 @@ pages.dashboard = async app => {
     <div class="card kpi"><div class="label">Scale</div><div class="value up">${d.decisions.SCALE}</div><div class="delta">${fmt(d.settings.scale_weekly)}+ weekly &amp; strong hook score</div></div>
     <div class="card kpi"><div class="label">Stop</div><div class="value down">${d.decisions.KILL}</div><div class="delta">stalled ${d.settings.kill_after_posts}+ posts</div></div>
   </div>
-  <div class="card" style="margin-bottom:14px"><h2>Ask your data</h2>${aiNotice()}
-    <form class="ask" id="ask-form"><input id="ask-q" placeholder="e.g. Which accounts should I stop this week, and why?" maxlength="1000" ${state.ai.available ? '' : 'disabled'}>
-      <button class="btn ai" ${state.ai.available ? '' : 'disabled'}>Ask</button></form>
-    <div class="chips">${['Which accounts should I scale?', 'Which niche is working best?', 'What do my winning hooks have in common?']
-      .map(q => `<button type="button" data-q="${esc(q)}" ${state.ai.available ? '' : 'disabled'}>${esc(q)}</button>`).join('')}</div>
-    <div id="answer"></div></div>
-  <div class="grid cols-2" style="margin-bottom:14px">
-    <div class="card"><h2>Views, last 8 weeks</h2><div class="bars">${d.trend.map((t, i) =>
-      `<div class="b ${i === 7 ? 'cur' : ''}"><div class="v">${t.views >= 1000 ? Math.round(t.views / 1000) + 'k' : t.views}</div>
-       <div class="fill" style="height:${Math.round(t.views / maxT * 100)}%"></div><div class="l">${t.week.slice(5)}</div></div>`).join('')}</div></div>
-    <div class="card"><h2>This week by phone</h2>${d.by_phone.map(p =>
-      `<div class="hbar"><span>${esc(p.phone)}</span><div class="track"><div class="fill" style="width:${Math.round(p.views / maxP * 100)}%;background:${esc(p.color)}"></div></div>
-       <span class="num" style="text-align:right">${fmt(p.views)}</span></div>`).join('')}</div>
-  </div>
-  ${(d.movers || []).length ? `<div class="card" style="margin-bottom:14px"><h2>Week movers</h2>
-    <ul class="list">${d.movers.map(m => `<li>
-      <b style="flex:1">${esc(m.handle)}</b>
-      <span class="num">${fmt(m.views)}</span>
-      <span class="delta ${m.delta > 0 ? 'up' : m.delta < 0 ? 'down' : ''}" style="min-width:72px;text-align:right">
-        ${m.delta > 0 ? '+' : ''}${fmt(m.delta)} (${m.pct > 0 ? '+' : ''}${m.pct}%)
-      </span>
-      ${pill(m.decision)}
-    </li>`).join('')}</ul>
-    <p class="muted small" style="margin-top:8px">Vs previous week · sorted by absolute change</p>
-  </div>` : ''}
-  <div class="card" id="next-card" style="margin-bottom:14px"><h2>Next actions</h2><div id="next-body" class="muted small">Loading…</div><div id="credit-foot"></div></div>
-  <div class="card" id="activity-card" style="margin-bottom:14px"><h2>Recent activity</h2>
-    <div id="activity-list" class="muted small">Loading…</div></div>
-  <div class="grid cols-2">
-    <div class="card"><h2>Act on this</h2>${d.act_on.length ? `<ul class="list">${d.act_on.map(a =>
-      `<li>${pill(a.decision)}<div><b>${esc(a.handle)}</b><div class="muted small">${esc(a.reason)}</div></div></li>`).join('')}</ul>`
-      : '<p class="muted">Nothing to scale or kill right now.</p>'}
-      ${d.unscored_posts ? `<p class="small muted">${d.unscored_posts} posted hooks aren't scored yet — <a href="#/hooks">score them</a> so SCALE decisions are accurate.</p>` : ''}</div>
-    <div class="card"><h2>Top hooks <span class="muted small" style="font-weight:400">vs each account's own normal (similar accounts for new ones)</span></h2>${d.top_hooks.length ? `<ul class="list">${d.top_hooks.map(h =>
-      `<li><div style="flex:1"><div>${esc(short(h.hook, 60))}</div><div class="muted small">${esc(h.handle)} · ${compact(h.views)} views${h.saves ? ` · ${compact(h.saves)} saves` : ''}${h.intent_per_1k != null ? ` · ${h.intent_per_1k} intent/1k` : ''}</div></div>${h.multiple != null ? winnerChip({ label: h.label, multiple: h.multiple, high_intent: h.high_intent, baseline: h.baseline, baseline_source: h.baseline_source, peer: h.peer, own_needed: h.own_needed }) : ''}${h.vsc != null ? ` <b>${h.vsc}/30</b>` : ''}</li>`).join('')}</ul>`
-      : '<p class="muted">Log posts in <a href="#/hooks">Hooks</a> to see your best performers.</p>'}</div>
-    <div class="card"><h2>Upcoming</h2>${d.upcoming.length ? `<ul class="list">${d.upcoming.map(u =>
-      `<li><span class="muted small" style="width:70px">${esc(u.post_date)}</span><div style="flex:1">${esc(short(u.hook, 50) || '(no hook yet)')}<div class="muted small">${esc(u.handle)}</div></div>${pill(u.status)}</li>`).join('')}</ul>`
-      : '<p class="muted">Nothing scheduled. Plan a week on the <a href="#/calendar">calendar</a>.</p>'}</div>
-    <div class="card"><h2>Weekly leaders</h2><ul class="list">${d.leaders.map(l =>
-      `<li><b style="flex:1">${esc(l.handle)}</b><span>${fmt(l.views)}</span>${pill(l.decision)}</li>`).join('')}</ul></div>
+  <div class="dash-layout">
+    <div class="dash-main">
+      <div class="card" id="next-card"><h2>Next actions</h2><div id="next-body" class="muted small">Loading…</div><div id="credit-foot"></div></div>
+      <div class="card"><h2>Act on this</h2>${d.act_on.length ? `<ul class="list">${d.act_on.map(a =>
+        `<li>${pill(a.decision)}<div><b>${esc(a.handle)}</b><div class="muted small">${esc(a.reason)}</div></div></li>`).join('')}</ul>`
+        : '<p class="muted">Nothing to scale or kill right now.</p>'}
+        ${d.unscored_posts ? `<p class="small muted">${d.unscored_posts} posted hooks aren't scored yet — <a href="#/hooks">score them</a> so SCALE decisions are accurate.</p>` : ''}</div>
+      <div class="card"><h2>Top hooks <span class="muted small" style="font-weight:400">vs each account's own normal (similar accounts for new ones)</span></h2>${d.top_hooks.length ? `<ul class="list">${d.top_hooks.map(h =>
+        `<li><div style="flex:1"><div>${esc(short(h.hook, 60))}</div><div class="muted small">${esc(h.handle)} · ${compact(h.views)} views${h.saves ? ` · ${compact(h.saves)} saves` : ''}${h.intent_per_1k != null ? ` · ${h.intent_per_1k} intent/1k` : ''}</div></div>${h.multiple != null ? winnerChip({ label: h.label, multiple: h.multiple, high_intent: h.high_intent, baseline: h.baseline, baseline_source: h.baseline_source, peer: h.peer, own_needed: h.own_needed }) : ''}${h.vsc != null ? ` <b>${h.vsc}/30</b>` : ''}</li>`).join('')}</ul>`
+        : '<p class="muted">Log posts in <a href="#/hooks">Hooks</a> to see your best performers.</p>'}</div>
+      <div class="card" id="activity-card"><h2>Recent activity</h2>
+        <div id="activity-list" class="muted small">Loading…</div></div>
+    </div>
+    <div class="dash-rail">
+      <div class="card"><h2>Ask your data</h2>${aiNotice()}
+        <form class="ask" id="ask-form"><input id="ask-q" placeholder="e.g. Which accounts should I stop this week, and why?" maxlength="1000" ${state.ai.available ? '' : 'disabled'}>
+          <button class="btn ai" ${state.ai.available ? '' : 'disabled'}>Ask</button></form>
+        <div class="chips">${['Which accounts should I scale?', 'Which niche is working best?', 'What do my winning hooks have in common?']
+          .map(q => `<button type="button" data-q="${esc(q)}" ${state.ai.available ? '' : 'disabled'}>${esc(q)}</button>`).join('')}</div>
+        <div id="answer"></div></div>
+      <div class="card"><h2>Views, last 8 weeks</h2><div class="bars">${d.trend.map((t, i) =>
+        `<div class="b ${i === 7 ? 'cur' : ''}"><div class="v">${t.views >= 1000 ? Math.round(t.views / 1000) + 'k' : t.views}</div>
+         <div class="fill" style="height:${Math.round(t.views / maxT * 100)}%"></div><div class="l">${t.week.slice(5)}</div></div>`).join('')}</div></div>
+      <div class="card"><h2>This week by phone</h2>${d.by_phone.map(p =>
+        `<div class="hbar"><span>${esc(p.phone)}</span><div class="track"><div class="fill" style="width:${Math.round(p.views / maxP * 100)}%;background:${esc(p.color)}"></div></div>
+         <span class="num" style="text-align:right">${fmt(p.views)}</span></div>`).join('')}</div>
+      ${(d.movers || []).length ? `<div class="card"><h2>Week movers</h2>
+        <ul class="list">${d.movers.map(m => `<li>
+          <b style="flex:1">${esc(m.handle)}</b>
+          <span class="num">${fmt(m.views)}</span>
+          <span class="delta ${m.delta > 0 ? 'up' : m.delta < 0 ? 'down' : ''}" style="min-width:72px;text-align:right">
+            ${m.delta > 0 ? '+' : ''}${fmt(m.delta)} (${m.pct > 0 ? '+' : ''}${m.pct}%)
+          </span>
+          ${pill(m.decision)}
+        </li>`).join('')}</ul>
+        <p class="muted small" style="margin-top:8px">Vs previous week · sorted by absolute change</p>
+      </div>` : ''}
+      <div class="card"><h2>Upcoming</h2>${d.upcoming.length ? `<ul class="list">${d.upcoming.map(u =>
+        `<li><span class="muted small" style="width:70px">${esc(u.post_date)}</span><div style="flex:1">${esc(short(u.hook, 50) || '(no hook yet)')}<div class="muted small">${esc(u.handle)}</div></div>${pill(u.status)}</li>`).join('')}</ul>`
+        : '<p class="muted">Nothing scheduled. Plan a week on the <a href="#/calendar">calendar</a>.</p>'}</div>
+      <div class="card"><h2>Weekly leaders</h2><ul class="list">${d.leaders.map(l =>
+        `<li><b style="flex:1">${esc(l.handle)}</b><span>${fmt(l.views)}</span>${pill(l.decision)}</li>`).join('')}</ul></div>
+    </div>
   </div>`;
   const ask = guard(async q => {
     if (!q.trim()) return;
