@@ -1194,6 +1194,27 @@ th { font-size: 10.5px; letter-spacing: .075em; }
   .settings-page .settings-section > .card { padding: 14px; }
 }
 
+/* Official local social brand marks */
+.social-identity { display: inline-flex; align-items: center; gap: 5px; vertical-align: middle; white-space: nowrap; }
+.social-logo { display: inline-grid; place-items: center; flex: 0 0 20px; width: 20px; height: 20px; overflow: hidden; border-radius: 6px; background: #111318; }
+.social-logo img { display: block; width: 12px; height: 12px; object-fit: contain; filter: brightness(0) invert(1); }
+.social-logo-instagram { background: linear-gradient(140deg, #7d3fe8, #e44782 65%, #f8a14a); }
+.social-logo-youtube { background: #ed1d24; }
+.social-logo-facebook { background: #0866ff; }
+.social-logo-linkedin { background: transparent; }
+.social-logo-linkedin img { width: 20px; height: 20px; filter: none; }
+.social-logo-threads { background: #101114; }
+.social-logo-x { background: #101114; }
+.social-brand-btn .social-identity { vertical-align: initial; }
+.accounts-page .account-brandmark img { width: 20px; height: 20px; }
+.accounts-page .account-brandmark .social-logo { width: 24px; height: 24px; flex-basis: 24px; background: transparent; }
+.accounts-page .account-brandmark.linkedin { background: transparent; }
+.accounts-page .account-brandmark.linkedin .social-logo { width: 38px; height: 38px; flex-basis: 38px; }
+.accounts-page .account-brandmark.linkedin .social-logo img { width: 38px; height: 38px; }
+.accounts-page .account-brandmark.twitter,
+.accounts-page .account-brandmark.x,
+.accounts-page .account-brandmark.threads { color: #fff; background: #101114; }
+
 /* Primary navigation: grouped, icon-led destinations with a clear active route */
 .sidebar {
   width: 256px;

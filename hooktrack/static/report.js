@@ -36,7 +36,7 @@
       </section>
       <section class="rp-card"><h2>Views per day</h2>${h.views || d.series.some(s => s.views) ? bars(d.series) : '<p class="rp-muted">No views recorded in this period.</p>'}</section>
       ${d.accounts.length ? `<section class="rp-card"><h2>Accounts</h2><div class="rp-scroll"><table><thead><tr><th>Account</th><th>Platform</th><th class="n">Views</th><th class="n">Change</th><th class="n">Videos</th><th class="n">Winners</th></tr></thead><tbody>
-        ${d.accounts.map(a => `<tr><td>${esc(a.handle)}</td><td>${esc(a.platform)}</td><td class="n">${num(a.views)}</td>
+        ${d.accounts.map(a => `<tr><td>${esc(a.handle)}</td><td>${window.socialPlatformIdentity(a.platform)}</td><td class="n">${num(a.views)}</td>
           <td class="n ${a.change_pct > 0 ? 'rp-up' : a.change_pct < 0 ? 'rp-down' : ''}">${a.change_pct == null ? '–' : (a.change_pct > 0 ? '+' : '') + a.change_pct + '%'}</td><td class="n">${num(a.posts)}</td><td class="n">${num(a.winners)}</td></tr>`).join('')}
         </tbody></table></div></section>` : ''}
       <section class="rp-card"><h2>Winning videos</h2>

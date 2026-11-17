@@ -1,0 +1,7 @@
+Social brand SVG marks:
+- TikTok, Instagram, YouTube, Facebook, X, Threads: Simple Icons SVGs
+  https://github.com/simple-icons/simple-icons (CC0 1.0 Universal)
+- LinkedIn: Wikimedia Commons, LinkedIn icon SVG
+  https://commons.wikimedia.org/wiki/File:LinkedIn_icon.svg
+
+The marks are used only to identify the corresponding social platforms.

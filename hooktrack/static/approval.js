@@ -17,7 +17,7 @@
     el.innerHTML = `<article class="rp">
       <header class="rp-head"><div><div class="rp-kicker">${esc(d.prepared_by || 'Review requested')}</div>
         <h1>A post is ready for your review</h1>
-        <div class="rp-sub">${esc(d.handle || 'Your account')} · ${(d.platforms || []).map(p => esc(PLATFORM_LABEL[p] || p)).join(', ')}${d.schedule_at ? ' · goes out ' + esc(when(d.schedule_at)) : ''}</div></div></header>
+        <div class="rp-sub">${esc(d.handle || 'Your account')} · ${(d.platforms || []).map(p => window.socialPlatformIdentity(p, PLATFORM_LABEL[p] || p)).join(' ')}${d.schedule_at ? ' · goes out ' + esc(when(d.schedule_at)) : ''}</div></div></header>
       ${decisionBanner(d)}
       <section class="rp-card">
         <h2>The post</h2>

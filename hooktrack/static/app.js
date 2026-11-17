@@ -1099,7 +1099,7 @@ pages.views = async app => {
   ${g.rows.length ? `<div class="table-wrap views-grid"><table><thead><tr><th>Account</th><th>Niche</th>
     ${g.days.map((d, i) => `<th class="num">${DOW[i]} ${d.slice(8)}</th>`).join('')}<th class="num">Weekly</th><th>Best hook?</th><th>Decision</th></tr></thead><tbody>
     ${g.rows.map(r => `<tr class="band" style="--band:${esc(r.phone_color || 'transparent')}">
-      <td><span class="handle">${esc(r.handle)}</span><div class="muted small">${esc(r.phone_label || '')} · ${esc(r.platform)}</div></td>
+      <td><span class="handle">${esc(r.handle)}</span><div class="muted small">${esc(r.phone_label || '')} · ${window.socialPlatformIdentity(r.platform)}</div></td>
       <td class="muted">${esc(r.niche)}</td>
       ${r.cells.map(c => `<td class="num"><input inputmode="numeric" data-acc="${r.id}" data-day="${c.day}" value="${c.views == null ? '' : c.views}"
         class="${srcClass(c.source)}" title="${srcTitle(c.source)}" aria-label="${esc(r.handle)} ${c.day}"></td>`).join('')}
@@ -1170,7 +1170,7 @@ pages.today = async app => {
     <div class="today-list">${t.accounts.map(a => `
       <div class="today-row" style="--band:${esc(a.phone_color || 'transparent')}">
         <div class="who"><span class="handle">${esc(a.handle)}</span>
-          <div class="muted small">${esc(a.phone_label || 'No phone')} · ${esc(a.platform)}${a.status === 'warming' ? ' · warming' : ''}</div></div>
+          <div class="muted small">${esc(a.phone_label || 'No phone')} · ${window.socialPlatformIdentity(a.platform)}${a.status === 'warming' ? ' · warming' : ''}</div></div>
         <div class="ctx muted small">${a.prev != null ? `Yesterday ${fmt(a.prev)}` : ''}${a.avg7 != null ? `${a.prev != null ? ' · ' : ''}7-day avg ${fmt(a.avg7)}` : ''}</div>
         <div class="entry"><span id="chip-${a.id}">${deltaChip(a.views, a.avg7)}</span>
           <input inputmode="numeric" data-acc="${a.id}" data-avg="${a.avg7 ?? ''}" value="${a.views == null ? '' : a.views}"
@@ -2076,7 +2076,7 @@ function approvalStatusLine(approval) {
 function pendingApprovalDialog(approval, opts) {
   const link = fullLink(approval.link);
   const m = openModal(`<h2>Waiting for client approval</h2>
-    <p class="muted small">Sent ${esc(fmtWhen(approval.created_at))} for ${esc((approval.platforms || []).map(p => PLATFORM_LABEL[p] || p).join(', '))},
+    <p class="muted small">Sent ${esc(fmtWhen(approval.created_at))} for ${(approval.platforms || []).map(p => window.socialPlatformIdentity(p, PLATFORM_LABEL[p] || p)).join(' ')},
       to go out ${esc(fmtWhen(approval.schedule_at))} once approved.</p>
     <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm" id="ap-copy">Copy link</button>
       <a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener">Open link</a></div>
@@ -2127,8 +2127,8 @@ async function scheduleDialog(post, opts = {}) {
     const box = $('#plats', sm); if (!box) return;
     box.innerHTML = Object.entries(PLATFORM_LABEL).map(([k, v]) => {
       const ok = connected === null || connected.has(k);
-      return `<span class="row" style="gap:6px"><label class="check small"><input type="checkbox" data-plat="${k}" ${ok && chosen.has(k) ? 'checked' : ''} ${ok ? '' : 'disabled'}> ${v}</label>${ok ? '' :
-        (isAdmin() ? `<button type="button" class="btn sm" data-conn="${k}" ${held ? 'disabled title="Unlocks with a paid plan"' : ''}>Connect ${v}</button>` : '<span class="muted small">not connected: ask an admin</span>')}</span>`;
+      return `<span class="row" style="gap:6px"><label class="check small"><input type="checkbox" data-plat="${k}" ${ok && chosen.has(k) ? 'checked' : ''} ${ok ? '' : 'disabled'}> ${window.socialPlatformIdentity(k, v)}</label>${ok ? '' :
+        (isAdmin() ? `<button type="button" class="btn sm" data-conn="${k}" ${held ? 'disabled title="Unlocks with a paid plan"' : ''}>Connect ${window.socialPlatformIdentity(k, v)}</button>` : '<span class="muted small">not connected: ask an admin</span>')}</span>`;
     }).join('');
     const sel = () => $$('[data-plat]', box).filter(c => c.checked && !c.disabled);
     const note = $('#connnote', sm);
@@ -2966,7 +2966,7 @@ pages.discover = async app => {
     </div>
     ${d.items.length ? `<div class="discover-results-head"><h2>Ideas for your next post</h2><span class="muted small">${d.items.length} examples · sorted by outperformance</span></div><div class="insp-grid disc-grid">${d.items.map((x, i) => `<div class="insp-card disc-card">
       <a href="${esc(x.url)}" class="disc-play" data-play="${i}" title="Play it here">${x.thumb ? `<img src="${esc(x.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<div class="disc-tile">${PLAT_NAME[x.platform] || 'Video'}</div>`}
-        <span class="disc-chip plat">${PLAT_NAME[x.platform] || 'Video'}</span>
+        <span class="disc-chip plat">${window.socialPlatformIdentity(x.platform, PLAT_NAME[x.platform] || 'Video')}</span>
         <span class="disc-chip views">${fmtViews(x.views)} views</span>
         <span class="disc-play-btn" aria-hidden="true">▶</span></a>
       <div class="body">
@@ -3013,7 +3013,7 @@ pages.inspiration = async app => {
         ${r.image_url ? `<img src="${esc(r.image_url)}" alt="">` : ''}
         <div class="body">
           <div class="row" style="gap:6px;flex-wrap:wrap">
-            ${r.platform ? `<span class="pill">${esc(r.platform)}</span>` : ''}
+            ${r.platform ? `<span class="pill">${window.socialPlatformIdentity(r.platform)}</span>` : ''}
             ${r.use_in_ai ? '<span class="pill SCALE" title="Used in AI generation">AI</span>' : '<span class="pill">off</span>'}
           </div>
           <div class="hook">${esc(r.hook_text || r.title || 'Untitled')}</div>
@@ -3725,13 +3725,13 @@ pages.accounts = async app => {
     const synced = a.last_synced_at ? String(a.last_synced_at).slice(0, 10) : '';
     const platform = String(a.platform || '').toLowerCase();
     return `<article class="account-row" data-account-search="${esc(search)}">
-      <div class="account-brandmark ${esc(platform)}" aria-hidden="true">${esc(String(a.platform || '?').slice(0, 1).toUpperCase())}</div>
+      <div class="account-brandmark ${esc(platform)}" aria-hidden="true">${window.socialPlatformIcon(platform) || esc(String(a.platform || '?').slice(0, 1).toUpperCase())}</div>
       <div class="account-identity">
         <div class="account-name-line">
           <button type="button" class="pin-btn ${pins.has(String(a.id)) ? 'on' : ''}" data-pin="${a.id}" title="${pins.has(String(a.id)) ? 'Unpin account' : 'Pin account'}" aria-label="${pins.has(String(a.id)) ? 'Unpin account' : 'Pin account'}">${pins.has(String(a.id)) ? '★' : '☆'}</button>
           <b>${esc(a.handle)}</b>${pill(a.status, a.status === 'active' ? 'posted' : a.status === 'killed' ? 'KILL' : 'HOLD')}
         </div>
-        <div class="account-meta">${esc(a.platform)} <span>·</span> ${esc(a.niche)}${client ? ` <span>·</span> ${esc(client.name)}` : ''}</div>
+        <div class="account-meta">${window.socialPlatformIdentity(platform, a.platform)} <span>·</span> ${esc(a.niche)}${client ? ` <span>·</span> ${esc(client.name)}` : ''}</div>
         <div class="account-hook">${a.content_hook ? esc(a.content_hook) : '<span class="muted">Add a content focus to help tailor your ideas</span>'}</div>
       </div>
       <div class="account-stat"><span>Followers</span><b title="${a.followers_day ? `As of ${esc(String(a.followers_day).slice(0, 10))}` : 'No snapshot yet: run a sync'}">${a.followers == null ? '—' : compact(a.followers)}</b>
@@ -3943,7 +3943,7 @@ pages.inbox = async app => {
         <div class="row inbox-actions">${toggle}${acctSelect}${inboxStatus}${inboxSearch}<button class="btn sm" id="irefresh">Refresh</button></div></div>
       ${dmNote}
       ${convos.length ? `<ul class="list inbox-list">${convos.map(c => `<li data-inbox-row data-inbox-status="${c.unread ? 'unread' : 'read'}" data-inbox-search="${esc([c.participant_name, c.handle, c.platform, c.last_message_preview].filter(Boolean).join(' ').toLowerCase())}" data-open-convo="${c.id}" style="cursor:pointer">
-          <div style="flex:1;min-width:0"><b>${esc(c.participant_name || 'Someone')}</b> <span class="muted small">· ${esc(c.handle)} · ${esc((c.platform || '').replace(/^\w/, s => s.toUpperCase()))}</span>
+          <div style="flex:1;min-width:0"><b>${esc(c.participant_name || 'Someone')}</b> <span class="muted small">· ${esc(c.handle)} · ${window.socialPlatformIdentity(c.platform)}</span>
             ${c.unread ? '<span class="pill hot" style="margin-left:6px">New</span>' : ''}
             <div class="small muted">${esc(short(c.last_message_preview || '', 100))}</div></div>
           <span class="small muted">${c.last_message_at ? esc(String(c.last_message_at).slice(0, 10)) : ''}</span></li>`).join('')}</ul>`
@@ -4070,7 +4070,7 @@ function clientAccountsModal(c) {
   const taken = a => a.client_id && a.client_id !== c.id;
   const m = openModal(`<h2>Accounts for ${esc(c.name)}</h2>
     <div style="max-height:50vh;overflow:auto">${state.accounts.map(a => `<label class="check" style="display:flex;gap:8px;padding:4px 0">
-      <input type="checkbox" value="${a.id}" ${a.client_id === c.id ? 'checked' : ''}> <span>${esc(a.handle)} <span class="muted small">${esc(a.platform)}${taken(a) ? ' · currently ' + esc((state.clients.find(x => x.id === a.client_id) || {}).name || 'another client') + ' (moves here)' : ''}</span></span></label>`).join('') || '<p class="muted">Add accounts first.</p>'}</div>
+      <input type="checkbox" value="${a.id}" ${a.client_id === c.id ? 'checked' : ''}> <span>${esc(a.handle)} <span class="muted small">${window.socialPlatformIdentity(a.platform)}${taken(a) ? ' · currently ' + esc((state.clients.find(x => x.id === a.client_id) || {}).name || 'another client') + ' (moves here)' : ''}</span></span></label>`).join('') || '<p class="muted">Add accounts first.</p>'}</div>
     <div class="actions"><span class="spacer"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="asave">Save</button></div>`);
   $('#asave', m).onclick = guard(async () => {
     const ids = $$('input[type=checkbox]:checked', m).map(i => +i.value);
@@ -4179,7 +4179,7 @@ function accountModal(a) {
       $('#h', m).value = r.handle; $('#pf', m).value = r.platform;
       if (!nicheTouched && r.niche && !$('#n', m).value.trim()) $('#n', m).value = r.niche;
       show(`<span class="up">✓ ${esc(r.display_name || r.handle)}${r.verified ? ' (verified)' : ''}</span>
-        <span class="muted">· ${esc(r.platform)}${r.followers != null ? ' · ' + compact(r.followers) + ' followers' : ''}${r.video_count != null ? ' · ' + compact(r.video_count) + ' videos' : ''}${r.niche ? ' · niche: ' + esc(r.niche) : ''}</span>`);
+        <span class="muted">· ${window.socialPlatformIdentity(r.platform)}${r.followers != null ? ' · ' + compact(r.followers) + ' followers' : ''}${r.video_count != null ? ' · ' + compact(r.video_count) + ' videos' : ''}${r.niche ? ' · niche: ' + esc(r.niche) : ''}</span>`);
     } else {
       show(`<span style="color:var(--bad)">${esc(r.message)}</span>`);
     }
@@ -4337,13 +4337,13 @@ pages.settings = async app => {
       try { r = await api('GET', '/api/publish/managed'); } catch (e) { mbody.textContent = e.message; return; }
       const names = { tiktok: 'TikTok', instagram: 'Instagram', youtube: 'YouTube', twitter: 'X', linkedin: 'LinkedIn', facebook: 'Facebook' };
       mbody.className = 'small';
-      mbody.innerHTML = `${(r.accounts || []).length ? `<ul class="list">${r.accounts.map(a => `<li><span class="badge">${esc(names[a.platform] || a.platform)}</span>
+      mbody.innerHTML = `${(r.accounts || []).length ? `<ul class="list">${r.accounts.map(a => `<li><span class="badge">${window.socialPlatformIdentity(a.platform, names[a.platform] || a.platform)}</span>
           <span style="flex:1">${esc(a.display_name || a.username)}${a.username ? ` <span class="muted">@${esc(String(a.username).replace(/^@/, ''))}</span>` : ''}</span><span class="pill SCALE">connected</span>
           ${admin ? `<button class="btn sm danger" type="button" data-disconnect="${esc(a.id)}" data-name="${esc(a.display_name || a.username || '')}">Disconnect</button>` : ''}</li>`).join('')}</ul>`
         : '<div class="muted" style="margin-bottom:6px">No account connected yet.</div>'}
         ${r.error ? `<div class="muted" style="margin-top:4px">${esc(r.error)}</div>` : ''}
         ${admin ? `<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">${['tiktok', 'instagram', 'youtube', 'twitter', 'linkedin', 'facebook'].map(p =>
-          `<button class="btn" type="button" data-connect="${p}" ${pub.held ? 'disabled title="Unlocks with a paid plan"' : ''}>Connect ${names[p]}</button>`).join('')}</div>`
+          `<button class="btn social-brand-btn" type="button" data-connect="${p}" ${pub.held ? 'disabled title="Unlocks with a paid plan"' : ''}>Connect ${window.socialPlatformIdentity(p, names[p])}</button>`).join('')}</div>`
           : '<div class="muted">Ask a workspace admin to connect accounts.</div>'}`;
       $$('[data-disconnect]', mbody).forEach(b => (b.onclick = guard(async () => {
         const n = r.scheduled || 0;

@@ -29,6 +29,15 @@
 .rp-badge.good { color: var(--rp-good); }
 .rp-muted { color: var(--rp-mute); margin: 4px 0 0; }
 .rp-foot { font-size: 12.5px; color: var(--rp-mute); margin-top: 6px; }
+.rp .social-identity { display: inline-flex; align-items: center; gap: 5px; vertical-align: middle; white-space: nowrap; }
+.rp .social-logo { display: inline-grid; place-items: center; flex: 0 0 20px; width: 20px; height: 20px; overflow: hidden; border-radius: 6px; background: #111318; }
+.rp .social-logo img { display: block; width: 12px; height: 12px; object-fit: contain; filter: brightness(0) invert(1); }
+.rp .social-logo-instagram { background: linear-gradient(140deg, #7d3fe8, #e44782 65%, #f8a14a); }
+.rp .social-logo-youtube { background: #ed1d24; }
+.rp .social-logo-facebook { background: #0866ff; }
+.rp .social-logo-linkedin { background: transparent; }
+.rp .social-logo-linkedin img { width: 20px; height: 20px; filter: none; }
+.rp .social-logo-threads, .rp .social-logo-x { background: #101114; }
 @media (max-width: 640px) { .rp-kpis { grid-template-columns: repeat(2, 1fr); } .rp-head { flex-direction: column; } }
 @media print { .rp-print { display: none; } .rp { padding: 0; max-width: none; } .rp-card, .rp-kpi { break-inside: avoid; } }
 body.rp-page { margin: 0; background: #f8fafc; }
