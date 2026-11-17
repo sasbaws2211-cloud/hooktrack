@@ -2632,8 +2632,15 @@ pages.studio = async app => {
     const saved = sessionStorage.getItem(sessionDraftKey);
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed && parsed.timeline && Array.isArray(parsed.timeline.tracks)) sessionDraft = parsed;
-      else throw new Error('The saved timeline data is invalid.');
+      const cachedEdit = parsed && parsed.edit ? parsed.edit : parsed;
+      if (!cachedEdit || !cachedEdit.timeline || !Array.isArray(cachedEdit.timeline.tracks)) {
+        throw new Error('The saved timeline data is invalid.');
+      }
+      const serverDraftAt = Date.parse(post.studio_draft_at || '');
+      const cacheIsNewer = Number.isFinite(parsed.updatedAt) &&
+        (!post.studio_draft || Number.isFinite(serverDraftAt) && parsed.updatedAt > serverDraftAt);
+      if (cacheIsNewer) sessionDraft = cachedEdit;
+      else sessionStorage.removeItem(sessionDraftKey);
     }
   } catch (error) {
     let message = `Could not restore pending Studio changes: ${error.message || error}`;
@@ -2718,7 +2725,7 @@ pages.studio = async app => {
   let syncStudioClipActions = () => {};
   const cacheStudioDraft = () => {
     try {
-      sessionStorage.setItem(sessionDraftKey, JSON.stringify(edit.getEdit()));
+      sessionStorage.setItem(sessionDraftKey, JSON.stringify({ edit: edit.getEdit(), updatedAt: Date.now() }));
       return true;
     } catch (error) {
       return false;
@@ -2833,13 +2840,29 @@ pages.studio = async app => {
       if (!clip || !location) return;
       const tracks = edit.getEdit().timeline.tracks;
       const track = tracks[location.trackIndex];
+      const clipCount = tracks.reduce((count, item) => count + (item.clips || []).length, 0);
       const removeAudioTrack = clip.asset && clip.asset.type === 'audio' &&
         track && track.clips.length === 1 && tracks.length > 1;
-      const result = removeAudioTrack
-        ? await edit.deleteTrack(location.trackIndex)
-        : clip.id
+      let result;
+      if (clip.asset && clip.asset.type === 'audio' && clipCount === 1) {
+        result = clip.id
+          ? await edit.updateClipById(clip.id, {
+            asset: { type: 'text', text: 'Add your media above to get started' },
+            start: 0,
+            length: 3,
+          })
+          : await edit.updateClip(location.trackIndex, location.clipIndex, {
+            asset: { type: 'text', text: 'Add your media above to get started' },
+            start: 0,
+            length: 3,
+          });
+      } else if (removeAudioTrack) {
+        result = await edit.deleteTrack(location.trackIndex);
+      } else {
+        result = clip.id
           ? await edit.deleteClipById(clip.id)
           : await edit.deleteClip(location.trackIndex, location.clipIndex);
+      }
       if (result.status !== 'success') throw new Error(result.message || 'The selected clip could not be deleted.');
       selectedClipLocation = null;
       selectedClipId = null;
