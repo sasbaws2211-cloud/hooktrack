@@ -17,25 +17,33 @@
 <script src="/studio-bundle.js?v=1" defer></script>
 </head>
 <body>
-<header class="top">
-  <div class="brand"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span> HookTrack</div>
-  <nav id="nav">
-    <a href="#/dashboard" data-tab="dashboard">Dashboard</a>
-    <a href="#/accounts" data-tab="accounts">Accounts</a>
-    <a href="#/clients" data-tab="clients">Clients</a>
-    <a href="#/discover" data-tab="discover">Discover</a>
-    <a href="#/hooks" data-tab="hooks">Hooks</a>
-    <a href="#/pipeline" data-tab="pipeline">Posts</a>
-    <a href="#/inbox" data-tab="inbox">Inbox</a>
-    <a href="#/settings" data-tab="settings">Settings</a>
-  </nav>
-  <div class="top-right"><a href="#/settings" id="ai-badge" class="badge" title="" style="text-decoration:none"></a>
-    <select id="ws-switch" aria-label="Workspace"></select>
-    <span id="user-email" class="muted small"></span><button class="btn sm" id="logout">Sign out</button></div>
-</header>
-<div id="verifybar" hidden></div>
-<div id="trialbar" hidden></div>
-<main id="app"></main>
+<div class="app-shell">
+  <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+  <aside id="sidebar" class="sidebar">
+    <div class="brand"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span> HookTrack</div>
+    <nav id="nav">
+      <a href="#/dashboard" data-tab="dashboard">Dashboard</a>
+      <a href="#/accounts" data-tab="accounts">Accounts</a>
+      <a href="#/clients" data-tab="clients">Clients</a>
+      <a href="#/discover" data-tab="discover">Discover</a>
+      <a href="#/hooks" data-tab="hooks">Hooks</a>
+      <a href="#/pipeline" data-tab="pipeline">Posts</a>
+      <a href="#/inbox" data-tab="inbox">Inbox</a>
+      <a href="#/settings" data-tab="settings">Settings</a>
+    </nav>
+  </aside>
+  <div class="app-main">
+    <header class="top">
+      <button type="button" id="sidebar-toggle" class="icon-btn sidebar-toggle" aria-label="Menu">☰</button>
+      <div class="top-right"><a href="#/settings" id="ai-badge" class="badge" title="" style="text-decoration:none"></a>
+        <select id="ws-switch" aria-label="Workspace"></select>
+        <span id="user-email" class="muted small"></span><button class="btn sm" id="logout">Sign out</button></div>
+    </header>
+    <div id="verifybar" hidden></div>
+    <div id="trialbar" hidden></div>
+    <main id="app"></main>
+  </div>
+</div>
 <div id="modal-root"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <link rel="stylesheet" href="/report.css?v=1">

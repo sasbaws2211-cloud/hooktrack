@@ -506,6 +506,17 @@ async function route() {
   } finally { endRouteLoading(myLoad, tab); }
 }
 window.addEventListener('hashchange', route);
+// Mobile sidebar: a hamburger toggle opens it as an off-canvas drawer (CSS only does this below 860px;
+// above that the sidebar is always visible and these classes have no visual effect).
+const closeSidebar = () => { $('#sidebar').classList.remove('open'); $('#sidebar-backdrop').hidden = true; };
+if ($('#sidebar-toggle')) {
+  $('#sidebar-toggle').onclick = () => {
+    $('#sidebar').classList.add('open');
+    $('#sidebar-backdrop').hidden = false;
+  };
+  $('#sidebar-backdrop').onclick = closeSidebar;
+  $$('#nav a').forEach(a => a.addEventListener('click', closeSidebar));
+}
 window.addEventListener('keydown', e => {
   if ((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();

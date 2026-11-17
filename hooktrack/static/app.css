@@ -153,7 +153,7 @@ tr.band td:first-child { border-left: 5px solid var(--band, transparent); }
 #toast.err { background: var(--bad); color: #fff; }
 
 @media (max-width: 700px) {
-  .top { gap: 8px; padding: 0 12px; } .brand { font-size: 14px; }
+  .top { gap: 8px; padding: 0 12px; }
   main { padding: 16px 12px 60px; } .fields { grid-template-columns: 1fr; }
   .cal .day { min-height: 70px; } .chip { font-size: 10px; }
   .score-row { grid-template-columns: repeat(3, 1fr); } .total { grid-column: 1 / -1; text-align: left; }
@@ -162,18 +162,13 @@ tr.band td:first-child { border-left: 5px solid var(--band, transparent); }
 
 .top-right { display: flex; align-items: center; gap: 10px; }
 #ws-switch { width: auto; max-width: 180px; padding: 5px 8px; font-weight: 600; }
-body.anon nav, body.anon .top-right { display: none; }
+body.anon .sidebar, body.anon .sidebar-toggle, body.anon .top-right { display: none; }
 body.anon .top { justify-content: center; }
 .auth { max-width: 420px; margin: 40px auto; }
 .auth h1 { margin-bottom: 4px; }
 @media (max-width: 900px) { #user-email { display: none; } }
 @media (max-width: 700px) { #ws-switch { max-width: 110px; } .top-right { gap: 6px; } }
 nav { scrollbar-width: none; } nav::-webkit-scrollbar { display: none; }
-@media (max-width: 960px) {
-  .top { flex-wrap: wrap; height: auto; padding: 8px 14px; row-gap: 4px; }
-  .top-right { margin-left: auto; }
-  nav { order: 3; flex-basis: 100%; }
-}
 .card .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 18px; flex-wrap: wrap; }
 
 
@@ -367,17 +362,12 @@ td .up, .up { color: var(--good); } td .down, .down { color: var(--bad); }
 .embed .embed-frame { margin-top: 8px; }
 .embed .embed-wrap { width: 100%; margin: 0 auto 0 0; }
 
-/* top bar: every section visible on a wide screen, scrolls sideways (no wrapping off-screen) on a narrow one */
-nav { flex: 0 1 auto; }
-@media (min-width: 961px) { nav { flex-wrap: nowrap; overflow: visible; } }
 .section-strip { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; }
 .section-strip a { text-decoration: none; color: var(--muted); padding: 5px 11px; border-radius: 999px; font-size: 13px;
   font-weight: 600; border: 1px solid var(--border, rgba(127,127,127,.25)); }
 .section-strip a:hover { color: var(--text); background: var(--surface-2); }
 .section-strip a.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .section-strip > span { margin-right: 4px; }
-@media (max-width: 960px) { nav { overflow: visible; flex-wrap: wrap; } nav a { flex: 1 1 auto; text-align: center; } }
-@media (max-width: 560px) { nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; } nav a { padding: 8px 6px; } }
 
 .pipe-card { position: relative; }
 .pipe-card .pipe-del { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; padding: 0; border-radius: 8px;
@@ -396,28 +386,37 @@ nav { flex: 0 1 auto; }
 .pipe-card .verdict.matched { color: var(--muted); }
 .pipe-card [data-analyse] { margin-top: 6px; }
 
-/* ===== responsive header: one set of breakpoints ===== */
-.top { flex-wrap: wrap; height: auto; min-height: 56px; padding: 8px 20px; row-gap: 8px; column-gap: 14px; }
-nav { flex: 0 1 auto; order: 0; display: flex; flex-wrap: nowrap; overflow: visible; }
+/* ===== left sidebar nav (replaces the old horizontal header nav) ===== */
+.app-shell { display: flex; min-height: 100vh; align-items: stretch; }
+.app-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.sidebar { width: 232px; flex: 0 0 232px; background: var(--surface); border-right: 1px solid var(--border);
+  padding: 14px 12px; display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0;
+  height: 100vh; overflow-y: auto; z-index: 25; }
+.sidebar .brand { padding: 4px 8px 14px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; flex: initial; overflow: visible; }
+.sidebar nav a { padding: 9px 12px; }
+.sidebar .setup-progress { margin: 10px 0 0; width: 100%; justify-content: center; }
+.sidebar-toggle { display: none; border: none; background: none; font-size: 18px; padding: 4px 8px; }
+.sidebar-backdrop[hidden] { display: none; }
+
+.top { height: 56px; padding: 0 20px; }
 .top-right { margin-left: auto; flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
 .top-right .btn, #logout, #ai-badge { white-space: nowrap; flex: 0 0 auto; }
 #ws-switch { flex: 0 1 180px; min-width: 90px; max-width: 200px; text-overflow: ellipsis; }
-.setup-progress { flex: 0 0 auto; }
-@media (max-width: 1199px) { nav a { padding: 7px 9px; } #user-email { display: none; } }
-@media (max-width: 1100px) {
-  nav { order: 3; flex: 1 1 100%; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
-  nav a { text-align: center; padding: 8px 4px; overflow: hidden; text-overflow: ellipsis; }
+
+@media (max-width: 860px) {
+  .sidebar-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .sidebar { position: fixed; left: 0; top: 0; transform: translateX(-100%); transition: transform .2s ease;
+    box-shadow: 0 0 0 1px var(--border); }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-backdrop:not([hidden]) { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 24; }
 }
 @media (max-width: 560px) {
   .top { padding: 8px 12px; column-gap: 10px; }
-  .brand { flex: 1 1 auto; }
-  nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  nav a { padding: 10px 6px; }
   .top-right { flex: 1 1 100%; margin-left: 0; justify-content: flex-start; gap: 6px; }
   #ws-switch { flex: 1 1 100%; max-width: none; order: 10; }
-  .setup-progress { order: 1; }
 }
-@media (pointer: coarse) { nav a, .top-right .btn { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; } }
+@media (pointer: coarse) { .sidebar nav a, .top-right .btn { min-height: 40px; display: flex; align-items: center; } }
 main { min-width: 0; }
 
 /* nothing may force a page wider than the screen: grid and flex children can shrink, long words wrap */
