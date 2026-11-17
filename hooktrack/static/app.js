@@ -2633,6 +2633,12 @@ pages.studio = async app => {
     <div class="card" style="padding:0;overflow:hidden">
       <div id="studio-toolbar" class="row" style="padding:10px;border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn sm" id="studio-add-media">+ Add media</button>
+        <button class="btn sm" id="studio-undo" disabled title="Undo the last edit">Undo</button>
+        <button class="btn sm" id="studio-redo" disabled title="Redo the last undone edit">Redo</button>
+        <button class="btn sm" id="studio-duplicate-clip" disabled title="Select a clip to duplicate it at the end of the timeline">Duplicate clip</button>
+        <button class="btn sm" id="studio-delete-clip" disabled title="Select a clip to delete it">Delete clip</button>
+        <button class="btn sm" id="studio-trim-start" disabled title="Select a video and place the playhead inside it">Trim start</button>
+        <button class="btn sm" id="studio-trim-end" disabled title="Select a video and place the playhead inside it">Trim end</button>
         <button class="btn sm" id="studio-split-clip" disabled title="Select a video clip and place the playhead inside it">Split at playhead</button>
         <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
         <button class="btn sm" id="studio-add-audio" disabled>+ Add audio</button>
@@ -2705,40 +2711,73 @@ pages.studio = async app => {
     if ($('#studio-discard-draft', app)) $('#studio-discard-draft', app).disabled = false;
     if ($('#studio-add-ai', app)) $('#studio-add-ai', app).disabled = false;
     if ($('#studio-render-cloud', app)) $('#studio-render-cloud', app).disabled = locked;
-    edit.events.on('edit:changed', () => { draftDirty = true; setStatus('Edited', true); });
+    const undoButton = $('#studio-undo', app), redoButton = $('#studio-redo', app);
+    const syncHistoryButtons = () => {
+      undoButton.disabled = !edit.canUndo;
+      redoButton.disabled = !edit.canRedo;
+    };
+    const markEditChanged = () => { draftDirty = true; setStatus('Edited', true); syncHistoryButtons(); };
+    edit.events.on('edit:changed', markEditChanged);
+    edit.events.on('edit:undo', markEditChanged);
+    edit.events.on('edit:redo', markEditChanged);
+    undoButton.onclick = guard(async () => { await edit.undo(); syncHistoryButtons(); });
+    redoButton.onclick = guard(async () => { await edit.redo(); syncHistoryButtons(); });
+    syncHistoryButtons();
     const splitButton = $('#studio-split-clip', app);
-    const syncSplitButton = () => {
-      const clip = selectedClipLocation && edit.getClip(selectedClipLocation.trackIndex, selectedClipLocation.clipIndex);
-      const videoClip = clip && clip.asset && clip.asset.type === 'video';
-      splitButton.disabled = !videoClip;
-      splitButton.title = videoClip
-        ? 'Split the selected video at the playhead'
-        : 'Select a video clip to split it at the playhead';
+    const duplicateButton = $('#studio-duplicate-clip', app), deleteButton = $('#studio-delete-clip', app);
+    const trimStartButton = $('#studio-trim-start', app), trimEndButton = $('#studio-trim-end', app);
+    const getSelectedClip = () => selectedClipLocation &&
+      edit.getClip(selectedClipLocation.trackIndex, selectedClipLocation.clipIndex);
+    const getSelectedVideo = () => {
+      const clip = getSelectedClip();
+      return clip && clip.asset && clip.asset.type === 'video' ? clip : null;
+    };
+    const syncClipActions = () => {
+      const clip = getSelectedClip();
+      duplicateButton.disabled = !clip;
+      deleteButton.disabled = !clip;
+      duplicateButton.title = clip ? 'Duplicate this clip at the end of the timeline' : 'Select a clip to duplicate it';
+      deleteButton.title = clip ? 'Delete this clip' : 'Select a clip to delete it';
+      const selected = !!getSelectedVideo();
+      splitButton.disabled = !selected;
+      trimStartButton.disabled = !selected;
+      trimEndButton.disabled = !selected;
+      splitButton.title = selected ? 'Split the selected video at the playhead' : 'Select a video clip to split it';
+      trimStartButton.title = selected ? 'Remove the selected video from its start to the playhead' : 'Select a video clip to trim';
+      trimEndButton.title = selected ? 'Remove the selected video from the playhead to its end' : 'Select a video clip to trim';
     };
     edit.events.on('clip:selected', selection => {
       selectedClipLocation = { trackIndex: selection.trackIndex, clipIndex: selection.clipIndex };
-      syncSplitButton();
+      syncClipActions();
     });
     edit.events.on('selection:cleared', () => {
       selectedClipLocation = null;
-      syncSplitButton();
+      syncClipActions();
     });
-    splitButton.onclick = guard(async () => {
-      if (!selectedClipLocation) return;
+    duplicateButton.onclick = guard(async () => {
+      const clip = getSelectedClip();
+      if (!clip || !selectedClipLocation) return;
+      const { trackIndex } = selectedClipLocation;
+      const duplicate = structuredClone(clip);
+      delete duplicate.id;
+      duplicate.start = Math.max(0, edit.totalDuration) + 0.5;
+      const result = await edit.addClip(trackIndex, duplicate);
+      if (result.status !== 'success') throw new Error(result.message || 'The selected clip could not be duplicated.');
+      setStatus('Clip duplicated at the end of the timeline', true);
+      toast('Clip duplicated at the end of the timeline.');
+    });
+    deleteButton.onclick = guard(async () => {
+      if (!getSelectedClip() || !selectedClipLocation) return;
       const { trackIndex, clipIndex } = selectedClipLocation;
-      const clip = edit.getClip(trackIndex, clipIndex);
-      if (!clip || !clip.asset || clip.asset.type !== 'video') {
-        selectedClipLocation = null;
-        syncSplitButton();
-        return;
-      }
+      const result = await edit.deleteClip(trackIndex, clipIndex);
+      if (result.status !== 'success') throw new Error(result.message || 'The selected clip could not be deleted.');
+      selectedClipLocation = null;
+      syncClipActions();
+      setStatus('Clip deleted', true);
+      toast('Clip deleted. Use Undo to restore it.');
+    });
+    const getVideoTiming = async clip => {
       const start = typeof clip.start === 'number' ? clip.start : NaN;
-      const splitAt = edit.playbackTime;
-      const elapsed = splitAt - start;
-      if (!Number.isFinite(start) || elapsed <= 0.05) {
-        toast('Move the playhead inside the selected video clip before splitting.', true);
-        return;
-      }
       let length = typeof clip.length === 'number' ? clip.length : NaN;
       if (!Number.isFinite(length) && clip.length === 'auto' && clip.asset.src) {
         setStatus('Checking video duration…');
@@ -2765,15 +2804,57 @@ pages.studio = async app => {
           video.load();
         });
       }
-      if (!Number.isFinite(length) || elapsed >= length - 0.05) {
-        setStatus('Ready', true);
-        toast('The playhead must be inside the selected video clip, not at its start or end.', true);
-        return;
+      return { start, length };
+    };
+    const getTrimSelection = async () => {
+      if (!selectedClipLocation) return null;
+      const { trackIndex, clipIndex } = selectedClipLocation;
+      const clip = getSelectedVideo();
+      if (!clip) {
+        selectedClipLocation = null;
+        syncClipActions();
+        return null;
       }
+      const { start, length } = await getVideoTiming(clip);
+      const playhead = edit.playbackTime;
+      const elapsed = playhead - start;
+      if (!Number.isFinite(start) || !Number.isFinite(length) || elapsed <= 0.05 || elapsed >= length - 0.05) {
+        setStatus('Ready', true);
+        toast('Place the playhead inside the selected video clip before trimming.', true);
+        return null;
+      }
+      return { trackIndex, clipIndex, clip, start, length, playhead, elapsed };
+    };
+    const runTrim = guard(async mode => {
+      const selected = await getTrimSelection();
+      if (!selected) return;
+      const { trackIndex, clipIndex, clip, length, playhead, elapsed } = selected;
+      const speed = typeof clip.asset.speed === 'number' && clip.asset.speed > 0 ? clip.asset.speed : 1;
+      const updates = mode === 'start'
+        ? { start: playhead, length: length - elapsed, asset: { ...clip.asset, trim: (Number(clip.asset.trim) || 0) + elapsed * speed } }
+        : { length: elapsed };
+      const button = mode === 'start' ? trimStartButton : trimEndButton;
+      button.disabled = true;
+      setStatus(mode === 'start' ? 'Trimming clip start…' : 'Trimming clip end…');
+      try {
+        const result = await edit.updateClip(trackIndex, clipIndex, updates);
+        if (result.status !== 'success') throw new Error(result.message || 'The selected video could not be trimmed.');
+        setStatus('Clip trimmed', true);
+        toast(mode === 'start' ? 'Video trimmed from the start to the playhead.' : 'Video trimmed from the playhead to the end.');
+      } finally {
+        syncClipActions();
+      }
+    });
+    trimStartButton.onclick = () => runTrim('start');
+    trimEndButton.onclick = () => runTrim('end');
+    splitButton.onclick = guard(async () => {
+      const selected = await getTrimSelection();
+      if (!selected) return;
+      const { trackIndex, clipIndex, clip, length, playhead, elapsed } = selected;
       const speed = typeof clip.asset.speed === 'number' && clip.asset.speed > 0 ? clip.asset.speed : 1;
       const nextClip = structuredClone(clip);
       delete nextClip.id;
-      nextClip.start = splitAt;
+      nextClip.start = playhead;
       nextClip.length = length - elapsed;
       nextClip.asset.trim = (Number(clip.asset.trim) || 0) + elapsed * speed;
       splitButton.disabled = true;
@@ -2794,7 +2875,7 @@ pages.studio = async app => {
         setStatus('Ready', true);
         throw error;
       } finally {
-        syncSplitButton();
+        syncClipActions();
       }
     });
     // Studio's own "Generate" toolbar only appears on a clip once a generator is registered - this is
@@ -2818,18 +2899,41 @@ pages.studio = async app => {
   }
 
   async function saveDraft() {
-    if (!draftDirty) return false;
+    if (!draftDirty) return 'clean';
     draftDirty = false;
     try {
       await api('PUT', `/api/posts/${post.id}/studio-draft`, { edit: edit.getEdit() });
-      return true;
-    } catch (e) { draftDirty = true; return false; /* retried on the next autosave tick or manual save */ }
+      return 'saved';
+    } catch (error) {
+      draftDirty = true;
+      throw error;
+    }
   }
+  let autosaveFailureNotified = false;
   $('#studio-save-draft').onclick = guard(async () => {
     setStatus('Saving draft…');
-    setStatus((await saveDraft()) ? 'Draft saved' : 'Nothing to save - already up to date');
+    try {
+      const result = await saveDraft();
+      setStatus(result === 'saved' ? 'Draft saved' : 'Draft already up to date', true);
+      autosaveFailureNotified = false;
+    } catch (error) {
+      setStatus(`Draft save failed: ${error.message || error}`, true);
+      throw error;
+    }
   });
-  const autosave = setInterval(saveDraft, 20000);
+  const autosave = setInterval(async () => {
+    try {
+      const result = await saveDraft();
+      if (result === 'saved') setStatus('Draft saved automatically', true);
+      autosaveFailureNotified = false;
+    } catch (error) {
+      setStatus(`Autosave failed: ${error.message || error}`, true);
+      if (!autosaveFailureNotified) {
+        toast('Studio draft could not be autosaved. Check your connection and use Save draft to retry.', true);
+        autosaveFailureNotified = true;
+      }
+    }
+  }, 20000);
   window.addEventListener('hashchange', () => clearInterval(autosave), { once: true });
 
   async function finishedDraftCleanup() {
