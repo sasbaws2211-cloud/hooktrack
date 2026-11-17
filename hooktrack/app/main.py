@@ -18,7 +18,6 @@ from pydantic import BaseModel, Field
 from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, discover, freeai, inquiry, legal, logic, media, pages, peer, publish, seo, sociavault, vaultwatch, youtube_api
 from . import backup, digest, reports, inbox, approvals, shotstack
 from .auth import Ctx, admin, current
-from .import_xlsx import import_workbook
 
 import mimetypes
 
@@ -2162,28 +2161,6 @@ def sync_scheduled_run(request: Request, force: bool = False):
         except HTTPException:
             raise HTTPException(401, "Admin session or HOOKTRACK_CRON_SECRET required")
     return sociavault.run_scheduled_sync(force=force)
-
-
-# ---------- import ----------
-
-@app.post("/api/import/xlsx")
-async def import_xlsx(file: UploadFile = File(...), week_start: Optional[date] = Form(None),
-                      ctx: Ctx = Depends(current)):
-    data = await file.read()
-    if len(data) > 5 * MAX_UPLOAD:
-        raise HTTPException(413, "File too large")
-    if not (file.filename or "").lower().endswith(".xlsx"):
-        raise HTTPException(400, "Upload an .xlsx file")
-    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-        tmp.write(data)
-    try:
-        return import_workbook(ctx.workspace_id, tmp.name, week_start)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(400, f"Could not read workbook: {e}")
-    finally:
-        Path(tmp.name).unlink(missing_ok=True)
 
 
 @app.get("/healthz")

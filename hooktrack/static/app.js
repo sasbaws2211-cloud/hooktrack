@@ -831,7 +831,7 @@ pages.dashboard = async app => {
   // First-time / incomplete setup: checklist home
   if (!s.complete) {
     const steps = [
-      { ok: s.has_accounts, title: 'Add accounts', body: 'Your TikTok, Instagram, YouTube, X, LinkedIn or Facebook handles (or import a spreadsheet).', href: '#/accounts', cta: 'Add accounts' },
+      { ok: s.has_accounts, title: 'Add accounts', body: 'Your TikTok, Instagram, YouTube, X, LinkedIn or Facebook handles.', href: '#/accounts', cta: 'Add accounts' },
       { ok: s.has_views, title: 'Pull in your posts and views', body: 'Press Sync on Hooks: your posts and their views come in by themselves from your handles. You can also log views by hand.', href: '#/hooks', cta: 'Open hooks', need: s.has_accounts },
       { ok: s.has_scored_hook, title: 'See your first decisions', body: 'Once a few videos are in, each gets Scale / Tweak / Stop against its own account’s normal.', href: '#/hooks', cta: 'Open hooks', need: s.has_accounts },
       { ok: state.ai.available, title: 'AI help', body: state.ai.available ? 'On: screenshot reading, hook ideas and weekly plans.' : 'Not set up on this server yet. Manual entry works without it.', href: '#/settings', cta: 'Settings', optional: true },
@@ -3627,11 +3627,7 @@ pages.accounts = async app => {
         <td class="num">${a.times_per_day}</td><td class="muted">${esc(a.content_hook)}</td>
         <td class="muted small">${a.sync_enabled ? 'on' : 'off'}${a.last_synced_at ? `<br><span title="${esc(a.last_synced_at)}">${esc(String(a.last_synced_at).slice(0,10))}</span>` : ''}</td>
         <td class="row" style="gap:4px;flex-wrap:nowrap"><button class="btn sm" data-sync="${a.id}" title="Pull posts & views from SociaVault">Sync</button><button class="btn sm" data-ea="${a.id}">Edit</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No accounts on this phone.</p>'}</div>`).join('')}
-    ${state.accounts.length ? '' : `<div class="empty card"><h2>No accounts yet</h2><p>Add a phone and handles, or import a spreadsheet. Or load sample data from <a href="#/dashboard">Home</a>.</p></div>`}
-    <div class="grid cols-2">    <div class="card"><h2>Import from spreadsheet</h2><p class="muted">Upload "The Ugly Tracker" workbook (.xlsx). Accounts, daily views and the hook log are imported; re-importing never duplicates. The workbook has no dates for Day 1–7, so choose the Monday they belong to.</p>
-      <div class="fields"><div><label class="f">Week starting (Monday)</label><input type="date" id="iw" value="${iso(mondayOf(nowLocal()))}"></div>
-      <div><label class="f">File</label><input type="file" id="ifile" accept=".xlsx"></div></div>
-      <div class="actions"><button class="btn primary" id="import">Import</button></div></div></div>`;
+    ${state.accounts.length ? '' : `<div class="empty card"><h2>No accounts yet</h2><p>Add a phone and handles. Or load sample data from <a href="#/dashboard">Home</a>.</p></div>`}`;
 
   $('#addphone').onclick = () => phoneModal();
   $('#addacc').onclick = () => accountModal();
@@ -3661,13 +3657,6 @@ pages.accounts = async app => {
       toast(`Synced ${r.synced}/${r.total} accounts`);
       route();
     } finally { busy(sa, false, 'Sync all'); }
-  });
-  $('#import').onclick = guard(async () => {
-    const f = $('#ifile').files[0]; if (!f) throw new Error('Choose a .xlsx file first');
-    const fd = new FormData(); fd.append('file', f); fd.append('week_start', $('#iw').value);
-    const b = $('#import'); busy(b, true, 'Importing…');
-    let r; try { r = await api('POST', '/api/import/xlsx', fd); } finally { busy(b, false); }
-    state.weekStart = $('#iw').value; toast(`Imported ${r.accounts} accounts, ${r.views} view entries, ${r.posts} posts`); route();
   });
 };
 
@@ -4047,10 +4036,6 @@ pages.settings = async app => {
       <label for="read-on-send">Read a Scale hook's video when I send it to Posts <span class="muted">(about 1 credit each; its first words and structure then arrive in the card's brief)</span></label></div>
     ${admin ? '<div class="actions"><button class="btn primary" id="saverules">Save rules</button></div>' : ''}</div>
 
-  <div class="card"><h2>Import spreadsheet</h2>
-    <p class="muted small">Bring in your existing accounts and weekly views from the HookTrack Excel template.</p>
-    <p class="muted">Go to <a href="#/accounts">Accounts</a> and use <b>Import .xlsx</b> at the bottom of the page.</p>
-  </div>
   <div class="card"><h2>Export CSV</h2>
     <p class="muted small">Download views and posts for spreadsheets or backups.</p>
     <div class="row" style="gap:8px;flex-wrap:wrap">
