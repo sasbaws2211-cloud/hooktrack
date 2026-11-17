@@ -2646,7 +2646,7 @@ pages.studio = async app => {
         <span class="small muted" id="studio-status">Loading editor…</span>
       </div>
       <div data-shotstack-studio style="width:100%;height:420px;background:#000"></div>
-      <div data-shotstack-timeline style="width:100%;height:160px;background:#0d1117"></div>
+      <div data-shotstack-timeline style="width:100%;height:280px;overflow:hidden;background:#0d1117"></div>
     </div>`;
   $('#studio-back').onclick = () => { location.hash = '#/pipeline'; };
   if ($('#studio-discard-draft')) $('#studio-discard-draft').onclick = guard(async () => {
@@ -2656,7 +2656,20 @@ pages.studio = async app => {
     clearInterval(autosave);
     await pages.studio(app);   // re-enter fresh with the draft gone, same hash won't fire hashchange on its own
   });
-  const setStatus = t => { const el = $('#studio-status', app); if (el) el.textContent = t; };
+  const timelineSummary = () => {
+    if (!edit) return '';
+    const tracks = edit.getEdit().timeline.tracks || [];
+    const clips = tracks.reduce((count, track) => count + (track.clips || []).length, 0);
+    const duration = Number.isFinite(edit.totalDuration) ? edit.totalDuration : 0;
+    return `${tracks.length} tracks · ${clips} clips · ${duration.toFixed(1)}s`;
+  };
+  const setStatus = (text, includeTimeline = false) => {
+    const el = $('#studio-status', app);
+    if (!el) return;
+    const summary = timelineSummary();
+    el.textContent = includeTimeline && summary ? `${text} · ${summary}` : text;
+    el.title = summary ? `Timeline: ${summary}` : '';
+  };
   // The track actually holding the image/video clips, wherever it ended up - text overlays insert a new
   // track at index 0 (so they render on top), which shifts this one down, so its index can't be assumed.
   const baseTrackIndex = () => {
@@ -2683,7 +2696,7 @@ pages.studio = async app => {
     await timeline.load();
     controls = new Controls(edit);
     await controls.load();
-    setStatus(post.studio_draft ? 'Ready — restored your saved draft' : 'Ready');
+    setStatus(post.studio_draft ? 'Ready — restored your saved draft' : 'Ready', true);
     $('#studio-finish', app).disabled = locked;
     $('#studio-save-draft', app).disabled = false;
     $('#studio-add-audio', app).disabled = false;
@@ -2691,7 +2704,7 @@ pages.studio = async app => {
     if ($('#studio-discard-draft', app)) $('#studio-discard-draft', app).disabled = false;
     if ($('#studio-add-ai', app)) $('#studio-add-ai', app).disabled = false;
     if ($('#studio-render-cloud', app)) $('#studio-render-cloud', app).disabled = locked;
-    edit.events.on('edit:changed', () => { draftDirty = true; });
+    edit.events.on('edit:changed', () => { draftDirty = true; setStatus('Edited', true); });
     // Studio's own "Generate" toolbar only appears on a clip once a generator is registered - this is
     // the whole UI, we just resolve the prompt to a real asset. Billed in Shotstack's own generation
     // credits (separate pool from render credits), same account as the cloud-render path.
@@ -2785,8 +2798,8 @@ pages.studio = async app => {
       const ext = { 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg' }[r.type] || 'mp3';
       const src = `${location.origin}/api/posts/${post.id}/studio-audio/${r.id}/file.${ext}`;
       const trackIdx = edit.getEdit().timeline.tracks.length;
-      await edit.addTrack(trackIdx, { clips: [{ asset: { type: 'audio', src }, start: 0, length: 5 }] });
-      setStatus('Added');
+      await edit.addTrack(trackIdx, { clips: [{ asset: { type: 'audio', src }, start: 0, length: 'auto' }] });
+      setStatus('Added', true);
     } catch (err) { toast(err.message || 'Could not upload that audio file', true); setStatus('Ready'); }
   });
 
@@ -2803,7 +2816,7 @@ pages.studio = async app => {
       const ext = MIME_EXT[r.type] || (isImg ? 'jpg' : 'mp4');
       const src = `${location.origin}/api/posts/${post.id}/${isImg ? `images/${r.id}/file.${ext}` : `video/file.${ext}`}`;
       await edit.addClip(baseTrackIndex(), { asset: { type: isImg ? 'image' : 'video', src }, start: 0, length: isImg ? 3 : 'auto' });
-      setStatus('Added');
+      setStatus('Added', true);
     } catch (err) { toast(err.message || 'Could not upload that file', true); setStatus('Ready'); }
   });
 
