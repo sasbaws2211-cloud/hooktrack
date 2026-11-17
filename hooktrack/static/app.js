@@ -3279,7 +3279,7 @@ function ideasModal(onDone, pre = {}) {
     let r; try { r = await api('POST', '/api/ai/hooks', { account_id: +acc, n: +$('#n', m).value, brief: $('#brief', m).value }); } finally { busy(btn, false); }
     $('#out', m).innerHTML = r.ideas.map((x, i) => `<div class="card" style="margin-top:10px"><b>${esc(x.hook)}</b>
       <div class="muted">${esc(x.body || '')}</div><div class="small muted">${esc(x.ai_prompt || '')}</div><div class="small">${esc(x.caption)}</div>
-      <div class="row" style="margin-top:8px"><button class="btn sm primary" data-add="${i}">Add to Posts as an Idea</button></div></div>`).join('').join('');
+      <div class="row" style="margin-top:8px"><button class="btn sm primary" data-add="${i}">Add to Posts as an Idea</button></div></div>`).join('');
     $$('[data-add]', m).forEach(b => (b.onclick = guard(async () => {
       const x = r.ideas[+b.dataset.add];
       await api('POST', '/api/posts', { account_id: +acc, post_date: iso(addDays(nowLocal(), 7)), status: 'idea',
