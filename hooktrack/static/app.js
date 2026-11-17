@@ -2685,7 +2685,8 @@ pages.studio = async app => {
     return idx >= 0 ? idx : 0;
   };
 
-  let edit, canvas, timeline, controls, ui, StudioSdk, draftDirty = false, selectedClipLocation = null;
+  let edit, canvas, timeline, controls, ui, StudioSdk, draftDirty = false, selectedClipLocation = null, selectedClipId = null;
+  let syncStudioClipActions = () => {};
   try {
     StudioSdk = await loadStudioSdk();
     const { Edit, Canvas, Controls, Timeline, UIController } = StudioSdk;
@@ -2726,13 +2727,22 @@ pages.studio = async app => {
     const splitButton = $('#studio-split-clip', app);
     const duplicateButton = $('#studio-duplicate-clip', app), deleteButton = $('#studio-delete-clip', app);
     const trimStartButton = $('#studio-trim-start', app), trimEndButton = $('#studio-trim-end', app);
-    const getSelectedClip = () => selectedClipLocation &&
-      edit.getClip(selectedClipLocation.trackIndex, selectedClipLocation.clipIndex);
+    const getSelectedLocation = () => {
+      if (selectedClipId) {
+        const location = edit.getClipPositionById(selectedClipId);
+        return location;
+      }
+      return selectedClipLocation;
+    };
+    const getSelectedClip = () => {
+      const location = getSelectedLocation();
+      return location && edit.getClip(location.trackIndex, location.clipIndex);
+    };
     const getSelectedVideo = () => {
       const clip = getSelectedClip();
       return clip && clip.asset && clip.asset.type === 'video' ? clip : null;
     };
-    const syncClipActions = () => {
+    syncStudioClipActions = () => {
       const clip = getSelectedClip();
       duplicateButton.disabled = !clip;
       deleteButton.disabled = !clip;
@@ -2748,16 +2758,19 @@ pages.studio = async app => {
     };
     edit.events.on('clip:selected', selection => {
       selectedClipLocation = { trackIndex: selection.trackIndex, clipIndex: selection.clipIndex };
-      syncClipActions();
+      selectedClipId = selection.clip && selection.clip.id || null;
+      syncStudioClipActions();
     });
     edit.events.on('selection:cleared', () => {
       selectedClipLocation = null;
-      syncClipActions();
+      selectedClipId = null;
+      syncStudioClipActions();
     });
     duplicateButton.onclick = guard(async () => {
       const clip = getSelectedClip();
-      if (!clip || !selectedClipLocation) return;
-      const { trackIndex } = selectedClipLocation;
+      const location = getSelectedLocation();
+      if (!clip || !location) return;
+      const { trackIndex } = location;
       const duplicate = structuredClone(clip);
       delete duplicate.id;
       duplicate.start = Math.max(0, edit.totalDuration) + 0.5;
@@ -2767,12 +2780,16 @@ pages.studio = async app => {
       toast('Clip duplicated at the end of the timeline.');
     });
     deleteButton.onclick = guard(async () => {
-      if (!getSelectedClip() || !selectedClipLocation) return;
-      const { trackIndex, clipIndex } = selectedClipLocation;
-      const result = await edit.deleteClip(trackIndex, clipIndex);
+      const clip = getSelectedClip();
+      const location = getSelectedLocation();
+      if (!clip || !location) return;
+      const result = clip.id
+        ? await edit.deleteClipById(clip.id)
+        : await edit.deleteClip(location.trackIndex, location.clipIndex);
       if (result.status !== 'success') throw new Error(result.message || 'The selected clip could not be deleted.');
       selectedClipLocation = null;
-      syncClipActions();
+      selectedClipId = null;
+      syncStudioClipActions();
       setStatus('Clip deleted', true);
       toast('Clip deleted. Use Undo to restore it.');
     });
@@ -2807,12 +2824,14 @@ pages.studio = async app => {
       return { start, length };
     };
     const getTrimSelection = async () => {
-      if (!selectedClipLocation) return null;
-      const { trackIndex, clipIndex } = selectedClipLocation;
+      const location = getSelectedLocation();
+      if (!location) return null;
+      const { trackIndex, clipIndex } = location;
       const clip = getSelectedVideo();
       if (!clip) {
         selectedClipLocation = null;
-        syncClipActions();
+        selectedClipId = null;
+        syncStudioClipActions();
         return null;
       }
       const { start, length } = await getVideoTiming(clip);
@@ -2842,7 +2861,7 @@ pages.studio = async app => {
         setStatus('Clip trimmed', true);
         toast(mode === 'start' ? 'Video trimmed from the start to the playhead.' : 'Video trimmed from the playhead to the end.');
       } finally {
-        syncClipActions();
+        syncStudioClipActions();
       }
     });
     trimStartButton.onclick = () => runTrim('start');
@@ -2875,7 +2894,7 @@ pages.studio = async app => {
         setStatus('Ready', true);
         throw error;
       } finally {
-        syncClipActions();
+        syncStudioClipActions();
       }
     });
     // Studio's own "Generate" toolbar only appears on a clip once a generator is registered - this is
@@ -2969,7 +2988,17 @@ pages.studio = async app => {
     const clip = { asset: { type: picked.type, prompt: picked.prompt }, start: 0, length: picked.type === 'image' ? 3 : 5 };
     // Audio needs its own track so it plays alongside the visual clips rather than sequentially after
     // them, the way two clips sharing one track would - a new track needs its first clip in the same call.
-    if (picked.type === 'audio') await edit.addTrack(edit.getEdit().timeline.tracks.length, { clips: [clip] });
+    if (picked.type === 'audio') {
+      const trackIndex = edit.getEdit().timeline.tracks.length;
+      const result = await edit.addTrack(trackIndex, { clips: [clip] });
+      if (result.status !== 'success') throw new Error(result.message || 'Could not add the generated audio clip.');
+      const addedClip = edit.getClip(trackIndex, 0);
+      if (addedClip) {
+        selectedClipLocation = { trackIndex, clipIndex: 0 };
+        selectedClipId = addedClip.id || null;
+        syncStudioClipActions();
+      }
+    }
     else await edit.addClip(baseTrackIndex(), clip);
   });
   $('#studio-add-text').onclick = guard(async () => {
@@ -2994,7 +3023,14 @@ pages.studio = async app => {
       const ext = { 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg' }[r.type] || 'mp3';
       const src = `${location.origin}/api/posts/${post.id}/studio-audio/${r.id}/file.${ext}`;
       const trackIdx = edit.getEdit().timeline.tracks.length;
-      await edit.addTrack(trackIdx, { clips: [{ asset: { type: 'audio', src }, start: 0, length: 'auto' }] });
+      const added = await edit.addTrack(trackIdx, { clips: [{ asset: { type: 'audio', src }, start: 0, length: 'auto' }] });
+      if (added.status !== 'success') throw new Error(added.message || 'Could not add the uploaded audio clip.');
+      const addedClip = edit.getClip(trackIdx, 0);
+      if (addedClip) {
+        selectedClipLocation = { trackIndex: trackIdx, clipIndex: 0 };
+        selectedClipId = addedClip.id || null;
+        syncStudioClipActions();
+      }
       setStatus('Added', true);
     } catch (err) { toast(err.message || 'Could not upload that audio file', true); setStatus('Ready'); }
   });
