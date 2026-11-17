@@ -3899,18 +3899,21 @@ pages.inbox = async app => {
       <button type="button" class="seg-btn ${view === 'comments' ? 'on' : ''}" data-view="comments">Comments</button>
       <button type="button" class="seg-btn ${view === 'messages' ? 'on' : ''}" data-view="messages">Messages</button>
     </div>`;
+  const hasSelectedAccount = accounts.some(a => String(a.id) === String(state.inboxAccount || ''));
+  const acctFilter = hasSelectedAccount ? String(state.inboxAccount) : '';
+  if (!hasSelectedAccount) state.inboxAccount = '';
   if (!accounts.length) {
     const who = view === 'messages' ? 'TikTok, Instagram, Facebook or X' : 'TikTok, Instagram, YouTube, Facebook or LinkedIn';
     const why = view === 'messages'
       ? 'YouTube and LinkedIn have no direct-message inbox on Zernio — only X, TikTok, Instagram and Facebook do.'
       : 'X has no comment inbox on Zernio — it only supports direct messages there.';
     app.innerHTML = `<div class="inbox-page">
-      <div class="page-head inbox-head"><div><div class="eyebrow">COMMUNITY</div><h1>Inbox</h1><div class="sub">Keep up with comments and messages across your connected accounts.</div></div></div>
+      <div class="page-head inbox-head"><div><div class="eyebrow">COMMUNITY</div><h1>Inbox</h1><div class="sub">Keep up with comments and messages across your connected accounts.</div></div>${toggle}</div>
       <div class="empty card inbox-empty"><span class="inbox-empty-icon">✉</span><h2>No accounts connected for ${view} yet</h2><p>Connect a ${who} account under <a href="#/settings">Settings</a> or <a href="#/clients">Clients</a> to see them here. ${why}</p></div>
     </div>`;
+    $$('[data-view]', app).forEach(b => (b.onclick = () => { state.inboxView = b.dataset.view; route(); }));
     return;
   }
-  const acctFilter = state.inboxAccount || '';
   const acctSelect = `<select id="ia" style="width:auto"><option value="">All connected accounts</option>${accounts.map(a =>
     `<option value="${a.id}" ${String(acctFilter) === String(a.id) ? 'selected' : ''}>${esc(a.handle)}</option>`).join('')}</select>`;
   const inboxSearch = `<input id="inbox-search" type="search" value="${esc(state.inboxQuery || '')}" placeholder="Search ${view === 'messages' ? 'messages' : 'comments'}…" aria-label="Search inbox">`;
