@@ -67,7 +67,7 @@ const state = {
   me: null, accounts: [], phones: [], settings: {}, ai: { available: false }, sv: { configured: false },
   weekStart: null,   // set lazily from the workspace time zone
   calMonth: null,
-  calAccount: '', hookStatus: '', hookAccount: '', postsView: 'board', discNiche: null, discBand: '', discPlatform: '',
+  calAccount: '', hookStatus: '', hookAccount: '', hookQuick: 'all', hookSearch: '', postsView: 'board', discNiche: null, discBand: '', discPlatform: '',
 };
 
 async function api(method, path, body) {
@@ -708,7 +708,7 @@ function updateNav() {
     };
   }
 }
-function resetViewState() { state.calAccount = ''; state.hookAccount = ''; state.hookStatus = ''; }
+function resetViewState() { state.calAccount = ''; state.hookAccount = ''; state.hookStatus = ''; state.hookQuick = 'all'; state.hookSearch = ''; }
 $('#ws-switch').addEventListener('change', guard(async e => {
   if (e.target.value === 'new') {
     const name = await askText('Name for the new workspace?', {title: 'New workspace', ok: 'Create'});
@@ -3734,11 +3734,11 @@ function sendHookModal(hook, done) {
   });
 }
 const postCell = p => {
-  if (p.followup) return `<span class="small" title="On Posts as ${esc(PIPE_LABEL[normStatus(p.followup.status)] || '')}">✓ ${esc(PIPE_LABEL[normStatus(p.followup.status)] || normStatus(p.followup.status))}</span>${
+  if (p.followup) return `<span class="pill hook-added" title="Already added to the production board">✓ Added · ${esc(PIPE_LABEL[normStatus(p.followup.status)] || normStatus(p.followup.status))}</span>${
     p.followup.judged ? `<div class="small muted" title="Cards made from this hook that were marked analysed">${p.followup.beat} of ${p.followup.judged} beat it</div>` : ''}${
-    state.accounts.length > 1 && POST_AS[p.decision] ? ` <button class="btn sm" type="button" data-post-hook="${p.id}" title="Send it to another account too">＋</button>` : ''}`;
+    state.accounts.length > 1 && POST_AS[p.decision] ? ` <button class="btn sm" type="button" data-post-hook="${p.id}" title="Create this as a post for another account">＋ Another account</button>` : ''}`;
   if (!POST_AS[p.decision]) return '<span class="muted">—</span>';
-  return `<button class="btn sm" type="button" data-post-hook="${p.id}" title="Add this hook to Posts as ${POST_AS[p.decision]}">Post → ${POST_AS[p.decision]}</button>${
+  return `<button class="btn sm primary hook-post-action" type="button" data-post-hook="${p.id}" title="Add this hook to the production board as ${POST_AS[p.decision]}">Post to Posts <span aria-hidden="true">→</span> ${POST_AS[p.decision]}</button>${
     stillGrowing(p) ? '<div class="small muted" title="Posted in the last 3 days: its views are still growing, so this decision can still change">⏳ still growing</div>' : ''}`;
 };
 pages.hooks = async app => {
@@ -3749,8 +3749,15 @@ pages.hooks = async app => {
   const winnerCount = syncedPosts.filter(p => p.perf && p.perf.label === 'WINNER').length;
   const scoredCount = syncedPosts.filter(p => p.vsc != null).length;
   const totalViews = syncedPosts.reduce((sum, p) => sum + (Number(p.views) || 0), 0);
-  let posts = syncedPosts;
-  if (state.hookWinners) posts = posts.filter(p => p.perf && p.perf.label === 'WINNER');
+  const readyCount = syncedPosts.filter(p => POST_AS[p.decision] && !p.followup && !stillGrowing(p)).length;
+  const growingCount = syncedPosts.filter(stillGrowing).length;
+  const posts = syncedPosts.filter(p => {
+    if (state.hookQuick === 'winners') return p.perf && p.perf.label === 'WINNER';
+    if (state.hookQuick === 'growing') return stillGrowing(p);
+    if (state.hookQuick === 'ready') return POST_AS[p.decision] && !p.followup && !stillGrowing(p);
+    return true;
+  });
+  const quickLabel = { all: 'posts', winners: 'winning hooks', growing: 'posts still growing', ready: 'hooks ready to add' }[state.hookQuick] || 'posts';
   const hasSS = posts.some(p => p.saves != null || p.shares != null);      // only show columns that have data
   const hasLikes = posts.some(p => p.likes != null);
   app.innerHTML = `<div class="hooks-page">
@@ -3773,23 +3780,45 @@ pages.hooks = async app => {
     <div class="hot-starts-foot">Early momentum is a useful signal. Consider making a fresh variation while the format is working.</div>
   </section>` : ''}
   <div class="hooks-toolbar">
-    <div class="hooks-toolbar-title"><h2>Synced content</h2><span class="muted small">${state.hookWinners ? `${posts.length} winning hooks` : `${syncedPosts.length} posts`} · Scale ${state.settings.scale_vsc}+ · Tweak ${state.settings.mutate_vsc}–${state.settings.scale_vsc - 1} · Stop below</span></div>
+    <div class="hooks-toolbar-title"><h2>Synced content</h2><span class="muted small"><span id="hooks-result-count">${posts.length}</span> ${quickLabel} · Scale ≥ ${state.settings.scale_vsc} · Tweak ${state.settings.mutate_vsc}–${state.settings.scale_vsc - 1} · Stop below ${state.settings.mutate_vsc}</span></div>
     <div class="hooks-filters">
+      <input id="hook-search" type="search" value="${esc(state.hookSearch)}" placeholder="Search hooks or accounts…" aria-label="Search hooks by text or account">
       <select id="fa" aria-label="Filter by account">${accountOptions(state.hookAccount, 'All accounts')}</select>
       <select id="fs" aria-label="Filter by status"><option value="">All statuses</option>${['posted', 'analysed'].map(s => `<option value="${s}" ${state.hookStatus === s ? 'selected' : ''}>${PIPE_LABEL[s]}</option>`).join('')}</select>
       <button class="btn" id="simdec" title="What if thresholds changed?">Simulate rules</button>
-      <label class="check hooks-winners-only" title="Posts that beat their own account's normal"><input type="checkbox" id="winonly" ${state.hookWinners ? 'checked' : ''}> Winners <span class="pill SCALE">${winnerCount}</span></label>
     </div>
   </div>
-    ${posts.length ? `<div class="table-wrap hooks-table"><table><thead><tr><th>Date</th><th>Account</th><th>Hook</th><th>Status</th><th class="num">Views</th><th class="num" title="Views vs this account's normal (median of its recent posts)">× normal</th>${hasLikes ? '<th class="num">Likes</th>' : ''}<th class="num">Comments</th>${hasSS ? '<th class="num" title="Saves">Saves</th><th class="num">Shares</th>' : ''}<th class="num">Intent /1k</th><th class="num">Asking</th><th>Intent</th><th class="num">Hook score</th><th>Decision</th><th>Post</th></tr></thead><tbody>
-    ${posts.map(p => `<tr class="band" style="--band:${esc(p.phone_color || 'transparent')};cursor:pointer" data-id="${p.id}"><td>${esc(p.post_date)}</td><td class="handle">${esc(p.handle || '—')}</td>
-      <td class="wrap">${contentTypeBadge(p.content_type)} ${p.variant_label ? `<span class="badge" title="A/B variant">${esc(p.variant_label)}</span> ` : ''}${esc(p.hook || '—')}${p.made_from ? `<div class="small" style="color:var(--accent)" title="A video you made from another hook">↻ made from “${esc(short(p.made_from.hook || '', 40))}” · generation ${p.made_from.generation}</div>` : ''}<div class="muted small">${esc(short(p.ai_prompt, 60))}</div></td><td>${pill(p.status)}</td>
-      <td class="num">${viewsCell(p)}</td><td class="num">${winnerChip(p.perf, p)}</td>${hasLikes ? `<td class="num">${p.likes == null ? '<span class="muted">-</span>' : fmt(p.likes)}</td>` : ''}<td class="num">${fmt(p.comments)}</td>${hasSS ? `<td class="num">${p.saves == null ? '<span class="muted">-</span>' : fmt(p.saves)}</td><td class="num">${p.shares == null ? '<span class="muted">-</span>' : fmt(p.shares)}</td>` : ''}<td class="num">${p.perf && p.perf.intent_per_1k != null ? p.perf.intent_per_1k : '<span class="muted">-</span>'}</td><td class="num">${p.perf && p.perf.comments_read ? `<span title="${p.perf.buy_comments} want to buy, ${p.perf.ask_comments} ask how/where; ${p.perf.comments_read} comments read">${p.perf.intent_comments}<span class="muted"> / ${p.perf.comments_read}</span></span>` : '<span class="muted" title="Open the post and read its comments">-</span>'}</td><td>${p.intent ? '✓' : ''}</td>
-      <td class="num">${p.vsc == null ? '<span class="muted">—</span>' : p.vsc + '/30'}${p.score_by === 'auto' ? ` <span class="muted small" title="${esc(p.score_reasoning || 'Calculated from this video’s real results against the account’s normal')}">auto</span>` : ''}${p.score_by === 'ai' ? ` <span title="${p.score_blind === true ? 'AI score on the wording alone' : p.score_blind === false ? 'AI score that saw the results' : 'AI score'}">${p.score_blind === false ? '✨*' : '✨'}</span>` : ''}${p.score_confidence != null ? ` <span class="muted small" title="Confidence">${Math.round(p.score_confidence*100)}%</span>` : ''}</td><td title="${esc(p.decision_basis || '')}">${pill(p.decision)}${p.decision ? `<div class="muted small">${decisionSource(p)}</div>` : ''}</td>
-      <td>${postCell(p)}</td></tr>`).join('')}</tbody></table></div>`
-      : `<div class="empty card"><h2>${state.hookWinners ? 'No winning hooks in this view' : 'No synced posts in this view'}</h2><p>${state.hookWinners ? 'Try another account or turn off the Winners filter to review all synced posts.' : 'Hooks fills itself from your accounts. Add an account and sync it to start reviewing performance.'}</p>
+  <div class="hook-quick-filters" role="group" aria-label="Quick filters">
+    <button type="button" class="hook-filter ${state.hookQuick === 'all' ? 'on' : ''}" data-hook-filter="all" aria-pressed="${state.hookQuick === 'all'}">All <span>${syncedPosts.length}</span></button>
+    <button type="button" class="hook-filter ${state.hookQuick === 'winners' ? 'on' : ''}" data-hook-filter="winners" aria-pressed="${state.hookQuick === 'winners'}">Winners <span>${winnerCount}</span></button>
+    <button type="button" class="hook-filter ${state.hookQuick === 'growing' ? 'on' : ''}" data-hook-filter="growing" aria-pressed="${state.hookQuick === 'growing'}">Still growing <span>${growingCount}</span></button>
+    <button type="button" class="hook-filter ${state.hookQuick === 'ready' ? 'on' : ''}" data-hook-filter="ready" aria-pressed="${state.hookQuick === 'ready'}">Ready to post <span>${readyCount}</span></button>
+  </div>
+    ${posts.length ? `<div class="table-wrap hooks-table"><table><thead><tr><th>Date</th><th>Account</th><th>Hook</th><th>Status</th><th class="num">Views</th><th class="num" title="Views compared with this account’s usual post performance">vs usual</th><th>More metrics</th><th>Decision</th><th>Next step</th></tr></thead><tbody>
+    ${posts.map(p => {
+      const score = p.vsc == null ? '<span class="muted">Not scored</span>' : `<b class="hook-score">${p.vsc}/30</b>${p.score_by === 'auto' ? ' <span class="muted small" title="Calculated from real post results against this account’s normal">Auto</span>' : p.score_by === 'ai' ? ` <span class="muted small" title="${p.score_blind === true ? 'AI score based on wording only' : p.score_blind === false ? 'AI score informed by post results' : 'AI-generated score'}">AI${p.score_blind === false ? ' · results' : ' · wording'}</span>` : ''}${p.score_confidence != null ? ` <span class="muted small" title="Confidence">${Math.round(p.score_confidence * 100)}% confidence</span>` : ''}`;
+      const searchText = [p.hook, p.ai_prompt, p.handle, p.decision].filter(Boolean).join(' ').toLowerCase();
+      const detailItems = [
+        hasLikes && `Likes: ${p.likes == null ? '—' : fmt(p.likes)}`,
+        `Comments: ${fmt(p.comments)}`,
+        hasSS && `Saves: ${p.saves == null ? '—' : fmt(p.saves)}`,
+        hasSS && `Shares: ${p.shares == null ? '—' : fmt(p.shares)}`,
+        `Intent / 1k: ${p.perf && p.perf.intent_per_1k != null ? p.perf.intent_per_1k : '—'}`,
+        `Asking comments: ${p.perf && p.perf.comments_read ? `${p.perf.intent_comments} / ${p.perf.comments_read} read` : 'Not read'}`,
+        `Purchase intent: ${p.intent ? 'Detected' : 'None recorded'}`,
+      ].filter(Boolean);
+      return `<tr class="band" style="--band:${esc(p.phone_color || 'transparent')};cursor:pointer" data-id="${p.id}" data-search="${esc(searchText)}">
+      <td data-label="Date">${esc(p.post_date)}</td><td data-label="Account" class="handle">${esc(p.handle || '—')}</td>
+      <td data-label="Hook" class="wrap hook-copy">${contentTypeBadge(p.content_type)} ${p.variant_label ? `<span class="badge" title="A/B variant">${esc(p.variant_label)}</span> ` : ''}${esc(p.hook || '—')}${p.made_from ? `<div class="small" style="color:var(--accent)" title="A video you made from another hook">↻ made from “${esc(short(p.made_from.hook || '', 40))}” · generation ${p.made_from.generation}</div>` : ''}<div class="muted small">${esc(short(p.ai_prompt, 60))}</div></td>
+      <td data-label="Status">${pill(p.status)}</td><td data-label="Views" class="num">${viewsCell(p)}</td>
+      <td data-label="vs usual" class="num">${winnerChip(p.perf, p)}</td>
+      <td data-label="Metrics"><details class="hook-metrics"><summary>View metrics</summary><div>${detailItems.map(item => `<span>${item}</span>`).join('')}</div></details></td>
+      <td data-label="Decision" class="hook-decision-cell" title="${esc(p.decision_basis || '')}"><div>${pill(p.decision)}</div><div class="hook-scoreline">${score}</div>${p.decision ? `<details class="hook-why"><summary>Why this decision?</summary><span>${esc(p.decision_basis || decisionSource(p) || 'Based on this post’s performance and scoring rules.')}</span></details>` : ''}</td>
+      <td data-label="Next step" class="hook-next-cell">${postCell(p)}</td></tr>`;
+    }).join('')}</tbody></table></div><div class="empty card hooks-search-empty" id="hooks-search-empty" hidden><h2>No matching hooks</h2><p>Try a different search or quick filter.</p></div>`
+      : `<div class="empty card"><h2>${state.hookSearch ? 'No matching hooks' : state.hookQuick !== 'all' ? `No ${quickLabel} in this view` : 'No synced posts in this view'}</h2><p>${state.hookSearch ? 'Try a different search or clear the search field.' : state.hookQuick !== 'all' ? 'Try another quick filter or adjust the account and status filters.' : 'Hooks fills itself from your accounts. Add an account and sync it to start reviewing performance.'}</p>
       <div class="row" style="justify-content:center;gap:8px;margin-top:12px">
-        ${state.hookWinners || state.hookStatus || state.hookAccount ? '<button class="btn" id="clear-hook-filters">Clear filters</button>' : '<a class="btn primary" href="#/accounts">Manage accounts</a>'}
+        ${state.hookQuick !== 'all' || state.hookStatus || state.hookAccount || state.hookSearch ? '<button class="btn" id="clear-hook-filters">Clear filters</button>' : '<a class="btn primary" href="#/accounts">Manage accounts</a>'}
       </div></div>`}</div>`;
   $('#scorehooks').onclick = async e => {
     const b = e.currentTarget; busy(b, true, 'Scoring…');
@@ -3803,9 +3832,26 @@ pages.hooks = async app => {
   $('#fs').onchange = e => { state.hookStatus = e.target.value; route(); };
   $('#fa').onchange = e => { state.hookAccount = e.target.value; route(); };
   const clearHookFilters = $('#clear-hook-filters', app);
-  if (clearHookFilters) clearHookFilters.onclick = () => { state.hookStatus = ''; state.hookAccount = ''; state.hookWinners = false; route(); };
+  if (clearHookFilters) clearHookFilters.onclick = () => { state.hookStatus = ''; state.hookAccount = ''; state.hookQuick = 'all'; state.hookSearch = ''; route(); };
   $$('[data-hot]', app).forEach(b => (b.onclick = () => postModal(hot.find(h => h.id === +b.dataset.hot), null, route)));
-  const wo = $('#winonly'); if (wo) wo.onchange = e => { state.hookWinners = e.target.checked; route(); };
+  const hookSearch = $('#hook-search', app);
+  const filterHookRows = () => {
+    const query = hookSearch.value.trim().toLowerCase();
+    state.hookSearch = hookSearch.value;
+    const rows = $$('tbody tr[data-id]', app);
+    let visible = 0;
+    rows.forEach(row => {
+      const matches = !query || row.dataset.search.includes(query);
+      row.style.display = matches ? '' : 'none';
+      if (matches) visible++;
+    });
+    const count = $('#hooks-result-count', app);
+    if (count) count.textContent = visible;
+    const noMatches = $('#hooks-search-empty', app);
+    if (noMatches) noMatches.hidden = visible > 0;
+  };
+  if (hookSearch) { hookSearch.oninput = filterHookRows; filterHookRows(); }
+  $$('[data-hook-filter]', app).forEach(button => button.onclick = () => { state.hookQuick = button.dataset.hookFilter; route(); });
   $$('[data-post-hook]', app).forEach(b => (b.onclick = guard(async e => {
     e.stopPropagation();
     const h = posts.find(x => x.id === +b.dataset.postHook);
@@ -3844,6 +3890,7 @@ pages.hooks = async app => {
     host.insertBefore(card, host.firstElementChild && host.firstElementChild.nextSibling);
   }).catch(() => {});
   $$('tr[data-id]', app).forEach(tr => tr.addEventListener('click', e => {
+    if (e.target.closest('button, a, input, select, textarea, details, summary')) return;
     postModal(posts.find(p => p.id === +tr.dataset.id), null, route);
   }));
 };
