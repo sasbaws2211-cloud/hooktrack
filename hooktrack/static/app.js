@@ -2288,9 +2288,20 @@ pages.pipeline = async app => {
   const q = accountFilter ? `?account_id=${accountFilter}` : '';
   const board = await api('GET', '/api/pipeline' + q);
   const stages = board.stages || PIPELINE;
-  app.innerHTML = `<div class="page-head"><div><h1>Posts</h1>
-    <div class="sub">Drag to move · <kbd>Shift</kbd>+click to multi-select · bulk-move selected. Same posts as the calendar.</div></div>
-    <div class="row">
+  const allPosts = Object.values(board.columns || {}).flat();
+  const countIn = names => names.reduce((sum, stage) => sum + ((board.columns && board.columns[stage]) || []).length, 0);
+  app.innerHTML = `<div class="posts-page">
+    <div class="page-head posts-head"><div><div class="eyebrow">CONTENT WORKSPACE</div><h1>Posts</h1>
+      <div class="sub">Move each idea from first draft to published, and keep every account’s content moving.</div></div></div>
+    <div class="grid posts-overview">
+      <div class="card posts-metric"><span class="posts-metric-icon">▤</span><div><span>In your pipeline</span><b>${allPosts.length}</b><small>Across all stages</small></div></div>
+      <div class="card posts-metric"><span class="posts-metric-icon ideas">✎</span><div><span>Ideas &amp; scripts</span><b>${countIn(['idea', 'scripted'])}</b><small>Ready for the next production step</small></div></div>
+      <div class="card posts-metric"><span class="posts-metric-icon filmed">▶</span><div><span>Filmed</span><b>${countIn(['filmed'])}</b><small>Ready to schedule or publish</small></div></div>
+      <div class="card posts-metric"><span class="posts-metric-icon published">✓</span><div><span>Published</span><b>${countIn(['posted', 'analysed'])}</b><small>Results can be reviewed</small></div></div>
+    </div>
+    <div class="posts-toolbar">
+      <div class="posts-toolbar-note"><b>Production board</b><span>Drag to move · Shift+click to select multiple</span></div>
+      <div class="row posts-actions">
       ${toggle}
       <select id="pa" style="width:auto">${accountOptions(accountFilter, 'All accounts')}</select>
       <select id="bulk-stage" style="width:auto">
@@ -2299,7 +2310,8 @@ pages.pipeline = async app => {
       </select>
       <button class="btn ai" id="ideas" title="AI suggests new Idea cards from your winners and your saved ideas">✨ Ideas</button>
       <button class="btn primary" id="new">+ Post</button>
-    </div></div>
+      </div>
+    </div>
     <div id="bulk-bar" class="bulk-bar" hidden><span id="bulk-count">0 selected</span>
       <button type="button" class="btn sm" id="bulk-clear">Clear selection</button></div>
     <div class="pipeline" id="board">
@@ -2356,7 +2368,8 @@ pages.pipeline = async app => {
           </div>
         </div>`;
       }).join('')}
-    </div>`;
+    </div>
+  </div>`;
 
   $$('[data-view]', app).forEach(b => b.onclick = () => { state.postsView = b.dataset.view; route(); });
   $('#pa').onchange = e => { state.pipeAccount = e.target.value; state.calAccount = e.target.value; route(); };
@@ -2470,6 +2483,9 @@ async function renderPostsCalendar(app, { accountFilter, toggle }) {
   const queued = p => !!(p.scheduled_for && !p.external_post_id && !p.external_id);   // waiting in HookTrack's queue
   const dayOf = p => (queued(p) && zoneParts(p.scheduled_for) || {}).date || p.post_date;
   const by = {}; posts.forEach(p => (by[dayOf(p)] = by[dayOf(p)] || []).push(p));
+  const queuedCount = posts.filter(queued).length;
+  const activeCount = posts.filter(p => ['idea', 'scripted', 'filmed'].includes(normStatus(p.status))).length;
+  const scheduledDays = Object.keys(by).length;
   const today = iso(nowLocal());
   const cells = [];
   for (let i = 0; i < 42; i++) {
@@ -2483,16 +2499,27 @@ async function renderPostsCalendar(app, { accountFilter, toggle }) {
       }).join('')}
       ${list.length > 3 ? `<div class="more">+${list.length - 3} more</div>` : ''}</div>`);
   }
-  app.innerHTML = `<div class="page-head"><div><h1>Posts</h1>
-    <div class="sub">Plan by day. Same posts as the board — switch views anytime. Drag a card to another day to move it; 📅 cards are queued to publish at that time (${esc(wsTz())}).</div></div>
-    <div class="row">
+  app.innerHTML = `<div class="posts-page calendar-page">
+    <div class="page-head posts-head"><div><div class="eyebrow">CONTENT WORKSPACE</div><h1>Posts calendar</h1>
+      <div class="sub">Plan your publishing rhythm. Drag a post to change its date; queued posts keep their publish time (${esc(wsTz())}).</div></div></div>
+    <div class="grid posts-overview">
+      <div class="card posts-metric"><span class="posts-metric-icon">▤</span><div><span>Posts on calendar</span><b>${posts.length}</b><small>Visible month and adjacent days</small></div></div>
+      <div class="card posts-metric"><span class="posts-metric-icon queued">◷</span><div><span>Queued to publish</span><b>${queuedCount}</b><small>Scheduled through HookTrack</small></div></div>
+      <div class="card posts-metric"><span class="posts-metric-icon ideas">✎</span><div><span>In production</span><b>${activeCount}</b><small>Ideas, scripts, and filmed posts</small></div></div>
+      <div class="card posts-metric"><span class="posts-metric-icon published">▦</span><div><span>Active days</span><b>${scheduledDays}</b><small>Days with at least one post</small></div></div>
+    </div>
+    <div class="posts-toolbar calendar-toolbar">
+      <div class="posts-toolbar-note"><b>Publishing calendar</b><span>Choose a day to add or edit a post</span></div>
+      <div class="row posts-actions">
       ${toggle}
       <select id="cf" style="width:auto">${accountOptions(accountFilter, 'All accounts')}</select>
       <button class="btn" id="prev">‹</button><b style="min-width:130px;text-align:center">${first.toLocaleString('default', { month: 'long', year: 'numeric' })}</b>
       <button class="btn" id="next">›</button><button class="btn" id="today">Today</button>
       <button class="btn ai" id="plan">✨ AI plan week</button>
-    </div></div>
-    <div class="cal">${DOW.map(d => `<div class="dow">${d}</div>`).join('')}${cells.join('')}</div>`;
+      </div>
+    </div>
+    <div class="cal posts-calendar">${DOW.map(d => `<div class="dow">${d}</div>`).join('')}${cells.join('')}</div>
+  </div>`;
 
   $$('[data-view]', app).forEach(b => b.onclick = () => { state.postsView = b.dataset.view; route(); });
   const shift = n => { state.calMonth = iso(new Date(first.getFullYear(), first.getMonth() + n, 1)); route(); };
@@ -2902,21 +2929,37 @@ pages.discover = async app => {
   const d = await api('GET', '/api/discover' + (q.toString() ? '?' + q : ''));
   if (state.discNiche === null) { state.discNiche = d.applied.niche; state.discBand = d.applied.band; }
   const fmtViews = n => fmt(n);
+  const creators = new Set(d.items.map(x => x.channel).filter(Boolean)).size;
+  const patterns = new Set(d.items.map(x => x.pattern).filter(Boolean)).size;
+  const lifts = d.items.map(x => Number(x.multiple)).filter(Number.isFinite).sort((a, b) => a - b);
+  const typicalLift = lifts.length ? lifts[Math.floor(lifts.length / 2)] : null;
   const empty = !d.available
     ? 'This feed is built from YouTube data, which is not switched on for this platform yet.'
     : 'Nothing here yet. The feed is rebuilt every couple of days for each niche, so check back soon, or try another niche.';
-  app.innerHTML = `<div class="page-head"><div><h1>What's working in your niche</h1>
-    <div class="sub">Short videos that did far better than their own channel usually does. ${esc(d.rule)}</div></div></div>
-    <div class="card" style="margin-bottom:14px"><div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
+  app.innerHTML = `<div class="discover-page">
+    <div class="page-head discover-head"><div><div class="eyebrow">CREATOR RESEARCH</div><h1>Discover what’s working</h1>
+      <div class="sub">Study short-form posts outperforming their creator’s usual results, then make a fresh version that fits your voice.</div></div>
+      <a class="btn" href="#/inspiration">♡ Saved ideas</a></div>
+    <div class="grid discover-overview">
+      <div class="card discover-metric"><span class="discover-metric-icon">▣</span><div><span>Ideas in this feed</span><b>${d.items.length}</b><small>Matched to your filters</small></div></div>
+      <div class="card discover-metric"><span class="discover-metric-icon creators">◉</span><div><span>Creators to learn from</span><b>${creators}</b><small>Distinct channels represented</small></div></div>
+      <div class="card discover-metric"><span class="discover-metric-icon lift">↗</span><div><span>Typical outperformance</span><b>${typicalLift == null ? '—' : `${typicalLift}×`}</b><small>Compared with creator’s usual</small></div></div>
+      <div class="card discover-metric"><span class="discover-metric-icon pattern">✳</span><div><span>Hook patterns</span><b>${patterns}</b><small>Different opening approaches</small></div></div>
+    </div>
+    <div class="discover-controls">
+      <div class="discover-controls-heading"><div><h2>Explore the feed</h2><span class="muted small">${esc(d.rule)}</span></div>
+        <a href="#/inspiration" class="text-link">Open idea library →</a></div>
+      <div class="row discover-filters">
       ${d.platforms.length > 1 ? `<label class="small muted">Platform</label>
       <select id="dp" style="width:auto"><option value="">All</option>${d.platforms.map(p => `<option value="${esc(p.key)}" ${state.discPlatform === p.key ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select>` : ''}
       <label class="small muted">Niche</label>
       <select id="dn" style="width:auto"><option value="">All niches</option>${d.niches.map(n => `<option value="${esc(n.key)}" ${state.discNiche === n.key ? 'selected' : ''}>${esc(n.label)}${n.count ? ` (${n.count})` : ''}</option>`).join('')}</select>
       <label class="small muted">Creator size</label>
       <select id="db" style="width:auto"><option value="">Any size</option>${d.bands.map(b => `<option value="${esc(b.key)}" ${state.discBand === b.key ? 'selected' : ''}>${esc(b.label)}</option>`).join('')}</select>
+      </div>
+      <div class="small muted discover-caution">${esc(d.caution)}</div>
     </div>
-    <div class="small muted" style="margin-top:8px">${esc(d.caution)}</div></div>
-    ${d.items.length ? `<div class="insp-grid disc-grid">${d.items.map((x, i) => `<div class="insp-card disc-card">
+    ${d.items.length ? `<div class="discover-results-head"><h2>Ideas for your next post</h2><span class="muted small">${d.items.length} examples · sorted by outperformance</span></div><div class="insp-grid disc-grid">${d.items.map((x, i) => `<div class="insp-card disc-card">
       <a href="${esc(x.url)}" class="disc-play" data-play="${i}" title="Play it here">${x.thumb ? `<img src="${esc(x.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<div class="disc-tile">${PLAT_NAME[x.platform] || 'Video'}</div>`}
         <span class="disc-chip plat">${PLAT_NAME[x.platform] || 'Video'}</span>
         <span class="disc-chip views">${fmtViews(x.views)} views</span>
@@ -2934,7 +2977,8 @@ pages.discover = async app => {
           <button class="btn sm" data-sv="${i}" title="Keep it on your Saved page">Save</button>
           <button class="btn sm" data-play="${i}" title="Play it here, without leaving HookTrack">▶ Play</button>
         </div></div></div>`).join('')}</div>`
-      : `<div class="empty card"><h2>Nothing to show yet</h2><p>${esc(empty)}</p></div>`}`;
+      : `<div class="empty card discover-empty"><span class="discover-empty-icon">⌕</span><h2>Nothing to show yet</h2><p>${esc(empty)}</p></div>`}
+    </div>`;
   if ($('#dp', app)) $('#dp', app).onchange = e => { state.discPlatform = e.target.value; route(); };
   $('#dn', app).onchange = e => { state.discNiche = e.target.value; route(); };
   $('#db', app).onchange = e => { state.discBand = e.target.value; route(); };
@@ -3144,34 +3188,53 @@ const postCell = p => {
 pages.hooks = async app => {
   const q = [state.hookStatus && `status=${state.hookStatus}`, state.hookAccount && `account_id=${state.hookAccount}`].filter(Boolean).join('&');
   // Hooks are the posted videos the sync pulled in. A Scale or Tweak hook is sent to Posts by its Post button.
-  let posts = await api('GET', `/api/posts?source=synced${q ? '&' + q : ''}`);   // only what the sync pulled in
+  const syncedPosts = await api('GET', `/api/posts?source=synced${q ? '&' + q : ''}`);   // only what the sync pulled in
   const hot = (await api('GET', '/api/velocity?days=3&limit=6').catch(() => [])).filter(p => p.perf && p.perf.label === 'HOT_START');
-  const winnerCount = posts.filter(p => p.perf && p.perf.label === 'WINNER').length;
+  const winnerCount = syncedPosts.filter(p => p.perf && p.perf.label === 'WINNER').length;
+  const scoredCount = syncedPosts.filter(p => p.vsc != null).length;
+  const totalViews = syncedPosts.reduce((sum, p) => sum + (Number(p.views) || 0), 0);
+  let posts = syncedPosts;
   if (state.hookWinners) posts = posts.filter(p => p.perf && p.perf.label === 'WINNER');
   const hasSS = posts.some(p => p.saves != null || p.shares != null);      // only show columns that have data
   const hasLikes = posts.some(p => p.likes != null);
-  app.innerHTML = `<div class="page-head"><div><h1>Hooks</h1><div class="sub">Your posted content, pulled in from your accounts. Press Post on a Scale hook (Scripted) or a Tweak hook (Idea) to send it to Posts. Rules: Scale ${state.settings.scale_vsc}+, Tweak ${state.settings.mutate_vsc}–${state.settings.scale_vsc - 1}, Stop below.</div></div>
-    <div class="row"><select id="fs" style="width:auto"><option value="">All statuses</option>${['posted', 'analysed'].map(s => `<option value="${s}" ${state.hookStatus === s ? 'selected' : ''}>${PIPE_LABEL[s]}</option>`).join('')}</select>
-      <button class="btn" id="scorehooks" title="Score every judged hook from its real results (free, no AI). This also runs after every sync.">Score hooks</button>
-      <button class="btn" id="simdec" title="What if thresholds changed?">Simulate thresholds</button>
-      <select id="fa" style="width:auto">${accountOptions(state.hookAccount, 'All accounts')}</select>
-      <label class="check small" title="Posts that beat their own account's normal"><input type="checkbox" id="winonly" ${state.hookWinners ? 'checked' : ''}> Winners only (${winnerCount})</label>
-      <button class="btn" id="top5" title="Send the 5 strongest Scale hooks that have settled (3+ days old) and are not on Posts yet">Send top 5 Scale</button></div></div>
-    ${hot.length ? `<div class="card hot-card"><h3 style="margin:0 0 4px">🔥 Hot starts <span class="muted small" style="font-weight:400">posted in the last 2 days, already far above that account's usual first day</span></h3>
-      <ul class="list">${hot.map(h => `<li><div style="flex:1;min-width:0"><b>${esc(h.handle || '-')}</b> <span class="muted">${esc(short(h.hook || '(no hook)', 70))}</span>
-        <div class="small muted">${fmt(h.perf.early_views)} views on day 1 · ${h.perf.early_multiple}× usual (${fmt(h.perf.early_baseline)})</div></div>
-        <button class="btn sm" data-hot="${h.id}">Open</button></li>`).join('')}</ul>
-      <p class="small muted" style="margin:6px 0 0">A strong first day is the earliest sign of a winner. Make two or three variations of it now, while it is still fresh.</p></div>` : ''}
-    ${posts.length ? `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Account</th><th>Hook</th><th>Status</th><th class="num">Views</th><th class="num" title="Views vs this account's normal (median of its recent posts)">× normal</th>${hasLikes ? '<th class="num">Likes</th>' : ''}<th class="num">Comments</th>${hasSS ? '<th class="num" title="Saves">Saves</th><th class="num">Shares</th>' : ''}<th class="num" title="Saves + shares + comments per 1,000 views">Intent /1k</th><th class="num" title="Comments asking to buy it, or how/where to get it, out of the comments read">Asking</th><th>Intent</th><th class="num">Hook score</th><th>Decision</th><th>Post</th></tr></thead><tbody>
+  app.innerHTML = `<div class="hooks-page">
+  <div class="page-head hooks-head"><div><div class="eyebrow">PERFORMANCE LIBRARY</div><h1>Hooks</h1>
+    <div class="sub">Learn from posts that beat your account’s normal—and turn the strongest ideas into your next post.</div></div>
+    <div class="row hooks-primary-actions"><button class="btn" id="scorehooks" title="Score every judged hook from its real results (free, no AI). This also runs after every sync.">↻ Score hooks</button>
+      <button class="btn primary" id="top5" title="Send the 5 strongest Scale hooks that have settled (3+ days old) and are not on Posts yet">Send top 5 to Posts</button></div></div>
+  <div class="grid hooks-overview">
+    <div class="card hooks-metric"><span class="hooks-metric-icon">▤</span><div><span class="hooks-metric-label">Synced posts</span><b>${syncedPosts.length}</b><small>From connected accounts</small></div></div>
+    <div class="card hooks-metric"><span class="hooks-metric-icon winner">↗</span><div><span class="hooks-metric-label">Beating their normal</span><b>${winnerCount}</b><small>Winning hooks in this view</small></div></div>
+    <div class="card hooks-metric"><span class="hooks-metric-icon score">✓</span><div><span class="hooks-metric-label">Scored</span><b>${scoredCount}<small> / ${syncedPosts.length}</small></b><small>From real post results</small></div></div>
+    <div class="card hooks-metric"><span class="hooks-metric-icon views">◉</span><div><span class="hooks-metric-label">Views recorded</span><b>${compact(totalViews)}</b><small>Across synced posts</small></div></div>
+  </div>
+  ${hot.length ? `<section class="hot-starts">
+    <div class="hot-starts-head"><span class="hot-starts-icon">↗</span><div><h2>Breaking out early</h2><p>Recent posts already far above their account’s usual first-day views.</p></div><span class="hot-starts-count">${hot.length} hot start${hot.length === 1 ? '' : 's'}</span></div>
+    <div class="hot-starts-list">${hot.map(h => `<article class="hot-start-item"><div class="hot-start-handle">${esc(h.handle || 'Account')}</div>
+      <div class="hot-start-copy"><b>${esc(short(h.hook || '(No hook text)', 74))}</b><span>${fmt(h.perf.early_views)} views on day one</span></div>
+      <div class="hot-start-lift"><b>${esc(String(h.perf.early_multiple))}×</b><span>usual</span></div>
+      <button class="btn sm" data-hot="${h.id}">Open post</button></article>`).join('')}</div>
+    <div class="hot-starts-foot">Early momentum is a useful signal. Consider making a fresh variation while the format is working.</div>
+  </section>` : ''}
+  <div class="hooks-toolbar">
+    <div class="hooks-toolbar-title"><h2>Synced content</h2><span class="muted small">${state.hookWinners ? `${posts.length} winning hooks` : `${syncedPosts.length} posts`} · Scale ${state.settings.scale_vsc}+ · Tweak ${state.settings.mutate_vsc}–${state.settings.scale_vsc - 1} · Stop below</span></div>
+    <div class="hooks-filters">
+      <select id="fa" aria-label="Filter by account">${accountOptions(state.hookAccount, 'All accounts')}</select>
+      <select id="fs" aria-label="Filter by status"><option value="">All statuses</option>${['posted', 'analysed'].map(s => `<option value="${s}" ${state.hookStatus === s ? 'selected' : ''}>${PIPE_LABEL[s]}</option>`).join('')}</select>
+      <button class="btn" id="simdec" title="What if thresholds changed?">Simulate rules</button>
+      <label class="check hooks-winners-only" title="Posts that beat their own account's normal"><input type="checkbox" id="winonly" ${state.hookWinners ? 'checked' : ''}> Winners <span class="pill SCALE">${winnerCount}</span></label>
+    </div>
+  </div>
+    ${posts.length ? `<div class="table-wrap hooks-table"><table><thead><tr><th>Date</th><th>Account</th><th>Hook</th><th>Status</th><th class="num">Views</th><th class="num" title="Views vs this account's normal (median of its recent posts)">× normal</th>${hasLikes ? '<th class="num">Likes</th>' : ''}<th class="num">Comments</th>${hasSS ? '<th class="num" title="Saves">Saves</th><th class="num">Shares</th>' : ''}<th class="num">Intent /1k</th><th class="num">Asking</th><th>Intent</th><th class="num">Hook score</th><th>Decision</th><th>Post</th></tr></thead><tbody>
     ${posts.map(p => `<tr class="band" style="--band:${esc(p.phone_color || 'transparent')};cursor:pointer" data-id="${p.id}"><td>${esc(p.post_date)}</td><td class="handle">${esc(p.handle || '—')}</td>
       <td class="wrap">${contentTypeBadge(p.content_type)} ${p.variant_label ? `<span class="badge" title="A/B variant">${esc(p.variant_label)}</span> ` : ''}${esc(p.hook || '—')}${p.made_from ? `<div class="small" style="color:var(--accent)" title="A video you made from another hook">↻ made from “${esc(short(p.made_from.hook || '', 40))}” · generation ${p.made_from.generation}</div>` : ''}<div class="muted small">${esc(short(p.ai_prompt, 60))}</div></td><td>${pill(p.status)}</td>
       <td class="num">${viewsCell(p)}</td><td class="num">${winnerChip(p.perf, p)}</td>${hasLikes ? `<td class="num">${p.likes == null ? '<span class="muted">-</span>' : fmt(p.likes)}</td>` : ''}<td class="num">${fmt(p.comments)}</td>${hasSS ? `<td class="num">${p.saves == null ? '<span class="muted">-</span>' : fmt(p.saves)}</td><td class="num">${p.shares == null ? '<span class="muted">-</span>' : fmt(p.shares)}</td>` : ''}<td class="num">${p.perf && p.perf.intent_per_1k != null ? p.perf.intent_per_1k : '<span class="muted">-</span>'}</td><td class="num">${p.perf && p.perf.comments_read ? `<span title="${p.perf.buy_comments} want to buy, ${p.perf.ask_comments} ask how/where; ${p.perf.comments_read} comments read">${p.perf.intent_comments}<span class="muted"> / ${p.perf.comments_read}</span></span>` : '<span class="muted" title="Open the post and read its comments">-</span>'}</td><td>${p.intent ? '✓' : ''}</td>
       <td class="num">${p.vsc == null ? '<span class="muted">—</span>' : p.vsc + '/30'}${p.score_by === 'auto' ? ` <span class="muted small" title="${esc(p.score_reasoning || 'Calculated from this video’s real results against the account’s normal')}">auto</span>` : ''}${p.score_by === 'ai' ? ` <span title="${p.score_blind === true ? 'AI score on the wording alone' : p.score_blind === false ? 'AI score that saw the results' : 'AI score'}">${p.score_blind === false ? '✨*' : '✨'}</span>` : ''}${p.score_confidence != null ? ` <span class="muted small" title="Confidence">${Math.round(p.score_confidence*100)}%</span>` : ''}</td><td title="${esc(p.decision_basis || '')}">${pill(p.decision)}${p.decision ? `<div class="muted small">${decisionSource(p)}</div>` : ''}</td>
       <td>${postCell(p)}</td></tr>`).join('')}</tbody></table></div>`
-      : `<div class="empty card"><h2>No posted content yet</h2><p>Hooks fills itself from your accounts: add your TikTok, Instagram, YouTube, X, LinkedIn or Facebook handles, then press Sync. Posted content and its views appear here.</p>
+      : `<div class="empty card"><h2>${state.hookWinners ? 'No winning hooks in this view' : 'No synced posts in this view'}</h2><p>${state.hookWinners ? 'Try another account or turn off the Winners filter to review all synced posts.' : 'Hooks fills itself from your accounts. Add an account and sync it to start reviewing performance.'}</p>
       <div class="row" style="justify-content:center;gap:8px;margin-top:12px">
-        <a class="btn primary" href="#/accounts">Add accounts</a>
-      </div></div>`}`;
+        ${state.hookWinners || state.hookStatus || state.hookAccount ? '<button class="btn" id="clear-hook-filters">Clear filters</button>' : '<a class="btn primary" href="#/accounts">Manage accounts</a>'}
+      </div></div>`}</div>`;
   $('#scorehooks').onclick = async e => {
     const b = e.currentTarget; busy(b, true, 'Scoring…');
     try {
@@ -3183,6 +3246,8 @@ pages.hooks = async app => {
   };
   $('#fs').onchange = e => { state.hookStatus = e.target.value; route(); };
   $('#fa').onchange = e => { state.hookAccount = e.target.value; route(); };
+  const clearHookFilters = $('#clear-hook-filters', app);
+  if (clearHookFilters) clearHookFilters.onclick = () => { state.hookStatus = ''; state.hookAccount = ''; state.hookWinners = false; route(); };
   $$('[data-hot]', app).forEach(b => (b.onclick = () => postModal(hot.find(h => h.id === +b.dataset.hot), null, route)));
   const wo = $('#winonly'); if (wo) wo.onchange = e => { state.hookWinners = e.target.checked; route(); };
   $$('[data-post-hook]', app).forEach(b => (b.onclick = guard(async e => {
@@ -3646,23 +3711,78 @@ pages.accounts = async app => {
   const groups = state.phones.map(p => ({ p, rows: state.accounts.filter(a => a.phone_id === p.id) }));
   const loose = state.accounts.filter(a => !a.phone_id);
   if (loose.length) groups.push({ p: { id: null, label: 'No phone', color: '#94a3b8' }, rows: loose });
-  app.innerHTML = `<div class="page-head"><div><h1>Accounts</h1><div class="sub">${state.accounts.length} accounts across ${state.phones.length} phones</div></div>
-    <div class="row"><button class="btn" id="addphone">+ Phone</button><button class="btn primary" id="addacc">+ Account</button>
-      <select id="syncdays" style="width:auto" title="How far back a manual sync reads (TikTok; Instagram and YouTube return what the platform lists). Longer reads use more credits.">${[14, 30, 60, 90].map(d => `<option value="${d}" ${syncDays() === d ? 'selected' : ''}>Last ${d} days</option>`).join('')}</select>
-      <button class="btn" id="syncall" title="Sync all accounts with Auto-sync on">Sync all</button></div></div>
-    ${groups.map(({ p, rows }) => `<div class="card" style="margin-bottom:14px"><div class="row" style="margin-bottom:8px">
-      <span class="dot" style="background:${esc(p.color)}"></span><b>${esc(p.label)}</b><span class="muted">${rows.length} accounts</span><span class="spacer"></span>
-      ${p.id ? `<button class="btn sm" data-ep="${p.id}">Edit</button>` : ''}</div>
-      ${rows.length ? `<div class="table-wrap" style="box-shadow:none"><table><thead><tr><th>Handle</th><th>Platform</th><th>Niche</th><th>Status</th><th class="num" title="From the platform profile, refreshed weekly (or on a full sync)">Followers</th><th class="num">Posts/day</th><th>Content hook</th><th>Sync</th><th></th></tr></thead><tbody>
-      ${rows.map(a => `<tr><td class="handle"><button type="button" class="pin-btn ${getPins().has(String(a.id)) ? 'on' : ''}" data-pin="${a.id}" title="Pin account">${getPins().has(String(a.id)) ? '★' : '☆'}</button> ${esc(a.handle)}${a.client_id ? `<div class="small muted">${esc((state.clients.find(c => c.id === a.client_id) || {}).name || '')}</div>` : ''}</td><td>${esc(a.platform)}</td><td>${esc(a.niche)}${a.baseline_needed > 0 ? `<div class="small muted" title="Until an account has ${a.judged_posts + a.baseline_needed} judged posts, its posts are compared with similar accounts instead of its own history">${a.judged_posts} of ${a.judged_posts + a.baseline_needed} posts to its own baseline</div>` : ''}</td><td>${pill(a.status, a.status === 'active' ? 'posted' : a.status === 'killed' ? 'KILL' : 'HOLD')}</td>
-        <td class="num" title="${a.followers_day ? `as of ${esc(String(a.followers_day).slice(0, 10))}` : 'no snapshot yet: run a sync'}">${a.followers == null ? '<span class="muted">-</span>' : compact(a.followers)}${a.followers_change ? `<div class="small ${a.followers_change > 0 ? 'up' : 'down'}" title="since ${esc(String(a.followers_since).slice(0, 10))}">${a.followers_change > 0 ? '+' : ''}${compact(a.followers_change)}</div>` : ''}</td>
-        <td class="num">${a.times_per_day}</td><td class="muted">${esc(a.content_hook)}</td>
-        <td class="muted small">${a.sync_enabled ? 'on' : 'off'}${a.last_synced_at ? `<br><span title="${esc(a.last_synced_at)}">${esc(String(a.last_synced_at).slice(0,10))}</span>` : ''}</td>
-        <td class="row" style="gap:4px;flex-wrap:nowrap"><button class="btn sm" data-sync="${a.id}" title="Pull posts & views from SociaVault">Sync</button><button class="btn sm" data-ea="${a.id}">Edit</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No accounts on this phone.</p>'}</div>`).join('')}
-    ${state.accounts.length ? '' : `<div class="empty card"><h2>No accounts yet</h2><p>Add a phone and handles. Or load sample data from <a href="#/dashboard">Home</a>.</p></div>`}`;
+  const activeCount = state.accounts.filter(a => a.status === 'active').length;
+  const syncingCount = state.accounts.filter(a => a.sync_enabled).length;
+  const baselineCount = state.accounts.filter(a => !a.baseline_needed).length;
+  const accountCard = a => {
+    const client = state.clients.find(c => c.id === a.client_id);
+    const search = [a.handle, a.platform, a.niche, client && client.name].filter(Boolean).join(' ').toLowerCase();
+    const synced = a.last_synced_at ? String(a.last_synced_at).slice(0, 10) : '';
+    const platform = String(a.platform || '').toLowerCase();
+    return `<article class="account-row" data-account-search="${esc(search)}">
+      <div class="account-brandmark ${esc(platform)}" aria-hidden="true">${esc(String(a.platform || '?').slice(0, 1).toUpperCase())}</div>
+      <div class="account-identity">
+        <div class="account-name-line">
+          <button type="button" class="pin-btn ${pins.has(String(a.id)) ? 'on' : ''}" data-pin="${a.id}" title="${pins.has(String(a.id)) ? 'Unpin account' : 'Pin account'}" aria-label="${pins.has(String(a.id)) ? 'Unpin account' : 'Pin account'}">${pins.has(String(a.id)) ? '★' : '☆'}</button>
+          <b>${esc(a.handle)}</b>${pill(a.status, a.status === 'active' ? 'posted' : a.status === 'killed' ? 'KILL' : 'HOLD')}
+        </div>
+        <div class="account-meta">${esc(a.platform)} <span>·</span> ${esc(a.niche)}${client ? ` <span>·</span> ${esc(client.name)}` : ''}</div>
+        <div class="account-hook">${a.content_hook ? esc(a.content_hook) : '<span class="muted">Add a content focus to help tailor your ideas</span>'}</div>
+      </div>
+      <div class="account-stat"><span>Followers</span><b title="${a.followers_day ? `As of ${esc(String(a.followers_day).slice(0, 10))}` : 'No snapshot yet: run a sync'}">${a.followers == null ? '—' : compact(a.followers)}</b>
+        ${a.followers_change ? `<small class="${a.followers_change > 0 ? 'up' : 'down'}">${a.followers_change > 0 ? '+' : ''}${compact(a.followers_change)}</small>` : ''}</div>
+      <div class="account-stat"><span>Posting pace</span><b>${a.times_per_day} <small>per day</small></b><small class="account-baseline" title="${a.baseline_needed > 0 ? `${a.judged_posts} of ${a.judged_posts + a.baseline_needed} judged posts to build its own baseline` : 'Using this account’s own history'}">${a.baseline_needed > 0 ? `${a.judged_posts}/${a.judged_posts + a.baseline_needed} to baseline` : 'Baseline ready'}</small></div>
+      <div class="account-sync"><span class="sync-indicator ${a.sync_enabled ? 'on' : ''}"></span><span><b>${a.sync_enabled ? 'Auto-sync on' : 'Auto-sync off'}</b><small>${synced ? `Last sync ${esc(synced)}` : 'Not synced yet'}</small></span></div>
+      <div class="account-actions"><button class="btn sm" data-sync="${a.id}" title="Pull posts and views from this account">Sync</button><button class="btn sm" data-ea="${a.id}">Edit</button></div>
+    </article>`;
+  };
+  app.innerHTML = `<div class="accounts-page">
+    <div class="page-head accounts-head"><div><div class="eyebrow">WORKSPACE</div><h1>Accounts</h1>
+      <div class="sub">Add the channels you publish on and keep their performance data in sync.</div></div>
+      <div class="row account-primary-actions"><button class="btn" id="addphone">+ Phone</button><button class="btn primary" id="addacc">+ Add account</button></div></div>
+    <div class="grid account-overview">
+      <div class="card account-overview-item"><span class="account-overview-icon">◎</span><div><span class="account-overview-label">Tracked accounts</span><b>${state.accounts.length}</b></div></div>
+      <div class="card account-overview-item"><span class="account-overview-icon active">✓</span><div><span class="account-overview-label">Active</span><b>${activeCount}<small> of ${state.accounts.length}</small></b></div></div>
+      <div class="card account-overview-item"><span class="account-overview-icon sync">↻</span><div><span class="account-overview-label">Auto-sync enabled</span><b>${syncingCount}<small> of ${state.accounts.length}</small></b></div></div>
+      <div class="card account-overview-item"><span class="account-overview-icon baseline">◌</span><div><span class="account-overview-label">Baseline ready</span><b>${baselineCount}<small> of ${state.accounts.length}</small></b></div></div>
+    </div>
+    <div class="account-toolbar">
+      <label class="account-search"><span aria-hidden="true">⌕</span><input id="account-search" type="search" placeholder="Search handles, platforms, niches…" aria-label="Search accounts"></label>
+      <div class="row account-sync-controls">
+        <label class="small muted" for="syncdays">Sync range</label>
+        <select id="syncdays" title="How far back a manual sync reads. Longer reads use more credits.">${[14, 30, 60, 90].map(d => `<option value="${d}" ${syncDays() === d ? 'selected' : ''}>Last ${d} days</option>`).join('')}</select>
+        <button class="btn" id="syncall" title="Sync all accounts with Auto-sync on">↻ Sync all</button>
+      </div>
+    </div>
+    ${groups.length ? groups.map(({ p, rows }) => `<section class="account-group" data-account-group>
+      <div class="account-group-head"><div class="account-group-title"><span class="account-group-dot" style="--group-color:${esc(p.color)}"></span>
+        <div><h2>${esc(p.label)}</h2><span class="muted small">${rows.length} account${rows.length === 1 ? '' : 's'}</span></div></div>
+        ${p.id ? `<button class="btn sm" data-ep="${p.id}">Edit phone</button>` : ''}</div>
+      ${rows.length ? `<div class="account-list">${rows.map(accountCard).join('')}</div>` : '<div class="account-group-empty">No accounts on this phone yet.</div>'}
+    </section>`).join('') : `<div class="empty card account-empty"><h2>No accounts connected yet</h2><p>Add a phone and connect your first channel to start tracking performance.</p><div class="row" style="justify-content:center;margin-top:16px"><button class="btn" id="empty-addphone">+ Add phone</button><button class="btn primary" id="empty-addacc">+ Add account</button></div></div>`}
+    <div id="account-no-results" class="empty card" hidden><h2>No matching accounts</h2><p>Try a different handle, platform, niche, or client name.</p></div>
+    </div>`;
 
   $('#addphone').onclick = () => phoneModal();
   $('#addacc').onclick = () => accountModal();
+  if ($('#empty-addphone', app)) $('#empty-addphone').onclick = () => phoneModal();
+  if ($('#empty-addacc', app)) $('#empty-addacc').onclick = () => accountModal();
+  $('#account-search', app).oninput = e => {
+    const query = e.target.value.trim().toLowerCase();
+    let visible = 0;
+    $$('[data-account-group]', app).forEach(group => {
+      const rows = $$('[data-account-search]', group);
+      let groupVisible = 0;
+      rows.forEach(row => {
+        const matches = !query || row.dataset.accountSearch.includes(query);
+        row.hidden = !matches;
+        if (matches) groupVisible++;
+      });
+      group.hidden = !!query && groupVisible === 0;
+      visible += groupVisible;
+    });
+    $('#account-no-results', app).hidden = visible > 0 || !query;
+  };
   $$('[data-ep]', app).forEach(b => (b.onclick = () => phoneModal(state.phones.find(p => p.id === +b.dataset.ep))));
   $$('[data-pin]', app).forEach(b => b.onclick = e => {
     e.stopPropagation();
@@ -3703,14 +3823,25 @@ pages.clients = async app => {
   const limitNote = rp.limit === -1 ? '' : rp.limit === 0
     ? 'Your plan lets you preview client reports. Sharing a live link needs a bigger plan (Billing).'
     : `Your plan includes ${rp.limit} shareable report link${rp.limit === 1 ? '' : 's'} (${links.length} used).`;
-  app.innerHTML = `<div class="page-head"><div><h1>Clients</h1><div class="sub">Group accounts by the brand they belong to, and send each client a read-only report.</div></div>
-      <div class="row">${admin ? '<button class="btn primary" id="addclient">+ Client</button>' : ''}</div></div>
+  const assignedAccounts = cl.clients.reduce((sum, c) => sum + Number(c.accounts || 0), 0);
+  const pendingCount = (av.approvals || []).filter(a => a.status === 'pending').length;
+  app.innerHTML = `<div class="clients-page">
+    <div class="page-head clients-head"><div><div class="eyebrow">CLIENT WORKSPACE</div><h1>Clients</h1>
+      <div class="sub">Organize brand accounts, review approvals, and share clear performance reports.</div></div>
+      <div class="row">${admin ? '<button class="btn primary" id="addclient">+ Add client</button>' : ''}</div></div>
+    <div class="grid clients-overview">
+      <div class="card clients-metric"><span class="clients-metric-icon">◉</span><div><span>Clients</span><b>${cl.clients.length}</b><small>Managed workspaces</small></div></div>
+      <div class="card clients-metric"><span class="clients-metric-icon accounts">▣</span><div><span>Assigned accounts</span><b>${assignedAccounts}</b><small>${unassigned} unassigned</small></div></div>
+      <div class="card clients-metric"><span class="clients-metric-icon reports">↗</span><div><span>Shared reports</span><b>${links.length}</b><small>Active client links</small></div></div>
+      <div class="card clients-metric"><span class="clients-metric-icon approvals">◷</span><div><span>Pending approvals</span><b>${pendingCount}</b><small>Waiting for client review</small></div></div>
+    </div>
+    <div class="clients-section-heading"><h2>Client accounts</h2><span class="muted small">${cl.clients.length} client${cl.clients.length === 1 ? '' : 's'}</span></div>
     ${limitNote ? `<div class="notice" style="margin-bottom:12px">${esc(limitNote)}</div>` : ''}
     ${cl.clients.map(c => {
       const mine = links.filter(l => l.client_id === c.id);
       const pending = (approvalsByClient[c.name] || []).filter(a => a.status === 'pending');
       const recent = (approvalsByClient[c.name] || []).filter(a => a.status !== 'pending').slice(0, 3);
-      return `<div class="card" style="margin-bottom:14px"><div class="row" style="margin-bottom:6px"><b style="font-size:16px">${esc(c.name)}</b>
+      return `<div class="card client-card"><div class="row client-card-head" style="margin-bottom:6px"><b style="font-size:16px">${esc(c.name)}</b>
         <span class="muted">${c.accounts} account${c.accounts === 1 ? '' : 's'}</span>
         ${c.requires_approval ? '<span class="tag">approves posts first</span>' : ''}<span class="spacer"></span>
         ${admin ? `<button class="btn sm" data-ca="${c.id}">Accounts</button><button class="btn sm" data-ce="${c.id}">Edit</button>` : ''}</div>
@@ -3730,8 +3861,9 @@ pages.clients = async app => {
           ${recent.map(a => `<div class="row small" style="gap:8px;padding:6px 0;border-top:1px solid var(--line,#e5e7eb);flex-wrap:wrap">
             <span style="flex:1;min-width:180px">${a.status === 'approved' && a.publish_error ? '<span class="tag warn">approved, didn\'t post</span>' : a.status === 'approved' ? '<span class="tag good">approved</span>' : a.status === 'rejected' ? '<span class="tag warn">changes requested</span>' : '<span class="tag">cancelled</span>'}
               ${esc(short(a.hook || a.caption || 'Untitled', 60))}${a.status === 'rejected' && a.client_note ? ` <span class="muted">· "${esc(short(a.client_note, 80))}"</span>` : ''}${a.status === 'approved' && a.publish_error ? ` <span class="muted">· ${esc(short(a.publish_error, 100))}</span>` : ''}</span></div>`).join('')}</div>` : ''}</div>`;
-    }).join('') || `<div class="empty card"><h2>No clients yet</h2><p>Add a client for each brand you manage, put its accounts under it, then share a report.</p></div>`}
-    ${unassigned && cl.clients.length ? `<p class="muted small">${unassigned} account${unassigned === 1 ? ' is' : 's are'} not assigned to a client.</p>` : ''}`;
+    }).join('') || `<div class="empty card clients-empty"><span class="clients-empty-icon">◉</span><h2>No clients yet</h2><p>Add a client for each brand you manage, put its accounts under it, then share a report.</p></div>`}
+    ${unassigned && cl.clients.length ? `<p class="muted small clients-unassigned">${unassigned} account${unassigned === 1 ? ' is' : 's are'} not assigned to a client.</p>` : ''}
+  </div>`;
   const find = id => cl.clients.find(c => c.id === +id);
   $('#addclient') && ($('#addclient').onclick = () => clientModal());
   $$('[data-ce]', app).forEach(b => (b.onclick = () => clientModal(find(b.dataset.ce))));
@@ -3767,8 +3899,10 @@ pages.inbox = async app => {
     const why = view === 'messages'
       ? 'YouTube and LinkedIn have no direct-message inbox on Zernio — only X, TikTok, Instagram and Facebook do.'
       : 'X has no comment inbox on Zernio — it only supports direct messages there.';
-    app.innerHTML = `<div class="page-head"><div><h1>Inbox</h1><div class="sub">Comments and messages on a connected account, yours or a client's.</div></div></div>
-      <div class="empty card"><h2>No accounts connected for ${view} yet</h2><p>Connect a ${who} account under <a href="#/settings">Settings</a> or <a href="#/clients">Clients</a> to see them here. ${why}</p></div>`;
+    app.innerHTML = `<div class="inbox-page">
+      <div class="page-head inbox-head"><div><div class="eyebrow">COMMUNITY</div><h1>Inbox</h1><div class="sub">Keep up with comments and messages across your connected accounts.</div></div></div>
+      <div class="empty card inbox-empty"><span class="inbox-empty-icon">✉</span><h2>No accounts connected for ${view} yet</h2><p>Connect a ${who} account under <a href="#/settings">Settings</a> or <a href="#/clients">Clients</a> to see them here. ${why}</p></div>
+    </div>`;
     return;
   }
   const acctFilter = state.inboxAccount || '';
@@ -3786,21 +3920,40 @@ pages.inbox = async app => {
     </div>`;
   if (view === 'messages') {
     const convos = await api('GET', `/api/inbox/conversations${acctFilter ? '?account_id=' + acctFilter : ''}`);
-    app.innerHTML = `<div class="page-head"><div><h1>Inbox</h1><div class="sub">Comments and messages on a connected account, yours or a client's.</div></div>
-        <div class="row">${toggle}${acctSelect}<button class="btn sm" id="irefresh">Refresh</button></div></div>
+    const unread = convos.filter(c => c.unread).length;
+    app.innerHTML = `<div class="inbox-page">
+      <div class="page-head inbox-head"><div><div class="eyebrow">COMMUNITY</div><h1>Messages</h1>
+        <div class="sub">Respond to direct conversations across your connected accounts.</div></div></div>
+      <div class="grid inbox-overview">
+        <div class="card inbox-metric"><span class="inbox-metric-icon">✉</span><div><span>Conversations</span><b>${convos.length}</b><small>For the selected accounts</small></div></div>
+        <div class="card inbox-metric"><span class="inbox-metric-icon unread">●</span><div><span>Unread</span><b>${unread}</b><small>Waiting for your attention</small></div></div>
+        <div class="card inbox-metric"><span class="inbox-metric-icon accounts">◉</span><div><span>Connected accounts</span><b>${accounts.length}</b><small>Available for messages</small></div></div>
+      </div>
+      <div class="inbox-toolbar"><div class="inbox-toolbar-note"><b>Direct messages</b><span>Choose an account or open a conversation</span></div>
+        <div class="row inbox-actions">${toggle}${acctSelect}<button class="btn sm" id="irefresh">Refresh</button></div></div>
       ${dmNote}
       ${convos.length ? `<ul class="list">${convos.map(c => `<li data-open-convo="${c.id}" style="cursor:pointer">
           <div style="flex:1;min-width:0"><b>${esc(c.participant_name || 'Someone')}</b> <span class="muted small">· ${esc(c.handle)} · ${esc((c.platform || '').replace(/^\w/, s => s.toUpperCase()))}</span>
             ${c.unread ? '<span class="pill hot" style="margin-left:6px">New</span>' : ''}
             <div class="small muted">${esc(short(c.last_message_preview || '', 100))}</div></div>
           <span class="small muted">${c.last_message_at ? esc(String(c.last_message_at).slice(0, 10)) : ''}</span></li>`).join('')}</ul>`
-        : `<div class="empty card"><h2>No conversations yet</h2><p>Press Refresh to check for new DMs on your connected accounts.</p></div>`}`;
+        : `<div class="empty card inbox-empty"><span class="inbox-empty-icon">✉</span><h2>No conversations yet</h2><p>Press Refresh to check for new DMs on your connected accounts.</p></div>`}
+    </div>`;
     $('#irefresh').onclick = guard(async () => { await api('GET', `/api/inbox/conversations?refresh=true${acctFilter ? '&account_id=' + acctFilter : ''}`); route(); });
     $$('[data-open-convo]', app).forEach(li => (li.onclick = () => conversationModal(+li.dataset.openConvo)));
   } else {
     const comments = await api('GET', `/api/inbox/comments${acctFilter ? '?account_id=' + acctFilter : ''}`);
-    app.innerHTML = `<div class="page-head"><div><h1>Inbox</h1><div class="sub">Comments and messages on a connected account, yours or a client's.</div></div>
-        <div class="row">${toggle}${acctSelect}<button class="btn sm" id="irefresh">Refresh</button></div></div>
+    const needsReply = comments.filter(c => !c.replied_at).length;
+    app.innerHTML = `<div class="inbox-page">
+      <div class="page-head inbox-head"><div><div class="eyebrow">COMMUNITY</div><h1>Comments</h1>
+        <div class="sub">Follow up on the conversations happening around your posts.</div></div></div>
+      <div class="grid inbox-overview">
+        <div class="card inbox-metric"><span class="inbox-metric-icon">☷</span><div><span>Comments</span><b>${comments.length}</b><small>For the selected accounts</small></div></div>
+        <div class="card inbox-metric"><span class="inbox-metric-icon unread">↩</span><div><span>Need a reply</span><b>${needsReply}</b><small>Comments without a response</small></div></div>
+        <div class="card inbox-metric"><span class="inbox-metric-icon accounts">◉</span><div><span>Connected accounts</span><b>${accounts.length}</b><small>Available for comments</small></div></div>
+      </div>
+      <div class="inbox-toolbar"><div class="inbox-toolbar-note"><b>Recent comments</b><span>Reply directly from your inbox</span></div>
+        <div class="row inbox-actions">${toggle}${acctSelect}<button class="btn sm" id="irefresh">Refresh</button></div></div>
       ${commentsNote}
       ${comments.length ? `<ul class="list">${comments.map(c => `<li style="align-items:flex-start;flex-direction:column;gap:6px${c.parent_comment_id ? ';margin-left:28px;border-left:2px solid var(--border);padding-left:10px' : ''}">
           <div class="row" style="width:100%">${c.parent_comment_id ? '<span class="muted small">↳ reply ·</span>' : ''}<b>${esc(c.author_name || 'Someone')}</b> <span class="muted small">on "${esc(short(c.post_title || 'your post', 60))}" · ${esc(c.handle)}</span>
@@ -3811,7 +3964,8 @@ pages.inbox = async app => {
                <button class="btn sm primary" data-reply="${c.id}">Reply</button></div>
                <div class="small" id="reply-err-${c.id}" style="color:var(--bad);display:none"></div>`}
         </li>`).join('')}</ul>`
-        : `<div class="empty card"><h2>No comments yet</h2><p>Press Refresh to check for new comments on your connected accounts' posts.</p></div>`}`;
+        : `<div class="empty card inbox-empty"><span class="inbox-empty-icon">☷</span><h2>No comments yet</h2><p>Press Refresh to check for new comments on your connected accounts' posts.</p></div>`}
+    </div>`;
     $('#irefresh').onclick = guard(async () => { await api('GET', `/api/inbox/comments?refresh=true${acctFilter ? '&account_id=' + acctFilter : ''}`); route(); });
     $$('[data-reply]', app).forEach(b => (b.onclick = async () => {
       const input = $(`.reply-in[data-comment="${b.dataset.reply}"]`, app);
@@ -4052,10 +4206,18 @@ pages.settings = async app => {
   const S = state.settings, me = state.me;
   const roleSel = (m) => `<select data-role="${m.id}" style="width:auto" ${admin ? '' : 'disabled'}>${['owner', 'admin', 'member'].map(r => `<option ${m.role === r ? 'selected' : ''}>${r}</option>`).join('')}</select>`;
 
-  app.innerHTML = `<div class="page-head"><div><h1>Settings</h1><div class="sub">${esc(me.workspace.name)} · you are ${esc(me.workspace.role)}</div></div></div>
-  <div class="grid" style="max-width:860px">
+  app.innerHTML = `<div class="settings-page">
+  <div class="page-head settings-head"><div><div class="eyebrow">WORKSPACE CONTROL</div><h1>Settings</h1>
+    <div class="sub">Configure the workspace, publishing, and your account preferences.</div></div></div>
+  <div class="grid settings-overview">
+    <div class="card settings-metric"><span class="settings-metric-icon">▣</span><div><span>Workspace</span><b title="${esc(me.workspace.name)}">${esc(short(me.workspace.name, 28))}</b><small>Current workspace</small></div></div>
+    <div class="card settings-metric"><span class="settings-metric-icon role">◉</span><div><span>Your role</span><b>${esc(me.workspace.role)}</b><small>Workspace permissions</small></div></div>
+    <div class="card settings-metric"><span class="settings-metric-icon team">♧</span><div><span>Team members</span><b>${members.length}</b><small>People with access</small></div></div>
+    <div class="card settings-metric"><span class="settings-metric-icon invites">✉</span><div><span>Pending invites</span><b>${admin ? invites.length : '—'}</b><small>${admin ? 'Awaiting acceptance' : 'Managed by admins'}</small></div></div>
+  </div>
+  <div class="grid settings-content">
 
-  <div class="settings-section"><h2 class="settings-h">Getting started</h2>
+  <div class="settings-section" id="settings-start"><h2 class="settings-h">Getting started</h2>
   <p class="muted small" style="margin:-4px 0 12px">Core setup for this workspace. Everything else is optional.</p>
 
   <div class="card"><h2>Decision rules</h2>
@@ -4077,7 +4239,7 @@ pages.settings = async app => {
   </div>
   </div><!-- /getting started -->
 
-  <div class="settings-section"><h2 class="settings-h">Publishing</h2>
+  <div class="settings-section" id="settings-publishing"><h2 class="settings-h">Publishing</h2>
   <div class="card" id="publish-card"><h2>📤 Connect your accounts</h2>
     ${pub.managed_available && pub.held ? `<div class="notice" style="margin-bottom:10px"><b>Publishing starts when you choose a plan.</b>
       Your trial includes tracking, decisions, cards and briefs. <a href="#/billing">Choose a plan</a> to connect accounts and publish.</div>` : ''}
@@ -4089,7 +4251,7 @@ pages.settings = async app => {
   </div>
   </div><!-- /publishing section -->
 
-  <div class="settings-section"><h2 class="settings-h">Team &amp; account</h2>
+  <div class="settings-section" id="settings-team"><h2 class="settings-h">Team &amp; account</h2>
 
   <div class="card"><h2>Workspace</h2>
     ${admin ? `<div class="row" style="margin-bottom:12px"><input id="ws-name" value="${esc(me.workspace.name)}" maxlength="100" style="max-width:320px"><button class="btn" id="ws-rename">Rename</button></div>
@@ -4124,7 +4286,7 @@ pages.settings = async app => {
     <div class="fields"><div><label class="f">Type the workspace name to confirm</label><input id="del-name" autocomplete="off"></div>
       <div><label class="f">Your password</label><input id="del-pw" type="password" autocomplete="current-password"></div></div>
     <div class="actions"><button class="btn danger" id="del-go">Delete workspace</button></div></div>` : ''}
-  </div>`;
+  </div></div></div>`;
 
 
 
