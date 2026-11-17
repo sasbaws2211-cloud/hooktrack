@@ -482,6 +482,7 @@ function endRouteLoading(my, tab) {
 async function route() {
   const hash = location.hash.replace('#/', '');
   document.body.classList.toggle('studio-fit', hash.split('?')[0] === 'studio');
+  document.body.classList.toggle('wide-workspace', ['accounts', 'discover', 'inbox', 'clients'].includes(hash.split('?')[0]));
   if (hash.startsWith('invite/')) return renderInvite(hash.slice(7));
   if (hash.startsWith('reset/')) return renderReset(hash.slice(6));
   if (hash.startsWith('verify/')) return renderVerify(hash.slice(7));
@@ -4484,7 +4485,7 @@ pages.clients = async app => {
     </div>
     <div class="clients-section-heading"><h2>Client accounts</h2><span class="muted small">${cl.clients.length} client${cl.clients.length === 1 ? '' : 's'}</span></div>
     ${limitNote ? `<div class="notice" style="margin-bottom:12px">${esc(limitNote)}</div>` : ''}
-    ${cl.clients.map(c => {
+    ${cl.clients.length ? `<div class="clients-grid">${cl.clients.map(c => {
       const mine = links.filter(l => l.client_id === c.id);
       const pending = (approvalsByClient[c.name] || []).filter(a => a.status === 'pending');
       const recent = (approvalsByClient[c.name] || []).filter(a => a.status !== 'pending').slice(0, 3);
@@ -4508,7 +4509,7 @@ pages.clients = async app => {
           ${recent.map(a => `<div class="row small" style="gap:8px;padding:6px 0;border-top:1px solid var(--line,#e5e7eb);flex-wrap:wrap">
             <span style="flex:1;min-width:180px">${a.status === 'approved' && a.publish_error ? '<span class="tag warn">approved, didn\'t post</span>' : a.status === 'approved' ? '<span class="tag good">approved</span>' : a.status === 'rejected' ? '<span class="tag warn">changes requested</span>' : '<span class="tag">cancelled</span>'}
               ${esc(short(a.hook || a.caption || 'Untitled', 60))}${a.status === 'rejected' && a.client_note ? ` <span class="muted">· "${esc(short(a.client_note, 80))}"</span>` : ''}${a.status === 'approved' && a.publish_error ? ` <span class="muted">· ${esc(short(a.publish_error, 100))}</span>` : ''}</span></div>`).join('')}</div>` : ''}</div>`;
-    }).join('') || `<div class="empty card clients-empty"><span class="clients-empty-icon">◉</span><h2>No clients yet</h2><p>Add a client for each brand you manage, put its accounts under it, then share a report.</p></div>`}
+    }).join('')}</div>` : `<div class="empty card clients-empty"><span class="clients-empty-icon">◉</span><h2>No clients yet</h2><p>Add a client for each brand you manage, put its accounts under it, then share a report.</p></div>`}
     ${unassigned && cl.clients.length ? `<p class="muted small clients-unassigned">${unassigned} account${unassigned === 1 ? ' is' : 's are'} not assigned to a client.</p>` : ''}
   </div>`;
   const find = id => cl.clients.find(c => c.id === +id);

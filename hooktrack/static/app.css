@@ -208,6 +208,13 @@ tr.band td:first-child { border-left: 5px solid var(--band, transparent); }
   .ask { flex-direction: column; }
 }
 
+body.wide-workspace main {
+  width: 100%;
+  max-width: 1760px;
+  padding-right: clamp(20px, 2.4vw, 48px);
+  padding-left: clamp(20px, 2.4vw, 48px);
+}
+
 .top-right { display: flex; align-items: center; gap: 10px; }
 #ws-switch { width: auto; max-width: 180px; padding: 5px 8px; font-weight: 600; }
 body.anon .sidebar, body.anon .sidebar-toggle, body.anon .top-right { display: none; }
@@ -1351,6 +1358,8 @@ th { font-size: 10.5px; letter-spacing: .075em; }
 .inbox-page .inbox-actions { justify-content: flex-end; gap: 8px; }
 .inbox-page .inbox-actions select { min-height: 35px; max-width: 230px; }
 .inbox-page .inbox-actions input[type="search"] { width: min(210px, 22vw); min-width: 150px; min-height: 35px; }
+.inbox-page .inbox-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 10px; }
+.inbox-page .inbox-list > li { min-width: 0; align-self: stretch; padding: 13px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .inbox-page .inbox-list [hidden],
 .inbox-page .inbox-filter-empty[hidden] { display: none; }
 .inbox-page .inbox-empty { padding: 42px 20px; }
@@ -1387,6 +1396,8 @@ th { font-size: 10.5px; letter-spacing: .075em; }
 .clients-page .clients-metric small { color: var(--muted); font-size: 10px; }
 .clients-page .clients-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 1px 10px; }
 .clients-page .clients-section-heading h2 { margin: 0; font-size: 14px; }
+.clients-page .clients-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.clients-page .clients-grid .client-card { min-width: 0; margin: 0; }
 .clients-page .client-card { margin-bottom: 12px; padding: 18px; }
 .clients-page .client-card-head { flex-wrap: wrap; }
 .clients-page .client-card > p .pill { margin: 2px 3px 2px 0; }
@@ -1402,6 +1413,9 @@ th { font-size: 10.5px; letter-spacing: .075em; }
   .clients-page .clients-metric b { font-size: 17px; }
   .clients-page .client-card { padding: 14px; }
   .clients-page .clients-head { align-items: stretch; }
+}
+@media (max-width: 1100px) {
+  .clients-page .clients-grid { grid-template-columns: 1fr; }
 }
 
 /* Settings: make workspace scope visible and keep complex settings sections comfortably readable */
