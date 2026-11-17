@@ -99,8 +99,7 @@ header .actions{margin-left:auto;display:flex;gap:10px;align-items:center}
 .shot .dot{width:10px;height:10px;border-radius:50%;background:var(--border)}
 .shot .tag{margin-left:auto;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 .shot img{display:block;width:100%;height:auto}
-.shot-hooks{grid-column:1/-1}
-@media(max-width:700px){.shots{grid-template-columns:1fr;gap:12px}.shot{overflow-x:auto;-webkit-overflow-scrolling:touch}.shot img{width:720px;max-width:none}.shot .bar{position:sticky;left:0}.shot-hooks{grid-column:auto}}
+@media(max-width:700px){.shots{grid-template-columns:1fr;gap:12px}.shot{overflow-x:auto;-webkit-overflow-scrolling:touch}.shot img{width:720px;max-width:none}.shot .bar{position:sticky;left:0}}
 .pill{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700}
 .pill.win{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
 .pill.avg{background:var(--surface-2);color:var(--muted)}
@@ -228,10 +227,6 @@ footer .partners img{display:block;height:auto;max-width:100%}
       <figure class="shot shot-hooks">
         <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>Hooks</span><span class="tag">Example data</span></div>
         <img src="/shots/hooks.webp" width="2400" height="1095" alt="The Hooks page: each posted video with its views, how many times its own account's normal it did, and a Scale, Tweak or Hold decision" fetchpriority="high">
-      </figure>
-      <figure class="shot shot-posts">
-        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>Posts</span><span class="tag">Example data</span></div>
-        <img src="/shots/posts.webp" width="2400" height="750" alt="The current Posts board: ideas and published work organized in a content pipeline" loading="lazy">
       </figure>
       <figure class="shot shot-studio">
         <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>Studio</span><span class="tag">Example data</span></div>

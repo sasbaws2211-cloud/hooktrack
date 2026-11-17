@@ -3,7 +3,7 @@
     python tools/landing_shots.py
 
 It builds a uniquely named throwaway database holding an invented sample workspace (no real accounts or posts), runs
-the real app against it, signs in through the real login form and captures the Hooks, Posts, and Studio pages. Nothing
+the real app against it, signs in through the real login form and captures the Hooks and Studio pages. Nothing
 here touches your own database. Needs: Postgres (the dev one on 55434), Playwright with Edge or Chrome, and ffmpeg.
 """
 from __future__ import annotations
@@ -139,7 +139,6 @@ def main() -> int:
 
             # (file, route, the page's own heading, a row that proves its data is in, capture height)
             for name, route, heading, ready, height in (("hooks", "#/hooks", "Hooks", "table tbody tr", 730),
-                                                        ("posts", "#/pipeline", "Posts", ".pipe-card", 500),
                                                         ("studio", f"#/studio?post={studio_post_id}", "Edit in Studio",
                                                          "[data-shotstack-studio]", 900)):
                 page.set_viewport_size({"width": 1600, "height": height})
