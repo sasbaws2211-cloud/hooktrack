@@ -1,10 +1,10 @@
-"""Regenerate the landing page's product screenshots (static/shots/hooks.webp and posts.webp).
+"""Regenerate the landing page's product screenshots in static/shots/.
 
     python tools/landing_shots.py
 
-It builds a throwaway database holding an invented sample workspace (no real accounts or posts), runs the real app
-against it, signs in through the real login form and captures the Hooks page and the Posts board. Nothing here touches
-your own database. Needs: Postgres (the dev one on 55434), Playwright with Edge or Chrome, and ffmpeg for WebP.
+It builds a uniquely named throwaway database holding an invented sample workspace (no real accounts or posts), runs
+the real app against it, signs in through the real login form and captures the Hooks, Posts, and Studio pages. Nothing
+here touches your own database. Needs: Postgres (the dev one on 55434), Playwright with Edge or Chrome, and ffmpeg.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -22,7 +23,7 @@ import psycopg2
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "static" / "shots"
 ADMIN_URL = "postgresql://hooktrack:ht_dev_pw@127.0.0.1:55434/postgres"
-DB = "hooktrack_shots"
+DB = f"hooktrack_shots_{uuid.uuid4().hex[:12]}"
 PORT = 8085
 BASE = f"http://127.0.0.1:{PORT}"
 EMAIL, PASSWORD = "you@yourbrand.example", "sample-workspace-pw-1"
@@ -45,8 +46,8 @@ def main() -> int:
     c = psycopg2.connect(ADMIN_URL)
     c.autocommit = True
     cur = c.cursor()
-    cur.execute(f'DROP DATABASE IF EXISTS "{DB}" WITH (FORCE)')
     cur.execute(f'CREATE DATABASE "{DB}"')
+    database_created = True
     url = f"postgresql://hooktrack:ht_dev_pw@127.0.0.1:55434/{DB}"
     env = {**os.environ, "DATABASE_URL": url, "HOOKTRACK_SECRET": "shots-secret", "HOOKTRACK_SYNC_INTERVAL_HOURS": "0",
            "HOOKTRACK_BACKUP": "0"}
@@ -93,11 +94,15 @@ def main() -> int:
         for text in ("the aesthetic of consistency", "your 3-step morning routine", "3 things I stopped buying for my flat"):
             api.post(f"/api/posts/{hook_ids[text]}/followup")
         first = api.get("/api/accounts").json()[0]["id"]
+        studio_post_id = None
         for status, hook, offset in [("filmed", "Behind the scenes: how we plan a week of posts", 1),
                                      ("posted", "What I eat before a morning session", -4),
                                      ("idea", "Three mistakes new lifters make", 6)]:
-            api.post("/api/posts", json={"account_id": first, "post_date": (today + timedelta(days=offset)).isoformat(),
-                                         "status": status, "hook": hook, "views": 0, "comments": 0, "intent": False})
+            post = api.post("/api/posts", json={"account_id": first, "post_date": (today + timedelta(days=offset)).isoformat(),
+                                                "status": status, "hook": hook, "views": 0, "comments": 0, "intent": False})
+            post.raise_for_status()
+            if status == "filmed":
+                studio_post_id = post.json()["id"]
         db.close()
 
         from playwright.sync_api import sync_playwright
@@ -118,7 +123,7 @@ def main() -> int:
             page.wait_for_selector("#nav", timeout=20000)
             # let the app finish rendering its own landing page first: a slow render that finishes after we navigate
             # would otherwise paint over the page we asked for
-            page.wait_for_function("() => (document.querySelector('h1')||{}).innerText === 'Dashboard'", timeout=20000)
+            page.wait_for_function("() => (document.querySelector('#app h1')||{}).innerText.trim().length > 0", timeout=20000)
             page.wait_for_load_state("networkidle")
             page.wait_for_timeout(1500)
 
@@ -134,7 +139,9 @@ def main() -> int:
 
             # (file, route, the page's own heading, a row that proves its data is in, capture height)
             for name, route, heading, ready, height in (("hooks", "#/hooks", "Hooks", "table tbody tr", 730),
-                                                        ("posts", "#/pipeline", "Posts", ".pipe-card", 500)):
+                                                        ("posts", "#/pipeline", "Posts", ".pipe-card", 500),
+                                                        ("studio", f"#/studio?post={studio_post_id}", "Edit in Studio",
+                                                         "[data-shotstack-studio]", 900)):
                 page.set_viewport_size({"width": 1600, "height": height})
                 # the app can finish its own post-login redirect after we navigate, so insist that the page we want is
                 # still the page on screen a moment later, and go there again if it is not
@@ -145,6 +152,12 @@ def main() -> int:
                         page.wait_for_selector(ready, timeout=8000)
                     except Exception:
                         continue
+                    if name == "studio":
+                        page.wait_for_function(
+                            "() => { const s = document.querySelector('#studio-status'); "
+                            "return s && s.textContent.trim() !== 'Loading editor…'; }",
+                            timeout=60000,
+                        )
                     page.wait_for_timeout(1500)
                     if page.evaluate("() => (document.querySelector('h1')||{}).innerText") == heading:
                         break
@@ -167,7 +180,8 @@ def main() -> int:
             server.wait(timeout=10)
         except Exception:
             server.kill()
-        cur.execute(f'DROP DATABASE IF EXISTS "{DB}" WITH (FORCE)')
+        if database_created:
+            cur.execute(f'DROP DATABASE "{DB}" WITH (FORCE)')
         c.close()
     return 0
 

@@ -93,14 +93,14 @@ header .actions{margin-left:auto;display:flex;gap:10px;align-items:center}
 
 /* product mock */
 
-.shots{position:relative;margin:46px auto 0;max-width:1040px;text-align:left}
+.shots{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:46px auto 0;max-width:1040px;text-align:left}
 .shot{margin:0;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);overflow:hidden;box-shadow:0 30px 80px -30px rgba(0,0,0,.55)}
 .shot .bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--surface-2);font-size:13px;color:var(--muted)}
 .shot .dot{width:10px;height:10px;border-radius:50%;background:var(--border)}
 .shot .tag{margin-left:auto;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 .shot img{display:block;width:100%;height:auto}
-.shot-posts{position:relative;z-index:2;width:90%;margin:-72px 0 0 auto}
-@media(max-width:700px){.shot{overflow-x:auto;-webkit-overflow-scrolling:touch}.shot img{width:720px;max-width:none}.shot .bar{position:sticky;left:0}.shot-posts{width:96%;margin-top:-22px}}
+.shot-hooks{grid-column:1/-1}
+@media(max-width:700px){.shots{grid-template-columns:1fr;gap:12px}.shot{overflow-x:auto;-webkit-overflow-scrolling:touch}.shot img{width:720px;max-width:none}.shot .bar{position:sticky;left:0}.shot-hooks{grid-column:auto}}
 .pill{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700}
 .pill.win{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
 .pill.avg{background:var(--surface-2);color:var(--muted)}
@@ -224,14 +224,18 @@ footer .partners img{display:block;height:auto;max-width:100%}
       <span class="p" role="listitem"><b>Measure</b> what works and improve</span>
     </div>
 
-    <div class="shots" role="group" aria-label="The Hooks page and the Posts board, shown with sample data">
+    <div class="shots" role="group" aria-label="HookTrack product pages, shown with sample data">
       <figure class="shot shot-hooks">
         <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>Hooks</span><span class="tag">Example data</span></div>
         <img src="/shots/hooks.webp" width="2400" height="1095" alt="The Hooks page: each posted video with its views, how many times its own account's normal it did, and a Scale, Tweak or Hold decision" fetchpriority="high">
       </figure>
       <figure class="shot shot-posts">
         <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>Posts</span><span class="tag">Example data</span></div>
-        <img src="/shots/posts.webp" width="2400" height="750" alt="The Posts board: the winning hooks sent on as Scripted cards, next to Idea, Filmed and Posted" loading="lazy">
+        <img src="/shots/posts.webp" width="2400" height="750" alt="The current Posts board: ideas and published work organized in a content pipeline" loading="lazy">
+      </figure>
+      <figure class="shot shot-studio">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>Studio</span><span class="tag">Example data</span></div>
+        <img src="/shots/studio.webp" width="2400" height="1350" alt="HookTrack Studio: the in-app video editor with its canvas, timeline, and editing toolbar" loading="lazy">
       </figure>
     </div>
   </div>
