@@ -1749,3 +1749,23 @@ body.studio-fit .studio-workspace [data-shotstack-timeline] {
     height: clamp(110px, 23vh, 180px);
   }
 }
+
+@media (min-width: 861px) {
+  .sidebar-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .sidebar-toggle:hover { color: var(--text); background: var(--surface-2); }
+  .sidebar { transition: width .18s ease, flex-basis .18s ease, padding .18s ease; }
+  .app-shell.sidebar-collapsed .sidebar { width: 76px; flex-basis: 76px; padding-right: 10px; padding-left: 10px; }
+  .app-shell.sidebar-collapsed .sidebar .brand { justify-content: center; padding-right: 0; padding-left: 0; }
+  .app-shell.sidebar-collapsed .sidebar .brand-name,
+  .app-shell.sidebar-collapsed .sidebar .nav-label,
+  .app-shell.sidebar-collapsed .sidebar .setup-progress { display: none; }
+  .app-shell.sidebar-collapsed .sidebar nav { gap: 12px; }
+  .app-shell.sidebar-collapsed .sidebar .nav-group { align-items: center; width: 100%; }
+  .app-shell.sidebar-collapsed .sidebar .nav-group-bottom { padding-top: 12px; }
+  .app-shell.sidebar-collapsed .sidebar nav a { justify-content: center; width: 44px; height: 44px; padding: 0; }
+  .app-shell.sidebar-collapsed .sidebar nav a span { display: none; }
+  .app-shell.sidebar-collapsed .sidebar nav a.active::before { left: -6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
+}

@@ -512,16 +512,60 @@ async function route() {
   } finally { endRouteLoading(myLoad, tab); }
 }
 window.addEventListener('hashchange', route);
-// Mobile sidebar: a hamburger toggle opens it as an off-canvas drawer (CSS only does this below 860px;
-// above that the sidebar is always visible and these classes have no visual effect).
-const closeSidebar = () => { $('#sidebar').classList.remove('open'); $('#sidebar-backdrop').hidden = true; };
-if ($('#sidebar-toggle')) {
-  $('#sidebar-toggle').onclick = () => {
-    $('#sidebar').classList.add('open');
-    $('#sidebar-backdrop').hidden = false;
+const sidebar = $('#sidebar');
+const sidebarToggle = $('#sidebar-toggle');
+const sidebarBackdrop = $('#sidebar-backdrop');
+const sidebarDesktop = window.matchMedia('(min-width: 861px)');
+let sidebarCollapsed = false;
+try { sidebarCollapsed = localStorage.getItem('hooktrack_sidebar_collapsed') === 'true'; } catch (e) { /* storage may be unavailable */ }
+const closeSidebar = () => {
+  sidebar.classList.remove('open');
+  sidebarBackdrop.hidden = true;
+  if (sidebarDesktop.matches) syncSidebarLayout();
+  else {
+    sidebarToggle.setAttribute('aria-expanded', 'false');
+    sidebarToggle.setAttribute('aria-label', 'Open navigation');
+    sidebarToggle.title = 'Open navigation';
+  }
+};
+const syncSidebarLayout = () => {
+  if (sidebarDesktop.matches) {
+    sidebar.classList.remove('open');
+    sidebarBackdrop.hidden = true;
+    document.querySelector('.app-shell').classList.toggle('sidebar-collapsed', sidebarCollapsed);
+    sidebarToggle.setAttribute('aria-expanded', String(!sidebarCollapsed));
+    sidebarToggle.setAttribute('aria-label', sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation');
+    sidebarToggle.title = sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation';
+  } else {
+    document.querySelector('.app-shell').classList.remove('sidebar-collapsed');
+    sidebarToggle.setAttribute('aria-expanded', String(sidebar.classList.contains('open')));
+    sidebarToggle.setAttribute('aria-label', sidebar.classList.contains('open') ? 'Close navigation' : 'Open navigation');
+    sidebarToggle.title = sidebar.classList.contains('open') ? 'Close navigation' : 'Open navigation';
+  }
+};
+if (sidebarToggle) {
+  $$('#nav a').forEach(a => { a.title = a.querySelector('span')?.textContent.trim() || ''; });
+  sidebarToggle.onclick = () => {
+    if (sidebarDesktop.matches) {
+      sidebarCollapsed = !document.querySelector('.app-shell').classList.contains('sidebar-collapsed');
+      try { localStorage.setItem('hooktrack_sidebar_collapsed', String(sidebarCollapsed)); } catch (e) { /* preference remains active for this page */ }
+      syncSidebarLayout();
+      return;
+    }
+    if (sidebar.classList.contains('open')) closeSidebar();
+    else {
+      sidebar.classList.add('open');
+      sidebarBackdrop.hidden = false;
+      sidebarToggle.setAttribute('aria-expanded', 'true');
+      sidebarToggle.setAttribute('aria-label', 'Close navigation');
+      sidebarToggle.title = 'Close navigation';
+    }
   };
-  $('#sidebar-backdrop').onclick = closeSidebar;
+  sidebarBackdrop.onclick = closeSidebar;
   $$('#nav a').forEach(a => a.addEventListener('click', closeSidebar));
+  window.addEventListener('resize', syncSidebarLayout);
+  window.addEventListener('keydown', e => { if (e.key === 'Escape' && sidebar.classList.contains('open')) closeSidebar(); });
+  syncSidebarLayout();
 }
 window.addEventListener('keydown', e => {
   if ((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)) {

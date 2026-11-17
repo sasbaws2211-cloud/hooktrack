@@ -8,7 +8,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="stylesheet" href="/app.css?v=hooks-polish1">
+<link rel="stylesheet" href="/app.css?v=sidebar-collapse1">
 <script src="/cookie-consent.js"></script>
 <!-- Shotstack Studio (the in-app video/photo editor): a prebuilt bundle (studio-build/, esbuild) rather than
      a CDN import map - that resolved every dependency (pixi.js included) to one deterministic copy, where
@@ -20,7 +20,7 @@
 <div class="app-shell">
   <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
   <aside id="sidebar" class="sidebar">
-    <div class="brand"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span> HookTrack</div>
+    <div class="brand"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span><span class="brand-name">HookTrack</span></div>
     <!-- Accounts stay near the top for quick access; the remaining links follow the content workflow. -->
     <nav id="nav" aria-label="Main navigation">
       <div class="nav-group">
@@ -47,7 +47,7 @@
   </aside>
   <div class="app-main">
     <header class="top">
-      <button type="button" id="sidebar-toggle" class="icon-btn sidebar-toggle" aria-label="Menu">☰</button>
+      <button type="button" id="sidebar-toggle" class="icon-btn sidebar-toggle" aria-label="Open navigation" aria-expanded="true" title="Collapse navigation">☰</button>
       <div class="top-right">
         <div id="utility-search" class="utility-search" aria-label="App search"></div>
         <div id="top-utilities" class="top-utilities" aria-label="Quick tools"></div>
@@ -78,7 +78,7 @@
 <link rel="stylesheet" href="/assistant.css?v=1">
 <script src="/social-icons.js?v=1"></script>
 <script src="/report.js?v=social1"></script>
-<script src="/app.js?v=hooks-polish1"></script>
+<script src="/app.js?v=sidebar-collapse1"></script>
 <script src="/assistant.js?v=1"></script>
 <script src="/demo-player.js?v=1" defer></script>
 </body>
