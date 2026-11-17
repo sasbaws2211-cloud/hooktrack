@@ -481,6 +481,7 @@ function endRouteLoading(my, tab) {
 
 async function route() {
   const hash = location.hash.replace('#/', '');
+  document.body.classList.toggle('studio-fit', hash.split('?')[0] === 'studio');
   if (hash.startsWith('invite/')) return renderInvite(hash.slice(7));
   if (hash.startsWith('reset/')) return renderReset(hash.slice(6));
   if (hash.startsWith('verify/')) return renderVerify(hash.slice(7));
@@ -724,6 +725,7 @@ $('#logout').addEventListener('click', guard(async () => {
 
 /* ---------------- sign in / sign up / invite ---------------- */
 function renderAuth(mode = 'login', note = '') {
+  document.body.classList.remove('studio-fit');
   document.body.classList.add('anon');
   note = note || state.authNote || '';
   $('#app').innerHTML = `<div class="auth card"><div class="brand" style="margin-bottom:6px"><span class="logo"><img src="/logo-mark.svg" alt="" width="30" height="30"></span> HookTrack</div>

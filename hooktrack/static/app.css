@@ -1589,3 +1589,79 @@ th { font-size: 10.5px; letter-spacing: .075em; }
   .studio-workspace [data-shotstack-studio] { height: 340px; }
   .studio-workspace [data-shotstack-timeline] { height: 250px; }
 }
+
+/* Keep Studio inside the available app viewport instead of growing the document. */
+body.studio-fit,
+body.studio-fit #app {
+  overflow: hidden;
+}
+body.studio-fit .app-shell,
+body.studio-fit .app-main {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+}
+body.studio-fit .app-main { overflow: hidden; }
+body.studio-fit #app {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 10px 16px 12px;
+}
+body.studio-fit #app > .page-head {
+  flex: 0 0 auto;
+  margin-bottom: 10px;
+}
+body.studio-fit #app > .studio-workspace {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+}
+body.studio-fit .studio-toolbar { flex: 0 0 auto; }
+body.studio-fit .studio-workspace [data-shotstack-studio] {
+  flex: 1 1 0;
+  width: 100%;
+  min-height: 0;
+  height: auto;
+}
+body.studio-fit .studio-workspace [data-shotstack-timeline] {
+  flex: 0 0 clamp(120px, 25vh, 260px);
+  min-height: 0;
+  height: clamp(120px, 25vh, 260px);
+}
+@media (max-height: 700px) {
+  body.studio-fit #app { padding-top: 6px; padding-bottom: 6px; }
+  body.studio-fit #app > .page-head { margin-bottom: 6px; }
+  body.studio-fit .studio-toolbar { padding-top: 9px; padding-bottom: 7px; }
+  body.studio-fit .studio-tool-group { gap: 5px; }
+  body.studio-fit .studio-workspace [data-shotstack-timeline] {
+    flex-basis: clamp(100px, 22vh, 180px);
+    height: clamp(100px, 22vh, 180px);
+  }
+  body.studio-fit .studio-start-hint { display: none; }
+}
+@media (max-width: 560px) {
+  body.studio-fit #app { padding: 8px; }
+  body.studio-fit .studio-toolbar { padding: 9px; }
+  body.studio-fit .studio-toolbar-groups { flex-direction: row; gap: 7px; }
+  body.studio-fit .studio-tool-group,
+  body.studio-fit .studio-tool-group:first-child,
+  body.studio-fit .studio-tool-group:last-child {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    padding: 0 7px;
+    border: 0;
+  }
+  body.studio-fit .studio-tool-group-selection { flex-basis: 100%; }
+  body.studio-fit .studio-tool-buttons .btn { min-height: 28px; padding: 4px 7px; font-size: 11px; }
+  body.studio-fit .studio-workspace [data-shotstack-timeline] {
+    flex-basis: clamp(110px, 23vh, 180px);
+    height: clamp(110px, 23vh, 180px);
+  }
+}
