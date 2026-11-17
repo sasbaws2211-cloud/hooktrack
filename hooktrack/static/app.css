@@ -684,7 +684,6 @@ th { font-size: 10.5px; letter-spacing: .075em; }
 .dash-welcome .eyebrow { color: var(--accent); font-size: 10px; font-weight: 750; letter-spacing: .12em; margin-bottom: 5px; }
 .dash-welcome .sub { max-width: 620px; }
 .dash-head-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
-.dash-create .btn { min-height: 40px; }
 .dash-utilities { gap: 5px; }
 .dash-utilities .btn { min-height: 28px; padding: 3px 8px; border-color: transparent; color: var(--muted); box-shadow: none; }
 .dash-utilities .btn:hover { color: var(--text); border-color: var(--border); background: var(--surface-2); }
@@ -773,8 +772,6 @@ th { font-size: 10.5px; letter-spacing: .075em; }
 @media (max-width: 560px) {
   .dash-head { align-items: stretch; }
   .dash-head-actions { align-items: stretch; }
-  .dash-create { width: 100%; }
-  .dash-create .btn { flex: 1; }
   .dash-utilities { justify-content: flex-start; flex-wrap: wrap; }
   .agenda-item { gap: 9px; }
   .agenda-item .pill { font-size: 9px; padding: 3px 6px; }

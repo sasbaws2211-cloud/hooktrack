@@ -921,7 +921,6 @@ pages.dashboard = async app => {
     <h1>${firstName ? `Welcome back, ${esc(firstName)}` : 'Your content, at a glance'}</h1>
     <div class="sub">See what is working, what needs attention, and what is coming up next.</div></div>
     <div class="dash-head-actions"><div class="row dash-create">
-      <button type="button" class="btn ai" id="create-ai-dash" ${state.ai.available ? '' : 'disabled'}>✨ Create with AI</button>
       <button type="button" class="btn primary" id="create-post-dash">+ New post</button>
     </div><div class="row dash-utilities">
       <button type="button" class="btn sm" id="copy-summary" title="Copy weekly summary">Copy summary</button>
@@ -1006,7 +1005,6 @@ pages.dashboard = async app => {
     catch (e) { box.innerHTML = ''; throw e; }
   });
   $('#create-post-dash').onclick = () => postModal(null, { status: 'idea' }, route);
-  $('#create-ai-dash').onclick = () => ideasModal(route);
   $('#ask-form').addEventListener('submit', e => { e.preventDefault(); ask($('#ask-q').value); });
   $$('.chips button', app).forEach(b => b.addEventListener('click', () => { $('#ask-q').value = b.dataset.q; ask(b.dataset.q); }));
   const nd = $('#next-dismiss');
