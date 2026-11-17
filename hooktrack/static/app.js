@@ -2626,6 +2626,22 @@ pages.studio = async app => {
     app.innerHTML = `<div class="empty card"><h2>Could not load this post</h2><p class="muted">${esc(e.message)}</p></div>`;
     return;
   }
+  const sessionDraftKey = `hooktrack:studio-draft:${post.id}`;
+  let sessionDraft = null;
+  try {
+    const saved = sessionStorage.getItem(sessionDraftKey);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && parsed.timeline && Array.isArray(parsed.timeline.tracks)) sessionDraft = parsed;
+      else throw new Error('The saved timeline data is invalid.');
+    }
+  } catch (error) {
+    let message = `Could not restore pending Studio changes: ${error.message || error}`;
+    try { sessionStorage.removeItem(sessionDraftKey); } catch (clearError) {
+      message += ` Could not clear the bad recovery data: ${clearError.message || clearError}`;
+    }
+    toast(message, true);
+  }
   const locked = normStatus(post.status) === 'filmed';
   app.innerHTML = `<div class="page-head"><div><h1>Edit in Studio</h1><div class="sub">${esc(short(post.hook || post.caption || 'Untitled', 90))}</div></div>
     <div class="row"><button class="btn" id="studio-back">← Back</button></div></div>
@@ -2646,7 +2662,7 @@ pages.studio = async app => {
         <button class="btn sm" id="studio-add-text" disabled>+ Add text</button>
         ${state.shotstack && state.shotstack.configured ? '<button class="btn sm" id="studio-add-ai" disabled>+ Add AI clip</button>' : ''}
         <button class="btn sm" id="studio-save-draft" disabled>Save draft</button>
-        ${post.studio_draft ? '<button class="btn sm" id="studio-discard-draft" disabled>Start over</button>' : ''}
+        ${post.studio_draft || sessionDraft ? '<button class="btn sm" id="studio-discard-draft" disabled>Start over</button>' : ''}
         ${!isImageFormat(post.content_type) && state.shotstack && state.shotstack.configured ? '<button class="btn sm" id="studio-render-cloud" disabled title="Renders on Shotstack\'s servers - uses your Shotstack account\'s render credits, unlike the free Finish below">Render in cloud</button>' : ''}
         <button class="btn sm primary" id="studio-finish" disabled ${locked ? `title="Move this card back to Scripted first"` : ''}>${isImageFormat(post.content_type) ? 'Finish &amp; attach images' : 'Finish &amp; attach video'}</button>
         <span class="spacer"></span>
@@ -2658,9 +2674,20 @@ pages.studio = async app => {
   $('#studio-back').onclick = () => { location.hash = '#/pipeline'; };
   if ($('#studio-discard-draft')) $('#studio-discard-draft').onclick = guard(async () => {
     if (!await askConfirm('Discard your saved draft and start over from this post\'s current media? This cannot be undone.', { title: 'Start over' })) return;
-    await api('DELETE', `/api/posts/${post.id}/studio-draft`);
-    post.studio_draft = null;
     clearInterval(autosave);
+    clearTimeout(draftSaveTimer);
+    if (draftSaveInFlight) {
+      try { await draftSaveInFlight; } catch (error) {
+        setStatus(`Pending save failed; discarding the saved draft: ${error.message || error}`, true);
+      }
+    }
+    await api('DELETE', `/api/posts/${post.id}/studio-draft`);
+    try { sessionStorage.removeItem(sessionDraftKey); } catch (error) {
+      toast(`Could not clear this tab's saved Studio changes: ${error.message || error}`, true);
+      return;
+    }
+    post.studio_draft = null;
+    draftDirty = false;
     await pages.studio(app);   // re-enter fresh with the draft gone, same hash won't fire hashchange on its own
   });
   const timelineSummary = () => {
@@ -2685,15 +2712,25 @@ pages.studio = async app => {
     return idx >= 0 ? idx : 0;
   };
 
-  let edit, canvas, timeline, controls, ui, StudioSdk, draftDirty = false, selectedClipLocation = null, selectedClipId = null;
+  let edit, canvas, timeline, controls, ui, StudioSdk, draftDirty = !!sessionDraft, draftRevision = sessionDraft ? 1 : 0;
+  let draftSaveTimer = null, draftSaveInFlight = null, scheduleDraftSave = () => {}, selectedClipLocation = null, selectedClipId = null;
+  let localCacheFailureNotified = false;
   let syncStudioClipActions = () => {};
+  const cacheStudioDraft = () => {
+    try {
+      sessionStorage.setItem(sessionDraftKey, JSON.stringify(edit.getEdit()));
+      return true;
+    } catch (error) {
+      return false;
+    }
+  };
   try {
     StudioSdk = await loadStudioSdk();
     const { Edit, Canvas, Controls, Timeline, UIController } = StudioSdk;
     // A saved draft (in-progress crops, filters, clip order, added media) wins over re-seeding from the
     // post's current media - that re-seed is only the starting point the very first time, or after
     // "Start over" explicitly asks for it.
-    const seed = post.studio_draft || studioSeedEdit(post);
+    const seed = sessionDraft || post.studio_draft || studioSeedEdit(post);
     edit = new Edit(seed);
     canvas = new Canvas(edit);
     ui = UIController.create(edit, canvas);
@@ -2704,7 +2741,7 @@ pages.studio = async app => {
     await timeline.load();
     controls = new Controls(edit);
     await controls.load();
-    setStatus(post.studio_draft ? 'Ready — restored your saved draft' : 'Ready', true);
+    setStatus(sessionDraft ? 'Restored pending changes from this tab' : post.studio_draft ? 'Ready — restored your saved draft' : 'Ready', true);
     $('#studio-finish', app).disabled = locked;
     $('#studio-save-draft', app).disabled = false;
     $('#studio-add-audio', app).disabled = false;
@@ -2717,7 +2754,18 @@ pages.studio = async app => {
       undoButton.disabled = !edit.canUndo;
       redoButton.disabled = !edit.canRedo;
     };
-    const markEditChanged = () => { draftDirty = true; setStatus('Edited', true); syncHistoryButtons(); };
+    const markEditChanged = () => {
+      draftDirty = true;
+      draftRevision++;
+      const cached = cacheStudioDraft();
+      setStatus(cached ? 'Edited' : 'Edited — local recovery unavailable', true);
+      if (!cached && !localCacheFailureNotified) {
+        toast('Browser storage is unavailable; save the Studio draft before reloading.', true);
+        localCacheFailureNotified = true;
+      }
+      syncHistoryButtons();
+      scheduleDraftSave();
+    };
     edit.events.on('edit:changed', markEditChanged);
     edit.events.on('edit:undo', markEditChanged);
     edit.events.on('edit:redo', markEditChanged);
@@ -2783,13 +2831,21 @@ pages.studio = async app => {
       const clip = getSelectedClip();
       const location = getSelectedLocation();
       if (!clip || !location) return;
-      const result = clip.id
-        ? await edit.deleteClipById(clip.id)
-        : await edit.deleteClip(location.trackIndex, location.clipIndex);
+      const tracks = edit.getEdit().timeline.tracks;
+      const track = tracks[location.trackIndex];
+      const removeAudioTrack = clip.asset && clip.asset.type === 'audio' &&
+        track && track.clips.length === 1 && tracks.length > 1;
+      const result = removeAudioTrack
+        ? await edit.deleteTrack(location.trackIndex)
+        : clip.id
+          ? await edit.deleteClipById(clip.id)
+          : await edit.deleteClip(location.trackIndex, location.clipIndex);
       if (result.status !== 'success') throw new Error(result.message || 'The selected clip could not be deleted.');
       selectedClipLocation = null;
       selectedClipId = null;
       syncStudioClipActions();
+      clearTimeout(draftSaveTimer);
+      await saveDraft();
       setStatus('Clip deleted', true);
       toast('Clip deleted. Use Undo to restore it.');
     });
@@ -2918,29 +2974,36 @@ pages.studio = async app => {
   }
 
   async function saveDraft() {
+    clearTimeout(draftSaveTimer);
+    draftSaveTimer = null;
+    if (draftSaveInFlight) {
+      await draftSaveInFlight;
+      return draftDirty ? saveDraft() : 'saved';
+    }
     if (!draftDirty) return 'clean';
+    const revision = draftRevision;
+    const snapshot = edit.getEdit();
     draftDirty = false;
+    draftSaveInFlight = api('PUT', `/api/posts/${post.id}/studio-draft`, { edit: snapshot });
     try {
-      await api('PUT', `/api/posts/${post.id}/studio-draft`, { edit: edit.getEdit() });
+      await draftSaveInFlight;
+      if (draftRevision === revision) {
+        try { sessionStorage.removeItem(sessionDraftKey); } catch (error) {
+          setStatus(`Draft saved; browser recovery cache could not be cleared: ${error.message || error}`, true);
+        }
+      } else {
+        draftDirty = true;
+      }
       return 'saved';
     } catch (error) {
       draftDirty = true;
       throw error;
+    } finally {
+      draftSaveInFlight = null;
     }
   }
   let autosaveFailureNotified = false;
-  $('#studio-save-draft').onclick = guard(async () => {
-    setStatus('Saving draft…');
-    try {
-      const result = await saveDraft();
-      setStatus(result === 'saved' ? 'Draft saved' : 'Draft already up to date', true);
-      autosaveFailureNotified = false;
-    } catch (error) {
-      setStatus(`Draft save failed: ${error.message || error}`, true);
-      throw error;
-    }
-  });
-  const autosave = setInterval(async () => {
+  const autosaveDraft = async () => {
     try {
       const result = await saveDraft();
       if (result === 'saved') setStatus('Draft saved automatically', true);
@@ -2952,13 +3015,52 @@ pages.studio = async app => {
         autosaveFailureNotified = true;
       }
     }
-  }, 20000);
-  window.addEventListener('hashchange', () => clearInterval(autosave), { once: true });
+  };
+  scheduleDraftSave = () => {
+    clearTimeout(draftSaveTimer);
+    draftSaveTimer = setTimeout(autosaveDraft, 500);
+  };
+  $('#studio-save-draft').onclick = guard(async () => {
+    setStatus('Saving draft…');
+    try {
+      const result = await saveDraft();
+      setStatus(result === 'saved' ? 'Draft saved' : 'Draft already up to date', true);
+      autosaveFailureNotified = false;
+    } catch (error) {
+      setStatus(`Draft save failed: ${error.message || error}`, true);
+      throw error;
+    }
+  });
+  const autosave = setInterval(() => { if (draftDirty) autosaveDraft(); }, 20000);
+  const flushPendingDraft = () => {
+    clearTimeout(draftSaveTimer);
+    if (draftDirty) autosaveDraft();
+  };
+  const flushWhenHidden = () => { if (document.visibilityState === 'hidden') flushPendingDraft(); };
+  document.addEventListener('visibilitychange', flushWhenHidden);
+  window.addEventListener('pagehide', flushPendingDraft, { once: true });
+  window.addEventListener('hashchange', () => {
+    clearInterval(autosave);
+    document.removeEventListener('visibilitychange', flushWhenHidden);
+    flushPendingDraft();
+  }, { once: true });
+  if (sessionDraft) scheduleDraftSave();
 
   async function finishedDraftCleanup() {
     clearInterval(autosave);
+    clearTimeout(draftSaveTimer);
+    if (draftSaveInFlight) {
+      try { await draftSaveInFlight; } catch (error) {
+        setStatus(`Pending draft save failed before cleanup: ${error.message || error}`, true);
+      }
+    }
     draftDirty = false;
-    try { await api('DELETE', `/api/posts/${post.id}/studio-draft`); } catch (e) { /* not worth failing the finish over */ }
+    try {
+      await api('DELETE', `/api/posts/${post.id}/studio-draft`);
+      sessionStorage.removeItem(sessionDraftKey);
+    } catch (error) {
+      toast(`Video finished, but its saved draft could not be cleared: ${error.message || error}`, true);
+    }
   }
 
   $('#studio-add-media').onclick = () => $('#studio-upload', app).click();
