@@ -2740,7 +2740,7 @@ pages.studio = async app => {
     const seed = sessionDraft || post.studio_draft || studioSeedEdit(post);
     edit = new Edit(seed);
     canvas = new Canvas(edit);
-    ui = UIController.create(edit, canvas);
+    ui = UIController.create(edit, canvas, { mergeFields: true });
     await canvas.load();
     await edit.load();
     const sdkCanDeleteClip = edit.canDeleteClip.bind(edit);
