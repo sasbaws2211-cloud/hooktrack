@@ -499,7 +499,12 @@ async function route() {
   const page = pages[tab] || pages.dashboard;
   const NAV_HOME = { today: 'accounts', views: 'accounts', calendar: 'pipeline', scheduled: 'pipeline', billing: 'settings', inspiration: 'discover' };
   const navTab = NAV_HOME[tab] || (pages[tab] ? tab : 'dashboard');
-  $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.tab === navTab));
+  $$('#nav a').forEach(a => {
+    const active = a.dataset.tab === navTab;
+    a.classList.toggle('active', active);
+    if (active) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  });
   const myLoad = startRouteLoading(tab);
   try { await loadBase(); await page($('#app')); sectionStrip(tab); showCoachTip(); } catch (e) {
     if (state.me && myLoad === routeSeq) $('#app').innerHTML = `<div class="empty"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div>`;
