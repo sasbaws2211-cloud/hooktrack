@@ -186,6 +186,7 @@ tr.band td:first-child { border-left: 5px solid var(--band, transparent); }
 #ws-switch { width: auto; max-width: 180px; padding: 5px 8px; font-weight: 600; }
 body.anon .sidebar, body.anon .sidebar-toggle, body.anon .top-right { display: none; }
 body.anon .top { justify-content: center; }
+body.anon main { width: 100%; }
 .auth { max-width: 420px; margin: 40px auto; }
 .auth h1 { margin-bottom: 4px; }
 @media (max-width: 900px) { #user-email { display: none; } }
