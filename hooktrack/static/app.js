@@ -2496,7 +2496,7 @@ async function renderPostsCalendar(app, { accountFilter, toggle }) {
   const gridStart = mondayOf(first);
   const gridEnd = addDays(gridStart, 41);
   const q = `start=${iso(gridStart)}&end=${iso(gridEnd)}` + (accountFilter ? `&account_id=${accountFilter}` : '');
-  const posts = await api('GET', `/api/posts?${q}`);
+  const posts = await api('GET', `/api/posts?${q}&source=pipeline`);
   const queued = p => !!(p.scheduled_for && !p.external_post_id && !p.external_id);   // waiting in HookTrack's queue
   const dayOf = p => (queued(p) && zoneParts(p.scheduled_for) || {}).date || p.post_date;
   const by = {}; posts.forEach(p => (by[dayOf(p)] = by[dayOf(p)] || []).push(p));

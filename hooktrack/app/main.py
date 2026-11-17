@@ -930,6 +930,8 @@ def posts(start: Optional[date] = None, end: Optional[date] = None, account_id: 
     where, params = ["p.workspace_id = %s"], [ws]
     if source == "synced":                       # what the sync pulled in from the platforms (the Hooks page)
         where.append("p.external_id IS NOT NULL")
+    elif source == "pipeline":                   # user-created posts shown on the production board
+        where.append("p.external_id IS NULL")
     if start:
         where.append("p.post_date >= %s"); params.append(start)
     if end:
