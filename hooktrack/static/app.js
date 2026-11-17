@@ -2743,6 +2743,29 @@ pages.studio = async app => {
     ui = UIController.create(edit, canvas);
     await canvas.load();
     await edit.load();
+    const sdkCanDeleteClip = edit.canDeleteClip.bind(edit);
+    const sdkDeleteClip = edit.deleteClip.bind(edit);
+    const countEditClips = () => edit.getEdit().timeline.tracks.reduce(
+      (count, track) => count + (track.clips || []).length, 0);
+    // Shotstack disables deleting the last clip, so make the singleton-audio case removable
+    // through its canvas toolbar, timeline toolbar, keyboard shortcut, and HookTrack toolbar.
+    edit.canDeleteClip = (trackIndex, clipIndex) => {
+      const clip = edit.getClip(trackIndex, clipIndex);
+      return !!clip && clip.asset && clip.asset.type === 'audio' && countEditClips() === 1
+        ? true
+        : sdkCanDeleteClip(trackIndex, clipIndex);
+    };
+    edit.deleteClip = async (trackIndex, clipIndex) => {
+      const clip = edit.getClip(trackIndex, clipIndex);
+      if (clip && clip.asset && clip.asset.type === 'audio' && countEditClips() === 1) {
+        return edit.updateClip(trackIndex, clipIndex, {
+          asset: { type: 'text', text: 'Add your media above to get started' },
+          start: 0,
+          length: 3,
+        });
+      }
+      return sdkDeleteClip(trackIndex, clipIndex);
+    };
     const timelineContainer = $('[data-shotstack-timeline]', app);
     timeline = new Timeline(edit, timelineContainer);
     await timeline.load();
@@ -2838,31 +2861,9 @@ pages.studio = async app => {
       const clip = getSelectedClip();
       const location = getSelectedLocation();
       if (!clip || !location) return;
-      const tracks = edit.getEdit().timeline.tracks;
-      const track = tracks[location.trackIndex];
-      const clipCount = tracks.reduce((count, item) => count + (item.clips || []).length, 0);
-      const removeAudioTrack = clip.asset && clip.asset.type === 'audio' &&
-        track && track.clips.length === 1 && tracks.length > 1;
-      let result;
-      if (clip.asset && clip.asset.type === 'audio' && clipCount === 1) {
-        result = clip.id
-          ? await edit.updateClipById(clip.id, {
-            asset: { type: 'text', text: 'Add your media above to get started' },
-            start: 0,
-            length: 3,
-          })
-          : await edit.updateClip(location.trackIndex, location.clipIndex, {
-            asset: { type: 'text', text: 'Add your media above to get started' },
-            start: 0,
-            length: 3,
-          });
-      } else if (removeAudioTrack) {
-        result = await edit.deleteTrack(location.trackIndex);
-      } else {
-        result = clip.id
-          ? await edit.deleteClipById(clip.id)
-          : await edit.deleteClip(location.trackIndex, location.clipIndex);
-      }
+      const result = clip.id
+        ? await edit.deleteClipById(clip.id)
+        : await edit.deleteClip(location.trackIndex, location.clipIndex);
       if (result.status !== 'success') throw new Error(result.message || 'The selected clip could not be deleted.');
       selectedClipLocation = null;
       selectedClipId = null;
