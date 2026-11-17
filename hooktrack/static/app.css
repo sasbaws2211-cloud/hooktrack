@@ -1268,12 +1268,20 @@ th { font-size: 10.5px; letter-spacing: .075em; }
 .posts-page .posts-toolbar-note span { color: var(--muted); font-size: 10.5px; }
 .posts-page .posts-actions { justify-content: flex-end; gap: 7px; }
 .posts-page .posts-actions select { min-height: 35px; max-width: 200px; }
-.posts-page .pipeline { margin-top: 0; }
+.posts-page .posts-actions #pipeline-search { min-height: 35px; width: 190px; max-width: 100%; }
+.posts-page .pipeline { display: grid; grid-template-columns: repeat(5, minmax(210px, 1fr)); align-items: stretch; margin-top: 0; }
+.posts-page .pipe-col { min-width: 0; max-width: none; min-height: 360px; }
+.posts-page .pipe-select { display: flex; align-items: center; gap: 5px; width: fit-content; margin: -2px 0 7px; color: var(--muted); font-size: 11px; cursor: pointer; }
+.posts-page .pipe-select input { margin: 0; accent-color: var(--accent); }
+.posts-page .pipe-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; margin: 4px; padding: 14px 12px; border: 1px dashed var(--border); border-radius: 9px; color: var(--muted); font-size: 12px; }
+.posts-page .pipe-empty b { color: var(--text); font-size: 12px; }
+.posts-page .pipe-empty .btn { margin-top: 2px; }
 .posts-page .posts-calendar { margin-top: 0; }
 @media (max-width: 900px) {
   .posts-page .posts-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .posts-page .posts-toolbar { align-items: flex-start; flex-direction: column; }
   .posts-page .posts-actions { justify-content: flex-start; width: 100%; }
+  .posts-page .posts-actions #pipeline-search { flex: 1 1 180px; }
 }
 @media (max-width: 560px) {
   .posts-page .posts-metric { gap: 9px; padding: 12px; }
@@ -1281,6 +1289,7 @@ th { font-size: 10.5px; letter-spacing: .075em; }
   .posts-page .posts-metric b { font-size: 17px; }
   .posts-page .posts-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .posts-page .posts-actions > * { width: 100% !important; min-width: 0; max-width: none; }
+  .posts-page .posts-actions #pipeline-search { grid-column: 1 / -1; }
   .posts-page .posts-actions .seg { width: 100%; }
   .posts-page .posts-actions .seg-btn { flex: 1; }
   .posts-page .calendar-toolbar .posts-actions { grid-template-columns: repeat(4, minmax(0, 1fr)); }

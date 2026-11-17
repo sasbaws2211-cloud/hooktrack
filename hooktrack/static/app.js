@@ -2317,10 +2317,11 @@ pages.pipeline = async app => {
       <div class="card posts-metric"><span class="posts-metric-icon published">✓</span><div><span>Published</span><b>${countIn(['posted', 'analysed'])}</b><small>Results can be reviewed</small></div></div>
     </div>
     <div class="posts-toolbar">
-      <div class="posts-toolbar-note"><b>Production board</b><span>Drag to move · Shift+click to select multiple</span></div>
+      <div class="posts-toolbar-note"><b>Production board</b><span>Drag cards to move them · Select cards for bulk actions</span></div>
       <div class="row posts-actions">
       ${toggle}
       <select id="pa" style="width:auto">${accountOptions(accountFilter, 'All accounts')}</select>
+      <input id="pipeline-search" type="search" placeholder="Search posts…" aria-label="Search posts by title or account">
       <select id="bulk-stage" style="width:auto">
         <option value="">Move selected to…</option>
         ${stages.map(s => `<option value="${s}">${PIPE_LABEL[s] || s}</option>`).join('')}
@@ -2334,10 +2335,19 @@ pages.pipeline = async app => {
     <div class="pipeline" id="board">
       ${stages.map(s => {
         const cards = board.columns[s] || [];
+        const emptyGuidance = {
+          idea: 'Capture a topic or post idea to get your pipeline moving.',
+          scripted: 'Move an idea here when it is ready to be shaped into a script.',
+          filmed: 'Move a scripted post here once its video is ready.',
+          posted: 'Move a post here after it goes live.',
+          analysed: 'Move a published post here when you are ready to review its results.',
+        }[s] || 'Move a post here when it is ready for this stage.';
         return `<div class="pipe-col" data-stage="${s}">
-          <div class="pipe-col-h"><span>${PIPE_LABEL[s] || s}</span><span class="n">${cards.length}</span></div>
+          <div class="pipe-col-h"><span>${PIPE_LABEL[s] || s}</span><span class="n" data-stage-count="${s}">${cards.length}</span></div>
           <div class="pipe-cards" data-stage="${s}">
-            ${cards.map(p => `<div class="pipe-card" draggable="true" data-id="${p.id}">
+            ${cards.map(p => `<div class="pipe-card" draggable="true" data-id="${p.id}"
+              data-search="${esc([p.hook, p.body, p.caption, p.handle].filter(Boolean).join(' ').toLowerCase())}">
+              <label class="pipe-select"><input type="checkbox" data-pipe-select="${p.id}" aria-label="Select ${esc(short(p.hook || p.body || 'Untitled post', 72))}"> Select</label>
               ${['filmed', 'posted', 'analysed'].includes(s) ? `<button type="button" class="pipe-del" data-pipe-del="${p.id}" title="Delete this post" aria-label="Delete this post">🗑</button>` : ''}
               <div class="h">${esc(short(p.hook || p.body || 'Untitled', 72))}</div>
               <div class="meta">
@@ -2381,7 +2391,12 @@ pages.pipeline = async app => {
                     if (p.external_post_id && ageDays < 3) return '<div class="pipe-result muted" title="HookTrack published this: its link comes back on its own after the next sync">⏳ link coming back</div>';
                     return `<button type="button" class="btn sm" data-find="${p.id}" title="No link was pasted and the sync has not matched this card: pick the posted content yourself">🔎 Link my post</button>`;
                   })() : '')}
-            </div>`).join('') || '<div class="muted small" style="padding:8px">Drop cards here</div>'}
+            </div>`).join('')}
+            <div class="pipe-empty" data-empty-stage="${s}" ${cards.length ? 'hidden' : ''}>
+              <b data-empty-title>No ${esc((PIPE_LABEL[s] || s).toLowerCase())} posts yet</b>
+              <span data-empty-guidance>${esc(emptyGuidance)}</span>
+              ${s === 'idea' && !cards.length ? '<button type="button" class="btn sm" data-empty-create="idea">＋ Add an idea</button>' : ''}
+            </div>
           </div>
         </div>`;
       }).join('')}
@@ -2392,17 +2407,65 @@ pages.pipeline = async app => {
   $('#pa').onchange = e => { state.pipeAccount = e.target.value; state.calAccount = e.target.value; route(); };
   $('#new').onclick = () => postModal(null, { status: 'idea', account_id: state.pipeAccount || '' }, route);
   $('#ideas').onclick = () => ideasModal(route);
+  $$('[data-empty-create]', app).forEach(button => {
+    button.onclick = () => postModal(null, { status: button.dataset.emptyCreate, account_id: state.pipeAccount || '' }, route);
+  });
 
   let dragId = null;
   const selected = new Set();
+  const search = $('#pipeline-search');
+  const filterCards = () => {
+    const query = search.value.trim().toLowerCase();
+    $$('.pipe-col', app).forEach(col => {
+      const cards = $$('.pipe-card', col);
+      let visible = 0;
+      cards.forEach(card => {
+        const matches = !query || card.dataset.search.includes(query);
+        card.hidden = !matches;
+        if (matches) visible++;
+      });
+      const count = $('[data-stage-count]', col);
+      if (count) count.textContent = query ? `${visible}/${cards.length}` : String(cards.length);
+      const empty = $('[data-empty-stage]', col);
+      if (empty) {
+        empty.hidden = visible > 0;
+        const title = $('[data-empty-title]', empty);
+        const guidance = $('[data-empty-guidance]', empty);
+        const addIdea = $('[data-empty-create]', empty);
+        if (title) title.textContent = query ? 'No matching posts' : `No ${(PIPE_LABEL[col.dataset.stage] || col.dataset.stage).toLowerCase()} posts yet`;
+        if (guidance) guidance.textContent = query ? 'Try another title or account.' : ({
+          idea: 'Capture a topic or post idea to get your pipeline moving.',
+          scripted: 'Move an idea here when it is ready to be shaped into a script.',
+          filmed: 'Move a scripted post here once its video is ready.',
+          posted: 'Move a post here after it goes live.',
+          analysed: 'Move a published post here when you are ready to review its results.',
+        }[col.dataset.stage] || 'Move a post here when it is ready for this stage.');
+        if (addIdea) addIdea.hidden = !!query;
+      }
+    });
+  };
+  search.oninput = filterCards;
   const syncBulk = () => {
     const n = selected.size;
     const bar = $('#bulk-bar');
     if (bar) { bar.hidden = n === 0; }
     const cnt = $('#bulk-count');
     if (cnt) cnt.textContent = n ? `${n} selected` : '0 selected';
-    $$('.pipe-card', app).forEach(c => c.classList.toggle('selected', selected.has(c.dataset.id)));
+    $$('.pipe-card', app).forEach(c => {
+      const isSelected = selected.has(c.dataset.id);
+      c.classList.toggle('selected', isSelected);
+      const checkbox = $('[data-pipe-select]', c);
+      if (checkbox) checkbox.checked = isSelected;
+    });
   };
+  $$('[data-pipe-select]', app).forEach(checkbox => {
+    checkbox.addEventListener('click', e => e.stopPropagation());
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) selected.add(checkbox.dataset.pipeSelect);
+      else selected.delete(checkbox.dataset.pipeSelect);
+      syncBulk();
+    });
+  });
   $$('[data-find]', app).forEach(b => {
     b.addEventListener('mousedown', e => e.stopPropagation());
     b.addEventListener('click', e => {
@@ -2441,7 +2504,7 @@ pages.pipeline = async app => {
     });
     card.addEventListener('dragend', () => { card.style.opacity = ''; });
     card.addEventListener('click', e => {
-      if (e.defaultPrevented) return;
+      if (e.defaultPrevented || e.target.closest('button, input, label')) return;
       if (e.shiftKey) {
         e.preventDefault();
         const id = card.dataset.id;
