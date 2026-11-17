@@ -895,15 +895,40 @@ pages.dashboard = async app => {
   const delta = d.prev_week_views ? Math.round((d.week_views - d.prev_week_views) / d.prev_week_views * 100) : null;
   const maxT = Math.max(1, ...d.trend.map(t => t.views));
   const maxP = Math.max(1, ...d.by_phone.map(p => p.views));
+  const trendPoints = d.trend.map((t, i) => ({
+    x: 16 + i * (568 / Math.max(1, d.trend.length - 1)),
+    y: 142 - (t.views / maxT) * 112,
+    week: t.week,
+    views: t.views,
+  }));
+  const trendLine = trendPoints.map(p => `${p.x},${p.y}`).join(' ');
+  const trendArea = trendPoints.length
+    ? `M${trendPoints[0].x},150 L${trendPoints.map(p => `${p.x},${p.y}`).join(' L')} L${trendPoints[trendPoints.length - 1].x},150 Z`
+    : '';
+  const firstName = (state.me && state.me.user && state.me.user.name || '').trim().split(/\s+/)[0];
+  const upcoming = d.upcoming.map(u => {
+    const date = parseISO(String(u.post_date).slice(0, 10));
+    return {
+      ...u,
+      day: new Intl.DateTimeFormat(undefined, { day: '2-digit' }).format(date),
+      month: new Intl.DateTimeFormat(undefined, { month: 'short' }).format(date),
+      weekday: new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(date),
+    };
+  });
   const showNext = !nextSeen();
   app.innerHTML = `
-  <div class="page-head"><div><h1>Dashboard</h1><div class="sub">Week of ${esc(d.week_start)}</div></div>
-    <div class="row">
+  <div class="page-head dash-head"><div class="dash-welcome"><div class="eyebrow">WEEK OF ${esc(d.week_start)}</div>
+    <h1>${firstName ? `Welcome back, ${esc(firstName)}` : 'Your content, at a glance'}</h1>
+    <div class="sub">See what is working, what needs attention, and what is coming up next.</div></div>
+    <div class="dash-head-actions"><div class="row dash-create">
+      <button type="button" class="btn ai" id="create-ai-dash" ${state.ai.available ? '' : 'disabled'}>✨ Create with AI</button>
+      <button type="button" class="btn primary" id="create-post-dash">+ New post</button>
+    </div><div class="row dash-utilities">
       <button type="button" class="btn sm" id="copy-summary" title="Copy weekly summary">Copy summary</button>
       <button type="button" class="btn sm" id="export-menu" title="Export CSV">Export</button>
       <button type="button" class="btn sm" id="demo-dash" title="Watch the demo video">▶ Demo</button>
-      <button type="button" class="btn sm" id="help-dash" title="Glossary">?</button>
-    </div></div>
+      <button type="button" class="btn sm" id="help-dash" title="Glossary">Help</button>
+    </div></div></div>
   ${showNext ? `<div class="card next-banner" id="next-banner">
     <div><b>You’re set up — what’s next?</b>
       <ul class="next-list">
@@ -916,16 +941,22 @@ pages.dashboard = async app => {
     <button class="btn sm" id="next-dismiss">Dismiss</button>
   </div>` : ''}
   <div class="grid kpis">
-    <div class="card kpi"><div class="label">Views this week${d.week_estimated ? ' <span title="Some days are estimated from your posts\' totals" class="muted">(~)</span>' : ''}</div><div class="value">${d.week_estimated ? '~' : ''}${fmt(d.week_views)}</div>
+    <div class="card kpi" data-metric="views"><div class="kpi-top"><div class="label">Views this week${d.week_estimated ? ' <span title="Some days are estimated from your posts\' totals" class="muted">(~)</span>' : ''}</div><span class="kpi-icon">◉</span></div><div class="value">${d.week_estimated ? '~' : ''}${fmt(d.week_views)}</div>
       <div class="delta" title="What your synced posts gained so far today">${d.today_views ? `${fmt(d.today_views)} so far today` : 'today not counted yet'}</div>
       <div class="delta ${delta > 0 ? 'up' : delta < 0 ? 'down' : ''}">${delta == null ? 'No prior week' : `${delta > 0 ? '▲' : delta < 0 ? '▼' : ''} ${Math.abs(delta)}% vs last week`}</div></div>
-    <div class="card kpi"><div class="label">Avg / account</div><div class="value">${fmt(d.avg_per_account)}</div><div class="delta">${d.accounts} accounts</div></div>
-    <div class="card kpi"><div class="label">Scale</div><div class="value up">${d.decisions.SCALE}</div><div class="delta">${fmt(d.settings.scale_weekly)}+ weekly &amp; strong hook score</div></div>
-    <div class="card kpi"><div class="label">Stop</div><div class="value down">${d.decisions.KILL}</div><div class="delta">stalled ${d.settings.kill_after_posts}+ posts</div></div>
+    <div class="card kpi" data-metric="average"><div class="kpi-top"><div class="label">Avg. per account</div><span class="kpi-icon">↗</span></div><div class="value">${fmt(d.avg_per_account)}</div><div class="delta">Across ${d.accounts} account${d.accounts === 1 ? '' : 's'}</div></div>
+    <div class="card kpi" data-metric="scale"><div class="kpi-top"><div class="label">Ready to scale</div><span class="kpi-icon">↑</span></div><div class="value up">${d.decisions.SCALE}</div><div class="delta">${fmt(d.settings.scale_weekly)}+ weekly &amp; strong hook score</div></div>
+    <div class="card kpi" data-metric="stop"><div class="kpi-top"><div class="label">Need a rethink</div><span class="kpi-icon">!</span></div><div class="value down">${d.decisions.KILL}</div><div class="delta">Stalled for ${d.settings.kill_after_posts}+ posts</div></div>
   </div>
   <div class="dash-layout">
     <div class="dash-main">
       <div class="card" id="next-card"><h2>Next actions</h2><div id="next-body" class="muted small">Loading…</div><div id="credit-foot"></div></div>
+      <div class="card agenda-card"><div class="dash-card-head"><div><h2>Upcoming content</h2><div class="muted small">Your next posts, all in one place</div></div><a class="text-link" href="#/calendar">Open calendar <span aria-hidden="true">→</span></a></div>
+        ${upcoming.length ? `<div class="agenda-list">${upcoming.map(u => `<a class="agenda-item" href="#/calendar">
+          <span class="agenda-date"><span>${esc(u.weekday)}</span><b>${esc(u.day)}</b><span>${esc(u.month)}</span></span>
+          <span class="agenda-copy"><b>${esc(short(u.hook, 68) || '(No hook yet)')}</b><span>${esc(u.handle || 'No account selected')}</span></span>
+          ${pill(u.status)}</a>`).join('')}</div>` : `<div class="agenda-empty"><div class="agenda-empty-icon">▦</div><div><b>Your next idea starts here</b><div class="muted small">Plan upcoming content and keep your week moving.</div></div><a class="btn sm" href="#/calendar">Plan content</a></div>`}
+      </div>
       <div class="card"><h2>Act on this</h2>${d.act_on.length ? `<ul class="list">${d.act_on.map(a =>
         `<li>${pill(a.decision)}<div><b>${esc(a.handle)}</b><div class="muted small">${esc(a.reason)}</div></div></li>`).join('')}</ul>`
         : '<p class="muted">Nothing to scale or kill right now.</p>'}
@@ -937,15 +968,19 @@ pages.dashboard = async app => {
         <div id="activity-list" class="muted small">Loading…</div></div>
     </div>
     <div class="dash-rail">
-      <div class="card"><h2>Ask your data</h2>${aiNotice()}
+      <div class="card ai-card"><div class="dash-card-head"><div><h2>AI assistant</h2><div class="muted small">Ask about your performance</div></div><span class="ai-spark" aria-hidden="true">✦</span></div>${aiNotice()}
         <form class="ask" id="ask-form"><input id="ask-q" placeholder="e.g. Which accounts should I stop this week, and why?" maxlength="1000" ${state.ai.available ? '' : 'disabled'}>
           <button class="btn ai" ${state.ai.available ? '' : 'disabled'}>Ask</button></form>
         <div class="chips">${['Which accounts should I scale?', 'Which niche is working best?', 'What do my winning hooks have in common?']
           .map(q => `<button type="button" data-q="${esc(q)}" ${state.ai.available ? '' : 'disabled'}>${esc(q)}</button>`).join('')}</div>
         <div id="answer"></div></div>
-      <div class="card"><h2>Views, last 8 weeks</h2><div class="bars">${d.trend.map((t, i) =>
-        `<div class="b ${i === 7 ? 'cur' : ''}"><div class="v">${t.views >= 1000 ? Math.round(t.views / 1000) + 'k' : t.views}</div>
-         <div class="fill" style="height:${Math.round(t.views / maxT * 100)}%"></div><div class="l">${t.week.slice(5)}</div></div>`).join('')}</div></div>
+      <div class="card trend-card"><div class="dash-card-head"><div><h2>Performance trend</h2><div class="muted small">Weekly views · last 8 weeks</div></div><a class="text-link" href="#/views">Details <span aria-hidden="true">→</span></a></div>
+        <div class="trend-chart-wrap"><svg class="trend-chart" viewBox="0 0 600 176" role="img" aria-label="Weekly views over the last eight weeks">
+          <line x1="12" y1="30" x2="588" y2="30"></line><line x1="12" y1="86" x2="588" y2="86"></line><line x1="12" y1="150" x2="588" y2="150"></line>
+          ${trendArea ? `<path class="trend-area" d="${trendArea}"></path><polyline class="trend-line" points="${trendLine}"></polyline>` : ''}
+          ${trendPoints.map(p => `<circle class="trend-point" cx="${p.x}" cy="${p.y}" r="4"><title>${esc(p.week)}: ${fmt(p.views)} views</title></circle>`).join('')}
+        </svg><div class="trend-labels">${trendPoints.map(p => `<span>${esc(p.week.slice(5))}</span>`).join('')}</div></div>
+        <div class="trend-total"><span class="trend-dot"></span><span>This week</span><b>${fmt(d.week_views)} views</b></div></div>
       <div class="card"><h2>This week by phone</h2>${d.by_phone.map(p =>
         `<div class="hbar"><span>${esc(p.phone)}</span><div class="track"><div class="fill" style="width:${Math.round(p.views / maxP * 100)}%;background:${esc(p.color)}"></div></div>
          <span class="num" style="text-align:right">${fmt(p.views)}</span></div>`).join('')}</div>
@@ -960,9 +995,6 @@ pages.dashboard = async app => {
         </li>`).join('')}</ul>
         <p class="muted small" style="margin-top:8px">Vs previous week · sorted by absolute change</p>
       </div>` : ''}
-      <div class="card"><h2>Upcoming</h2>${d.upcoming.length ? `<ul class="list">${d.upcoming.map(u =>
-        `<li><span class="muted small" style="width:70px">${esc(u.post_date)}</span><div style="flex:1">${esc(short(u.hook, 50) || '(no hook yet)')}<div class="muted small">${esc(u.handle)}</div></div>${pill(u.status)}</li>`).join('')}</ul>`
-        : '<p class="muted">Nothing scheduled. Plan a week on the <a href="#/calendar">calendar</a>.</p>'}</div>
       <div class="card"><h2>Weekly leaders</h2><ul class="list">${d.leaders.map(l =>
         `<li><b style="flex:1">${esc(l.handle)}</b><span>${fmt(l.views)}</span>${pill(l.decision)}</li>`).join('')}</ul></div>
     </div>
@@ -973,6 +1005,8 @@ pages.dashboard = async app => {
     try { const r = await api('POST', '/api/ai/ask', { question: q }); box.innerHTML = `<div class="answer">${esc(r.answer)}</div>`; }
     catch (e) { box.innerHTML = ''; throw e; }
   });
+  $('#create-post-dash').onclick = () => postModal(null, { status: 'idea' }, route);
+  $('#create-ai-dash').onclick = () => ideasModal(route);
   $('#ask-form').addEventListener('submit', e => { e.preventDefault(); ask($('#ask-q').value); });
   $$('.chips button', app).forEach(b => b.addEventListener('click', () => { $('#ask-q').value = b.dataset.q; ask(b.dataset.q); }));
   const nd = $('#next-dismiss');
