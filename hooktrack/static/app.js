@@ -2500,30 +2500,60 @@ async function renderPostsCalendar(app, { accountFilter, toggle }) {
   const queued = p => !!(p.scheduled_for && !p.external_post_id && !p.external_id);   // waiting in HookTrack's queue
   const dayOf = p => (queued(p) && zoneParts(p.scheduled_for) || {}).date || p.post_date;
   const by = {}; posts.forEach(p => (by[dayOf(p)] = by[dayOf(p)] || []).push(p));
-  const queuedCount = posts.filter(queued).length;
-  const activeCount = posts.filter(p => ['idea', 'scripted', 'filmed'].includes(normStatus(p.status))).length;
-  const scheduledDays = Object.keys(by).length;
+  const monthStart = iso(first);
+  const monthEnd = iso(new Date(first.getFullYear(), first.getMonth() + 1, 0));
+  const monthPosts = posts.filter(p => dayOf(p) >= monthStart && dayOf(p) <= monthEnd);
+  const queuedCount = monthPosts.filter(queued).length;
+  const activeCount = monthPosts.filter(p => ['idea', 'scripted', 'filmed'].includes(normStatus(p.status))).length;
+  const scheduledDays = new Set(monthPosts.map(dayOf)).size;
   const today = iso(nowLocal());
   const cells = [];
+  const agendaDays = [];
+  const renderCalendarPost = (p, index) => {
+    const status = normStatus(p.status);
+    const when = queued(p) ? (zoneParts(p.scheduled_for) || {}).time : '';
+    const movable = !p.external_id && !['posted', 'analysed'].includes(status);
+    const statusLabel = queued(p) ? 'Queued' : ['posted', 'analysed'].includes(status) ? 'Published' : PIPE_LABEL[status] || status;
+    const account = p.handle || 'Account';
+    const title = short(p.hook || p.caption || 'Untitled post', 52);
+    return `<button class="chip ${status} ${queued(p) ? 'queued' : ''} ${index >= 3 ? 'chip-extra' : ''}"
+      data-id="${p.id}" ${movable ? 'draggable="true"' : ''}
+      style="--c:${esc(p.phone_color || 'var(--accent)')}"
+      aria-label="${esc(`${account}, ${statusLabel}${when ? ` at ${when}` : ''}: ${p.hook || p.caption || 'Untitled post'}`)}"
+      title="${esc(`${account} · ${statusLabel}: ${p.hook || p.caption || 'Untitled post'}${when ? ` · publishes ${fmtWhen(p.scheduled_for)} (${wsTz()})` : ''}${movable ? ' · drag to another day to move it' : ''}`)}">
+      <span class="chip-copy">${when ? `<span class="chip-time">${esc(when)}</span>` : ''}
+        <span class="chip-title">${esc(title)}</span>
+        <span class="chip-account">${esc(account)}</span></span>
+      <span class="chip-status">${esc(statusLabel)}</span></button>`;
+  };
   for (let i = 0; i < 42; i++) {
     const d = addDays(gridStart, i), k = iso(d), list = (by[k] || []).slice().reverse();
-    cells.push(`<div class="day ${d.getMonth() !== first.getMonth() ? 'out' : ''} ${k === today ? 'today' : ''}" data-day="${k}">
-      <div class="dn"><span>${d.getDate()}</span>${list.length ? `<span>${list.length}</span>` : ''}</div>
-      ${list.slice(0, 3).map(p => {
-        const when = queued(p) ? (zoneParts(p.scheduled_for) || {}).time : '';
-        const movable = !p.external_id && !['posted', 'analysed'].includes(normStatus(p.status));
-        return `<button class="chip ${normStatus(p.status)}" data-id="${p.id}" ${movable ? 'draggable="true"' : ''} style="--c:${esc(p.phone_color || 'var(--accent)')}" title="${esc((p.handle || '') + ': ' + p.hook + (when ? ' · publishes ' + fmtWhen(p.scheduled_for) + ' (' + wsTz() + ')' : '') + (movable ? ' · drag to another day to move it' : ''))}">${when ? '📅 ' + esc(when) + ' ' : ''}${esc(short(p.hook, 24) || p.handle || '…')}</button>`;
-      }).join('')}
-      ${list.length > 3 ? `<div class="more">+${list.length - 3} more</div>` : ''}</div>`);
+    const inMonth = d.getMonth() === first.getMonth();
+    const dayLabel = d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    const chips = list.map(renderCalendarPost).join('');
+    cells.push(`<div class="day ${inMonth ? '' : 'out'} ${k === today ? 'today' : ''}" data-day="${k}"
+        role="gridcell" tabindex="0" aria-label="${esc(`${dayLabel}, ${list.length} post${list.length === 1 ? '' : 's'}. Press Enter or Space to add a post.`)}">
+      <div class="dn"><span>${d.getDate()}</span>${list.length ? `<span class="day-count">${list.length}</span>` : ''}</div>
+      ${chips}
+      ${list.length > 3 ? `<button type="button" class="calendar-more" data-calendar-more aria-expanded="false">+${list.length - 3} more</button>` : ''}</div>`);
+    if (inMonth) agendaDays.push(`<section class="calendar-agenda-day ${k === today ? 'today' : ''}">
+      <div class="calendar-agenda-date"><b>${d.toLocaleDateString(undefined, { weekday: 'short' })}</b>
+        <span>${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span></div>
+      <div class="calendar-agenda-items">${list.length ? list.map((p, index) => renderCalendarPost(p, index)).join('') :
+        '<span class="calendar-agenda-empty">No posts planned</span>'}</div>
+      <button type="button" class="btn sm calendar-agenda-add" data-day-create="${k}" aria-label="Add a post on ${esc(dayLabel)}">+ Add</button>
+    </section>`);
   }
+  const weekRows = Array.from({ length: 6 }, (_, week) =>
+    `<div class="calendar-row" role="row">${cells.slice(week * 7, week * 7 + 7).join('')}</div>`).join('');
   app.innerHTML = `<div class="posts-page calendar-page">
     <div class="page-head posts-head"><div><div class="eyebrow">CONTENT WORKSPACE</div><h1>Posts calendar</h1>
       <div class="sub">Plan your publishing rhythm. Drag a post to change its date; queued posts keep their publish time (${esc(wsTz())}).</div></div></div>
     <div class="grid posts-overview">
-      <div class="card posts-metric"><span class="posts-metric-icon">▤</span><div><span>Posts on calendar</span><b>${posts.length}</b><small>Visible month and adjacent days</small></div></div>
+      <div class="card posts-metric"><span class="posts-metric-icon">▤</span><div><span>Posts this month</span><b>${monthPosts.length}</b><small>${first.toLocaleString('default', { month: 'long' })}</small></div></div>
       <div class="card posts-metric"><span class="posts-metric-icon queued">◷</span><div><span>Queued to publish</span><b>${queuedCount}</b><small>Scheduled through HookTrack</small></div></div>
       <div class="card posts-metric"><span class="posts-metric-icon ideas">✎</span><div><span>In production</span><b>${activeCount}</b><small>Ideas, scripts, and filmed posts</small></div></div>
-      <div class="card posts-metric"><span class="posts-metric-icon published">▦</span><div><span>Active days</span><b>${scheduledDays}</b><small>Days with at least one post</small></div></div>
+      <div class="card posts-metric"><span class="posts-metric-icon published">▦</span><div><span>Active days</span><b>${scheduledDays}</b><small>Days this month with posts</small></div></div>
     </div>
     <div class="posts-toolbar calendar-toolbar">
       <div class="posts-toolbar-note"><b>Publishing calendar</b><span>Choose a day to add or edit a post</span></div>
@@ -2535,7 +2565,16 @@ async function renderPostsCalendar(app, { accountFilter, toggle }) {
       <button class="btn ai" id="plan">✨ AI plan week</button>
       </div>
     </div>
-    <div class="cal posts-calendar">${DOW.map(d => `<div class="dow">${d}</div>`).join('')}${cells.join('')}</div>
+    <div class="calendar-legend" aria-label="Post status legend">
+      <span><i class="calendar-status-dot idea"></i>Idea</span><span><i class="calendar-status-dot scripted"></i>Scripted</span>
+      <span><i class="calendar-status-dot filmed"></i>Filmed</span><span><i class="calendar-status-dot queued"></i>Queued</span>
+      <span><i class="calendar-status-dot posted"></i>Published</span><span class="calendar-color-note">Left border color identifies the account group.</span>
+    </div>
+    <div class="cal posts-calendar" role="grid" aria-rowcount="7" aria-colcount="7"
+      aria-label="${esc(first.toLocaleString('default', { month: 'long', year: 'numeric' }))}">
+      <div class="calendar-row" role="row">${DOW.map(d => `<div class="dow" role="columnheader">${d}</div>`).join('')}</div>
+      ${weekRows}</div>
+    <div class="calendar-agenda" aria-label="Monthly post agenda">${agendaDays.join('')}</div>
   </div>`;
 
   $$('[data-view]', app).forEach(b => b.onclick = () => { state.postsView = b.dataset.view; route(); });
@@ -2544,6 +2583,21 @@ async function renderPostsCalendar(app, { accountFilter, toggle }) {
   $('#today').onclick = () => { const n0 = nowLocal(); state.calMonth = iso(new Date(n0.getFullYear(), n0.getMonth(), 1)); route(); };
   $('#cf').onchange = e => { state.calAccount = e.target.value; state.pipeAccount = e.target.value; route(); };
   $('#plan').onclick = () => planModal();
+  $$('[data-calendar-more]', app).forEach(button => button.onclick = e => {
+    e.stopPropagation();
+    const day = button.closest('.day');
+    const expanded = day.classList.toggle('expanded');
+    button.setAttribute('aria-expanded', String(expanded));
+    button.textContent = expanded ? 'Show less' : `+${day.querySelectorAll('.chip-extra').length} more`;
+  });
+  $$('[data-day-create]', app).forEach(button => button.onclick = e => {
+    e.stopPropagation();
+    postModal(null, { post_date: button.dataset.dayCreate, status: 'scripted', account_id: state.calAccount || state.pipeAccount || '' }, route);
+  });
+  $$('.chip[data-id]', app).forEach(button => button.onclick = e => {
+    e.stopPropagation();
+    postModal(posts.find(p => p.id === +button.dataset.id), null, route);
+  });
   // drag a card to another day: a queued publish keeps its time of day, any other card just changes its date
   let dragPost = null;
   $$('.chip[draggable]', app).forEach(c => {
@@ -2568,11 +2622,17 @@ async function renderPostsCalendar(app, { accountFilter, toggle }) {
       route();
     }));
   });
-  $$('.day', app).forEach(el => el.addEventListener('click', e => {
-    const chip = e.target.closest('.chip');
-    if (chip) { postModal(posts.find(p => p.id === +chip.dataset.id), null, route); return; }
-    postModal(null, { post_date: el.dataset.day, status: 'scripted', account_id: state.calAccount || state.pipeAccount || '' }, route);
-  }));
+  $$('.day', app).forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target.closest('button')) return;
+      postModal(null, { post_date: el.dataset.day, status: 'scripted', account_id: state.calAccount || state.pipeAccount || '' }, route);
+    });
+    el.addEventListener('keydown', e => {
+      if (e.target !== el || !['Enter', ' '].includes(e.key)) return;
+      e.preventDefault();
+      postModal(null, { post_date: el.dataset.day, status: 'scripted', account_id: state.calAccount || state.pipeAccount || '' }, route);
+    });
+  });
 }
 
 

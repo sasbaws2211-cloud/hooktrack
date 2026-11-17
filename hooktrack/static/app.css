@@ -121,17 +121,43 @@ tr.band td:first-child { border-left: 5px solid var(--band, transparent); }
 /* calendar */
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .cal .dow { background: var(--surface-2); padding: 7px 10px; font-size: 11.5px; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-.cal .day { background: var(--surface); min-height: 112px; padding: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; }
+.cal .calendar-row { display: contents; }
+.cal .day { background: var(--surface); min-height: 132px; padding: 7px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
 .cal .day:hover { background: var(--surface-2); }
 .cal .day.out { background: var(--bg); opacity: .65; }
 .cal .day .dn { font-size: 12px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; }
 .cal .day.today .dn span:first-child { background: var(--accent); color: var(--accent-text); border-radius: 99px; padding: 0 7px; }
-.chip { border-left: 4px solid var(--c, var(--accent)); background: var(--surface-2); border-radius: 5px; padding: 2px 6px; font-size: 11.5px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; text-align: left; border-top: none; border-right: none; border-bottom: none; width: 100%; }
+.cal .day:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.day-count { font-variant-numeric: tabular-nums; }
+.chip { display: flex; align-items: flex-start; justify-content: space-between; gap: 4px; border-left: 3px solid var(--c, var(--accent)); background: var(--surface-2); border-radius: 6px; padding: 4px 5px; font-size: 10px;
+  overflow: hidden; cursor: pointer; text-align: left; border-top: none; border-right: none; border-bottom: none; width: 100%; min-width: 0; color: var(--text); }
 .chip.planned { background: transparent; outline: 1px dashed var(--border); }
 .chip.idea { opacity: .6; font-style: italic; }
 .chip:hover { filter: brightness(.95); }
-.more { font-size: 11px; color: var(--muted); padding-left: 4px; }
+.chip-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.chip-title, .chip-account { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-title { font-size: 10px; font-weight: 650; }
+.chip-account { color: var(--muted); font-size: 9px; font-style: normal; }
+.chip-time { color: var(--accent); font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.chip-status { flex: 0 0 auto; padding: 1px 4px; border-radius: 99px; background: var(--surface); color: var(--muted); font-size: 8px; font-style: normal; font-weight: 700; line-height: 1.4; }
+.chip.scripted .chip-status, .chip.planned .chip-status { background: var(--accent-soft); color: var(--accent); }
+.chip.filmed .chip-status { background: color-mix(in srgb, #2aaac7 14%, var(--surface)); color: #2aaac7; }
+.chip.queued .chip-status { background: var(--warn-soft); color: var(--warn); }
+.chip.posted .chip-status, .chip.analysed .chip-status { background: var(--good-soft); color: var(--good); }
+.chip.idea .chip-status { background: var(--surface); color: var(--muted); }
+.calendar-more { width: 100%; padding: 2px 4px; border: 0; border-radius: 5px; background: transparent; color: var(--accent); text-align: left; font-size: 10px; font-weight: 650; cursor: pointer; }
+.calendar-more:hover { background: var(--accent-soft); }
+.posts-calendar .day:not(.expanded) .chip-extra { display: none; }
+.day.expanded .chip-extra { display: flex; }
+.calendar-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin: 0 0 10px; padding: 0 2px; color: var(--muted); font-size: 10.5px; }
+.calendar-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.calendar-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.calendar-status-dot.scripted { background: var(--accent); }
+.calendar-status-dot.filmed { background: #2aaac7; }
+.calendar-status-dot.queued { background: var(--warn); }
+.calendar-status-dot.posted { background: var(--good); }
+.calendar-color-note { margin-left: auto; }
+.calendar-agenda { display: none; }
 
 /* dashboard */
 .bars { display: flex; align-items: flex-end; gap: 10px; height: 150px; padding-top: 8px; }
@@ -993,6 +1019,21 @@ th { font-size: 10.5px; letter-spacing: .075em; }
   #app .cal .dow { padding: 8px 2px; font-size: 9px; }
   #app .cal .day { padding: 4px; }
   #app .pipe-col { flex-basis: min(78vw, 280px); }
+  .calendar-page .posts-calendar { display: none; }
+  .calendar-page .calendar-agenda { display: grid; gap: 8px; }
+  .calendar-page .calendar-legend { gap: 7px 10px; }
+  .calendar-page .calendar-color-note { flex-basis: 100%; margin-left: 0; }
+  .calendar-agenda-day { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; align-items: start; gap: 9px; padding: 11px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+  .calendar-agenda-day.today { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); box-shadow: inset 3px 0 var(--accent); }
+  .calendar-agenda-date { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 2px; border-radius: 9px; background: var(--surface-2); color: var(--muted); font-size: 10px; text-transform: uppercase; }
+  .calendar-agenda-date span { color: var(--text); font-size: 15px; font-weight: 750; line-height: 1.2; text-transform: none; }
+  .calendar-agenda-items { display: grid; gap: 5px; min-width: 0; }
+  .calendar-agenda-items .chip { align-items: center; min-height: 40px; padding: 6px 8px; font-size: 12px; }
+  .calendar-agenda-items .chip-title { font-size: 12px; }
+  .calendar-agenda-items .chip-account { font-size: 10px; }
+  .calendar-agenda-items .chip-status { font-size: 9px; }
+  .calendar-agenda-empty { align-self: center; padding: 8px 2px; color: var(--muted); font-size: 11px; }
+  .calendar-agenda-add { align-self: center; white-space: nowrap; }
 }
 
 /* Accounts: a channel-management workspace rather than a dense configuration table */
@@ -1247,6 +1288,9 @@ th { font-size: 10.5px; letter-spacing: .075em; }
   .posts-page .calendar-toolbar .posts-actions select,
   .posts-page .calendar-toolbar .posts-actions #plan { grid-column: 1 / -1; }
   .posts-page .calendar-toolbar .posts-actions b { display: grid; place-items: center; }
+  .calendar-agenda-day { grid-template-columns: 46px minmax(0, 1fr); gap: 8px; padding: 9px; }
+  .calendar-agenda-add { grid-column: 2; justify-self: start; }
+  .calendar-agenda-date span { font-size: 14px; }
 }
 
 /* Inbox: put account scope and reply status before the live conversation list */
