@@ -126,19 +126,26 @@ async function transcribe(blob, clip, requestId) {
     const audio = samples.subarray(Math.floor(start * SAMPLE_RATE), Math.ceil(end * SAMPLE_RATE));
     sendProgress('transcribe', `Transcribing on this device… (${windowIndex + 1}/${totalWindows})`,
       (windowIndex / totalWindows) * 100);
-    const result = await recognizer(audio, { return_timestamps: 'word' });
+    const result = await recognizer(audio, { return_timestamps: true });
     for (const chunk of result.chunks || []) {
-      const [wordStart, wordEnd] = chunk.timestamp || [];
-      if (!Number.isFinite(wordStart) || !Number.isFinite(wordEnd) || !chunk.text.trim()) continue;
-      if (windowIndex > 0 && wordStart < overlapSeconds) continue;
-      const relativeStart = start + wordStart;
-      const relativeEnd = Math.min(duration, start + wordEnd);
-      if (relativeEnd <= relativeStart) continue;
-      words.push({
-        text: chunk.text.trim(),
-        start: Math.round(relativeStart * 1000),
-        end: Math.round(relativeEnd * 1000),
-      });
+      const [segmentStart, segmentEnd] = chunk.timestamp || [];
+      const segmentWords = chunk.text.trim().split(/\s+/).filter(Boolean);
+      if (!Number.isFinite(segmentStart) || !Number.isFinite(segmentEnd) ||
+          segmentEnd <= segmentStart || !segmentWords.length) continue;
+      if (windowIndex > 0 && segmentStart < overlapSeconds) continue;
+      const characterCount = segmentWords.reduce((total, word) => total + word.length, 0);
+      let charactersElapsed = 0;
+      for (const text of segmentWords) {
+        const wordStart = segmentStart + (segmentEnd - segmentStart) * charactersElapsed / characterCount;
+        charactersElapsed += text.length;
+        const wordEnd = segmentStart + (segmentEnd - segmentStart) * charactersElapsed / characterCount;
+        words.push({
+          text,
+          start: Math.round((start + wordStart) * 1000),
+          end: Math.max(Math.round((start + Math.min(duration - start, wordEnd)) * 1000),
+            Math.round((start + wordStart) * 1000) + 1),
+        });
+      }
     }
   }
   if (!words.length) throw new Error('No speech was detected. Try a clip with clearer speech.');

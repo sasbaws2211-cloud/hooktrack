@@ -3353,7 +3353,7 @@ pages.studio = async app => {
       };
       const modal = openModal(`
         <div class="modal-head"><h2>Transcribe on this device</h2><button class="icon-btn" type="button" data-close aria-label="Close">×</button></div>
-        <p class="studio-caption-privacy">Your selected clip's audio is processed in this browser and is not uploaded for transcription. First use downloads the transcription runtime and Whisper Tiny model (tens of megabytes); later uses can reuse the cached model.</p>
+        <p class="studio-caption-privacy">Your selected clip's audio is processed in this browser and is not uploaded for transcription. First use downloads the transcription runtime and Whisper Tiny model (tens of megabytes); later uses can reuse the cached model. Word timing is estimated within Whisper's timestamped segments.</p>
         <div class="studio-caption-progress" role="status" aria-live="polite">
           <span id="studio-caption-progress-label">Ready to transcribe.</span>
           <progress id="studio-caption-progress" max="100" value="0"></progress>
@@ -3500,7 +3500,7 @@ pages.studio = async app => {
           if (!mediaResponse.ok) throw new Error(`Could not read the selected video (${mediaResponse.status}).`);
           const blob = await mediaResponse.blob();
           if (cancelled) return;
-          worker = new Worker('/studio-transcriber-worker.js?v=studio-localcaptions3', { type: 'module' });
+          worker = new Worker('/studio-transcriber-worker.js?v=studio-localcaptions4', { type: 'module' });
           worker.onmessage = event => {
             const message = event.data || {};
             if (message.type === 'progress') {
