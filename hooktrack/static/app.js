@@ -2859,10 +2859,12 @@ pages.studio = async app => {
             <div class="studio-tool-buttons">
               <button class="btn sm primary" id="studio-add-media" title="Add a video or image from your device">+ Media</button>
               <button class="btn sm" id="studio-add-audio" disabled title="Add audio without needing another clip selected">+ Audio</button>
+              <button class="btn sm" id="studio-voiceover" disabled title="Record a voiceover or clean an audio file">Voiceover / clean</button>
               <button class="btn sm" id="studio-add-text" disabled title="Add text without needing another clip selected">+ Text</button>
               ${state.shotstack && state.shotstack.configured ? '<button class="btn sm" id="studio-add-ai" disabled title="Generate and add a clip">+ AI clip</button>' : ''}
               <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
               <input type="file" id="studio-audio-upload" accept="audio/mpeg,audio/mp3,audio/mp4,audio/wav,audio/x-wav,audio/aac,audio/ogg" hidden>
+              <input type="file" id="studio-clean-audio-upload" accept="audio/*" hidden>
             </div>
           </section>
           <section class="studio-tool-group studio-tool-group-creator" aria-label="Creator tools">
@@ -3052,6 +3054,8 @@ pages.studio = async app => {
       !(clip.asset.type === 'text' && clip.asset.text === 'Add your media above to get started')));
   const hasStudioImage = () => edit.getEdit().timeline.tracks.some(track =>
     (track.clips || []).some(clip => clip.asset && clip.asset.type === 'image'));
+  const hasStudioVisual = () => edit.getEdit().timeline.tracks.some(track =>
+    (track.clips || []).some(clip => clip.asset && (clip.asset.type === 'image' || clip.asset.type === 'video')));
   const hasCloudTranscribedCaptions = () => edit.getEdit().timeline.tracks.some(track =>
     (track.clips || []).some(clip => clip.asset && clip.asset.type === 'rich-caption' &&
       typeof clip.asset.src === 'string' && clip.asset.src.startsWith('alias://')));
@@ -3138,25 +3142,40 @@ pages.studio = async app => {
       });
     });
     $('#studio-cover-editor').onclick = guard(async () => {
-      if (!hasStudioContent()) throw new Error('Add video or image media before creating a cover.');
+      if (!hasStudioVisual()) throw new Error('Add video or image media before creating a cover.');
       const brand = readStudioBrandKit();
+      let savedCover = post.studio_cover;
+      const coverStyle = savedCover || brand;
       const modal = openModal(`
         <div class="modal-head"><h2>Create a cover image</h2><button class="icon-btn" type="button" data-close aria-label="Close">×</button></div>
-        <p class="small muted">Uses the current playhead frame and output format. Download the PNG, then add it wherever you publish the post.</p>
-        <label>Cover title<input id="studio-cover-title" maxlength="100" value="${esc(short(post.hook || post.caption || '', 100))}" placeholder="Add a short, readable title"></label>
-        <label>Brand name<input id="studio-cover-logo" maxlength="60" value="${esc(brand.logoText)}" placeholder="Optional"></label>
+        <p class="small muted">Capture a frame, style it, then save it to this post. Your saved cover remains available when you reopen the post.</p>
+        <div id="studio-saved-cover"${savedCover && savedCover.available ? '' : ' hidden'}>
+          <label class="small muted">Saved cover</label>
+          <img id="studio-saved-cover-image" class="studio-cover-preview" src="${savedCover && savedCover.available ? `${savedCover.url}?v=${encodeURIComponent(savedCover.updated_at || '')}` : ''}" alt="Saved cover image">
+          <div class="modal-actions">
+            <a class="btn" id="studio-saved-cover-download" href="${savedCover && savedCover.available ? esc(savedCover.url) : ''}" download="hooktrack-cover-${post.id}.png">Download saved cover</a>
+            <button class="btn danger" id="studio-cover-delete" type="button">Remove saved cover</button>
+          </div>
+        </div>
+        <label>Cover title<input id="studio-cover-title" maxlength="100" value="${esc(savedCover ? savedCover.title : short(post.hook || post.caption || '', 100))}" placeholder="Add a short, readable title"></label>
+        <label>Brand name<input id="studio-cover-logo" maxlength="60" value="${esc(coverStyle.logo_text || coverStyle.logoText || '')}" placeholder="Optional"></label>
         <div class="studio-brand-fields">
-          <label>Text color<input id="studio-cover-primary" type="color" value="${brand.primaryColor}"></label>
-          <label>Accent color<input id="studio-cover-accent" type="color" value="${brand.accentColor}"></label>
+          <label>Text color<input id="studio-cover-primary" type="color" value="${coverStyle.primary_color || coverStyle.primaryColor}"></label>
+          <label>Accent color<input id="studio-cover-accent" type="color" value="${coverStyle.accent_color || coverStyle.accentColor}"></label>
           <label>Font
-            <select id="studio-cover-font">${studioFonts.map(font => `<option value="${font}"${font === brand.fontFamily ? ' selected' : ''}>${font}</option>`).join('')}</select>
+            <select id="studio-cover-font">${studioFonts.map(font => `<option value="${font}"${font === (coverStyle.font_family || coverStyle.fontFamily) ? ' selected' : ''}>${font}</option>`).join('')}</select>
           </label>
         </div>
         <canvas id="studio-cover-preview" class="studio-cover-preview" aria-label="Cover image preview"></canvas>
-        <div class="modal-actions"><button class="btn" type="button" data-close>Close</button><button class="btn primary" id="studio-cover-download" type="button" disabled>Download PNG</button></div>
+        <div class="modal-actions">
+          <button class="btn" type="button" data-close>Close</button>
+          <button class="btn" id="studio-cover-download" type="button" disabled>Download PNG</button>
+          <button class="btn primary" id="studio-cover-save" type="button" disabled>Save cover to post</button>
+        </div>
       `, true);
       const preview = $('#studio-cover-preview', modal);
       const download = $('#studio-cover-download', modal);
+      const saveCoverButton = $('#studio-cover-save', modal);
       edit.seek(Math.max(0, Number(edit.playbackTime) || 0));
       await new Promise(resolve => setTimeout(resolve, 50));
       const frameData = await canvas.captureFrame({ format: 'png' });
@@ -3208,6 +3227,7 @@ pages.studio = async app => {
         }
         ctx.shadowBlur = 0;
         download.disabled = false;
+        saveCoverButton.disabled = false;
       };
       ['studio-cover-title', 'studio-cover-logo', 'studio-cover-primary', 'studio-cover-accent', 'studio-cover-font']
         .forEach(id => $(`#${id}`, modal).addEventListener('input', guard(drawCover)));
@@ -3221,6 +3241,44 @@ pages.studio = async app => {
         link.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         toast('Cover image downloaded.');
+      });
+      saveCoverButton.onclick = guard(async () => {
+        const blob = await new Promise(resolve => preview.toBlob(resolve, 'image/png'));
+        if (!blob) throw new Error('The cover image could not be encoded as PNG.');
+        saveCoverButton.disabled = true;
+        saveCoverButton.textContent = 'Saving…';
+        try {
+          const form = new FormData();
+          form.append('file', blob, `cover-${post.id}.png`);
+          form.append('title', $('#studio-cover-title', modal).value.trim());
+          form.append('logo_text', $('#studio-cover-logo', modal).value.trim());
+          form.append('primary_color', $('#studio-cover-primary', modal).value);
+          form.append('accent_color', $('#studio-cover-accent', modal).value);
+          form.append('font_family', $('#studio-cover-font', modal).value);
+          savedCover = await api('PUT', `/api/posts/${post.id}/studio-cover`, form);
+          post.studio_cover = savedCover;
+          if (!savedCover || !savedCover.available || !savedCover.url) {
+            throw new Error('The cover was saved but could not be read back from storage.');
+          }
+          const savedSection = $('#studio-saved-cover', modal);
+          savedSection.hidden = false;
+          $('#studio-saved-cover-image', modal).src = `${savedCover.url}?v=${encodeURIComponent(savedCover.updated_at || Date.now())}`;
+          $('#studio-saved-cover-download', modal).href = savedCover.url;
+          setStatus('Cover saved to this post', true);
+          toast('Cover saved to this post.');
+        } finally {
+          saveCoverButton.disabled = false;
+          saveCoverButton.textContent = 'Save cover to post';
+        }
+      });
+      const removeCoverButton = $('#studio-cover-delete', modal);
+      if (removeCoverButton) removeCoverButton.onclick = guard(async () => {
+        if (!await askConfirm('Remove the saved cover image from this post?', { title: 'Remove cover' })) return;
+        await api('DELETE', `/api/posts/${post.id}/studio-cover`);
+        savedCover = null;
+        post.studio_cover = null;
+        $('#studio-saved-cover', modal).hidden = true;
+        toast('Saved cover removed from this post.');
       });
       drawCover();
     });
@@ -3276,6 +3334,7 @@ pages.studio = async app => {
     syncStudioOutputButtons();
     $('#studio-save-draft', app).disabled = false;
     $('#studio-add-audio', app).disabled = false;
+    $('#studio-voiceover', app).disabled = false;
     $('#studio-add-text', app).disabled = false;
     if ($('#studio-discard-draft', app)) $('#studio-discard-draft', app).disabled = false;
     if ($('#studio-add-ai', app)) $('#studio-add-ai', app).disabled = false;
@@ -4073,29 +4132,268 @@ pages.studio = async app => {
     await edit.addTrack(0, { clips: [{ asset: { type: 'text', text }, start: 0, length: 3 }] });
   });
 
-  $('#studio-add-audio').onclick = () => $('#studio-audio-upload', app).click();
-  $('#studio-audio-upload').onchange = guard(async e => {
-    const f = e.target.files && e.target.files[0];
-    e.target.value = '';
-    if (!f) return;
+  async function addStudioAudio(file) {
     setStatus('Uploading audio…');
     const fd = new FormData();
-    fd.append('file', f);
-    try {
-      const r = await api('POST', `/api/posts/${post.id}/studio-audio/upload`, fd);
-      const ext = { 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg' }[r.type] || 'mp3';
-      const src = `${location.origin}/api/posts/${post.id}/studio-audio/${r.id}/file.${ext}`;
-      const trackIdx = edit.getEdit().timeline.tracks.length;
-      const added = await edit.addTrack(trackIdx, { clips: [{ asset: { type: 'audio', src }, start: 0, length: 'auto' }] });
-      if (added.status !== 'success') throw new Error(added.message || 'Could not add the uploaded audio clip.');
-      const addedClip = edit.getClip(trackIdx, 0);
-      if (addedClip) {
-        selectedClipLocation = { trackIndex: trackIdx, clipIndex: 0 };
-        selectedClipId = addedClip.id || null;
-        syncStudioClipActions();
+    fd.append('file', file, file.name || 'voiceover.wav');
+    const r = await api('POST', `/api/posts/${post.id}/studio-audio/upload`, fd);
+    const ext = { 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg' }[r.type] || 'mp3';
+    const src = `${location.origin}/api/posts/${post.id}/studio-audio/${r.id}/file.${ext}`;
+    const trackIdx = edit.getEdit().timeline.tracks.length;
+    const added = await edit.addTrack(trackIdx, { clips: [{ asset: { type: 'audio', src }, start: 0, length: 'auto' }] });
+    if (added.status !== 'success') throw new Error(added.message || 'Could not add the uploaded audio clip.');
+    const addedClip = edit.getClip(trackIdx, 0);
+    if (addedClip) {
+      selectedClipLocation = { trackIndex: trackIdx, clipIndex: 0 };
+      selectedClipId = addedClip.id || null;
+      syncStudioClipActions();
+    }
+    setStatus('Added', true);
+  }
+  $('#studio-add-audio').onclick = () => $('#studio-audio-upload', app).click();
+  $('#studio-audio-upload').onchange = guard(async event => {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = '';
+    if (file) await addStudioAudio(file);
+  });
+  $('#studio-voiceover').onclick = guard(async () => {
+    const modal = openModal(`
+      <div class="modal-head"><h2>Voiceover &amp; audio cleanup</h2><button class="icon-btn" type="button" data-close aria-label="Close">×</button></div>
+      <p class="studio-caption-privacy">Record from your microphone or choose an audio file. Processing happens in this browser; the result uploads only when you add it to the timeline.</p>
+      <div class="studio-voiceover-actions">
+        <button class="btn primary" id="studio-voice-record" type="button">Start recording</button>
+        <button class="btn" id="studio-voice-stop" type="button" disabled>Stop recording</button>
+        <span id="studio-voice-timer" class="small muted" role="status" aria-live="polite">Ready · up to 3 minutes</span>
+      </div>
+      <label class="studio-caption-check"><input id="studio-voice-noise-reduction" type="checkbox" checked> Reduce microphone background noise</label>
+      <label class="studio-voiceover-file">Clean an existing recording
+        <input id="studio-clean-audio-file" type="file" accept="audio/*">
+      </label>
+      <label class="studio-caption-check"><input id="studio-voice-cleanup" type="checkbox" checked> Voice cleanup (low rumble filter, compressor, and level normalization)</label>
+      <label class="studio-caption-check"><input id="studio-voice-gate" type="checkbox"> Reduce quiet room noise between phrases (noise gate)</label>
+      <p class="small muted">Microphone recording also requests the browser's echo cancellation and noise suppression. The noise gate can soften very quiet speech.</p>
+      <div id="studio-voice-processing" class="small muted" role="status" aria-live="polite"></div>
+      <audio id="studio-voice-preview" class="studio-voice-preview" controls hidden></audio>
+      <div class="modal-actions"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" id="studio-voice-add" type="button" disabled>Add audio to timeline</button></div>
+    `, true);
+    const recordButton = $('#studio-voice-record', modal);
+    const stopButton = $('#studio-voice-stop', modal);
+    const timerLabel = $('#studio-voice-timer', modal);
+    const statusLabel = $('#studio-voice-processing', modal);
+    const preview = $('#studio-voice-preview', modal);
+    const addButton = $('#studio-voice-add', modal);
+    const audioFileInput = $('#studio-clean-audio-file', modal);
+    let recorder = null, stream = null, timer = null, startedAt = 0, elapsedSeconds = 0;
+    let chunks = [], processedFile = null, previewUrl = '', closed = false, processing = false;
+    const maxRecordingSeconds = 180;
+    const releaseStream = () => {
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      stream = null;
+      recorder = null;
+      clearInterval(timer);
+      timer = null;
+      recordButton.disabled = false;
+      stopButton.disabled = true;
+    };
+    const originalClose = modal.close;
+    modal.close = () => {
+      closed = true;
+      if (recorder && recorder.state !== 'inactive') recorder.stop();
+      releaseStream();
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      originalClose();
+    };
+    const encodeWav = buffer => {
+      const channels = buffer.numberOfChannels;
+      const frames = buffer.length;
+      const bytesPerSample = 2;
+      const dataSize = frames * channels * bytesPerSample;
+      const out = new ArrayBuffer(44 + dataSize);
+      const view = new DataView(out);
+      const writeString = (offset, value) => {
+        for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));
+      };
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + dataSize, true);
+      writeString(8, 'WAVE');
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, channels, true);
+      view.setUint32(24, buffer.sampleRate, true);
+      view.setUint32(28, buffer.sampleRate * channels * bytesPerSample, true);
+      view.setUint16(32, channels * bytesPerSample, true);
+      view.setUint16(34, 16, true);
+      writeString(36, 'data');
+      view.setUint32(40, dataSize, true);
+      let offset = 44;
+      for (let frame = 0; frame < frames; frame++) {
+        for (let channel = 0; channel < channels; channel++) {
+          const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[frame]));
+          view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+          offset += bytesPerSample;
+        }
       }
-      setStatus('Added', true);
-    } catch (err) { toast(err.message || 'Could not upload that audio file', true); setStatus('Ready'); }
+      return new Blob([out], { type: 'audio/wav' });
+    };
+    const processAudio = async inputBlob => {
+      processing = true;
+      addButton.disabled = true;
+      recordButton.disabled = true;
+      audioFileInput.disabled = true;
+      statusLabel.textContent = 'Processing audio in this browser…';
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        const OfflineContextClass = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+        if (!AudioContextClass || !OfflineContextClass) throw new Error('This browser does not support local audio processing.');
+        const decodeContext = new AudioContextClass();
+        let decoded;
+        try { decoded = await decodeContext.decodeAudioData(await inputBlob.arrayBuffer()); } finally {
+          await decodeContext.close();
+        }
+        if (!decoded.length || decoded.duration > maxRecordingSeconds) {
+          throw new Error('Choose or record audio that is 3 minutes or shorter.');
+        }
+        const outputSampleRate = Math.min(decoded.sampleRate, 48000);
+        const offline = new OfflineContextClass(1, Math.ceil(decoded.duration * outputSampleRate), outputSampleRate);
+        const source = offline.createBufferSource();
+        source.buffer = decoded;
+        let output = source;
+        if ($('#studio-voice-cleanup', modal).checked) {
+          const highpass = offline.createBiquadFilter();
+          highpass.type = 'highpass';
+          highpass.frequency.value = 85;
+          highpass.Q.value = 0.7;
+          const compressor = offline.createDynamicsCompressor();
+          compressor.threshold.value = -24;
+          compressor.knee.value = 18;
+          compressor.ratio.value = 3;
+          compressor.attack.value = 0.004;
+          compressor.release.value = 0.22;
+          output.connect(highpass);
+          highpass.connect(compressor);
+          output = compressor;
+        }
+        output.connect(offline.destination);
+        source.start(0);
+        const cleaned = await offline.startRendering();
+        let peak = 0;
+        for (let channel = 0; channel < cleaned.numberOfChannels; channel++) {
+          const samples = cleaned.getChannelData(channel);
+          for (let i = 0; i < samples.length; i++) peak = Math.max(peak, Math.abs(samples[i]));
+        }
+        const normalizeGain = peak > 0 ? Math.min(8, 0.89125 / peak) : 1;
+        for (let channel = 0; channel < cleaned.numberOfChannels; channel++) {
+          const samples = cleaned.getChannelData(channel);
+          for (let i = 0; i < samples.length; i++) samples[i] *= normalizeGain;
+        }
+        if ($('#studio-voice-gate', modal).checked) {
+          const channels = Array.from({ length: cleaned.numberOfChannels }, (_, i) => cleaned.getChannelData(i));
+          const windowSize = Math.max(1, Math.round(cleaned.sampleRate * 0.01));
+          const threshold = 0.008;
+          const reduceCoefficient = 1 - Math.exp(-1 / (cleaned.sampleRate * 0.015));
+          const restoreCoefficient = 1 - Math.exp(-1 / (cleaned.sampleRate * 0.08));
+          let envelope = 1;
+          for (let start = 0; start < cleaned.length; start += windowSize) {
+            const end = Math.min(cleaned.length, start + windowSize);
+            let squareSum = 0, count = 0;
+            for (const samples of channels) {
+              for (let i = start; i < end; i++) { squareSum += samples[i] * samples[i]; count++; }
+            }
+            const rms = Math.sqrt(squareSum / Math.max(1, count));
+            const target = rms < threshold ? 0.22 : 1;
+            const coefficient = target < envelope ? reduceCoefficient : restoreCoefficient;
+            for (let i = start; i < end; i++) {
+              envelope += (target - envelope) * coefficient;
+              for (const samples of channels) samples[i] *= envelope;
+            }
+          }
+        }
+        if (closed) return;
+        processedFile = encodeWav(cleaned);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = URL.createObjectURL(processedFile);
+        preview.src = previewUrl;
+        preview.hidden = false;
+        addButton.disabled = false;
+        statusLabel.textContent = `Ready · ${cleaned.duration.toFixed(1)} seconds · mono WAV normalized to -1 dB peak`;
+      } finally {
+        processing = false;
+        if (!closed) {
+          recordButton.disabled = false;
+          audioFileInput.disabled = false;
+        }
+      }
+    };
+    const formatElapsed = seconds => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+    recordButton.onclick = guard(async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+        throw new Error('Microphone recording is not supported in this browser. You can still choose an audio file to clean.');
+      }
+      const acquiredStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: $('#studio-voice-noise-reduction', modal).checked,
+          noiseSuppression: $('#studio-voice-noise-reduction', modal).checked,
+          autoGainControl: true,
+        },
+      });
+      if (closed) {
+        acquiredStream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      stream = acquiredStream;
+      chunks = [];
+      recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+      recorder.onerror = event => {
+        releaseStream();
+        toast(`Microphone recording failed: ${event.error && event.error.message || 'unknown error'}`, true);
+      };
+      recorder.onstop = async () => {
+        const recorded = new Blob(chunks, { type: recorder && recorder.mimeType || 'audio/webm' });
+        releaseStream();
+        if (!closed && recorded.size) {
+          try { await processAudio(recorded); } catch (error) { statusLabel.textContent = error.message || String(error); }
+        }
+      };
+      recorder.start(1000);
+      startedAt = Date.now();
+      elapsedSeconds = 0;
+      recordButton.disabled = true;
+      stopButton.disabled = false;
+      audioFileInput.disabled = true;
+      processedFile = null;
+      addButton.disabled = true;
+      preview.hidden = true;
+      statusLabel.textContent = 'Recording…';
+      timerLabel.textContent = '0:00 / 3:00';
+      timer = setInterval(() => {
+        elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+        timerLabel.textContent = `${formatElapsed(elapsedSeconds)} / 3:00`;
+        if (elapsedSeconds >= maxRecordingSeconds && recorder && recorder.state === 'recording') recorder.stop();
+      }, 250);
+    });
+    stopButton.onclick = () => {
+      if (recorder && recorder.state === 'recording') {
+        stopButton.disabled = true;
+        recordButton.disabled = true;
+        statusLabel.textContent = 'Finishing recording…';
+        recorder.stop();
+      }
+    };
+    audioFileInput.onchange = guard(async event => {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (!file) return;
+      statusLabel.textContent = `Loading ${file.name}…`;
+      try { await processAudio(file); } catch (error) { statusLabel.textContent = error.message || String(error); throw error; }
+    });
+    $('#studio-voice-add', modal).onclick = guard(async () => {
+      if (!processedFile || processing) return;
+      await addStudioAudio(processedFile);
+      modal.close();
+    });
+    modal.querySelector('[data-close]').focus();
   });
 
   $('#studio-upload').onchange = guard(async e => {

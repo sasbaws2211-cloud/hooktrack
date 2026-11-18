@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -79,6 +79,7 @@ def sniff_image(head: bytes) -> Optional[str]:
 
 
 AUDIO_TYPES = {"mp3": "audio/mpeg", "wav": "audio/wav", "m4a": "audio/mp4", "ogg": "audio/ogg"}
+STUDIO_FONTS = {"Roboto", "Arial", "Montserrat", "Poppins", "Inter"}
 
 
 def sniff_audio(head: bytes) -> Optional[str]:
@@ -138,6 +139,7 @@ def remove_file(ws: int, pid: int) -> None:
 def purge_post_files(ws: int, pid: int) -> None:
     shutil.rmtree(UPLOAD_ROOT / str(ws) / "videos" / str(pid), ignore_errors=True)
     shutil.rmtree(UPLOAD_ROOT / str(ws) / "images" / str(pid), ignore_errors=True)
+    shutil.rmtree(UPLOAD_ROOT / str(ws) / "studio-covers" / str(pid), ignore_errors=True)
 
 
 # ---------- images (photo post or carousel): an ordered list per post, in post_media ----------
@@ -474,6 +476,146 @@ def image_file(pid: int, media_id: int, ctx: Ctx = Depends(current), ext: str = 
         raise HTTPException(404, "Image not found")
     return FileResponse(f, media_type=row["content_type"] or "image/jpeg",
                         headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+
+# ---------- Studio cover: one reusable, separately stored cover image per post ----------
+
+def get_studio_cover(ws: int, pid: int) -> Optional[dict]:
+    row = db.one(
+        """SELECT file_name, file_size, content_type, title, logo_text, primary_color, accent_color,
+                  font_family, updated_at, file_path
+             FROM post_studio_covers WHERE post_id=%s AND workspace_id=%s""", (pid, ws))
+    if row is None:
+        return None
+    available = _abs(row.pop("file_path")) is not None
+    if hasattr(row.get("updated_at"), "isoformat"):
+        row["updated_at"] = row["updated_at"].isoformat()
+    row["available"] = available
+    row["url"] = f"/api/posts/{pid}/studio-cover/file" if available else ""
+    return row
+
+
+@router.get("/api/posts/{pid}/studio-cover")
+def studio_cover_get(pid: int, ctx: Ctx = Depends(current)):
+    _post(ctx.workspace_id, pid)
+    return get_studio_cover(ctx.workspace_id, pid)
+
+
+@router.put("/api/posts/{pid}/studio-cover")
+async def studio_cover_save(
+    pid: int,
+    request: Request,
+    file: UploadFile = File(...),
+    title: str = Form("", max_length=100),
+    logo_text: str = Form("", max_length=60),
+    primary_color: str = Form("#ffffff", pattern=r"^#[0-9a-fA-F]{6}$"),
+    accent_color: str = Form("#ffe15a", pattern=r"^#[0-9a-fA-F]{6}$"),
+    font_family: str = Form("Roboto", max_length=20),
+    ctx: Ctx = Depends(current),
+):
+    ws = ctx.workspace_id
+    _post(ws, pid)
+    _unlocked(ws, pid)
+    if font_family not in STUDIO_FONTS:
+        raise HTTPException(400, "Choose a supported cover font.")
+    limit = max_image_bytes()
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > limit + 8192:
+        raise HTTPException(413, f"That cover is too large. The limit is {limit // (1024 * 1024)} MB.")
+    folder = UPLOAD_ROOT / str(ws) / "studio-covers" / str(pid)
+    folder.mkdir(parents=True, exist_ok=True)
+    tmp = folder / f".incoming-{secrets.token_hex(6)}"
+    size, kind = 0, None
+    try:
+        with open(tmp, "wb") as out:
+            while True:
+                chunk = await file.read(CHUNK)
+                if not chunk:
+                    break
+                if kind is None:
+                    kind = sniff_image(chunk[:16])
+                    if kind is None:
+                        raise HTTPException(415, "The cover must be a JPEG, PNG or WebP image.")
+                size += len(chunk)
+                if size > limit:
+                    raise HTTPException(413, f"That cover is too large. The limit is {limit // (1024 * 1024)} MB.")
+                out.write(chunk)
+        if size == 0 or kind is None:
+            raise HTTPException(400, "The cover image is empty.")
+        final = folder / f"{secrets.token_urlsafe(18)}.{kind}"
+        os.replace(tmp, final)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+    relative_path = f"{ws}/studio-covers/{pid}/{final.name}"
+    name = f"cover.{kind}"
+    try:
+        old = db.one("SELECT file_path FROM post_studio_covers WHERE post_id=%s AND workspace_id=%s", (pid, ws))
+        db.one(
+            """INSERT INTO post_studio_covers
+                   (workspace_id, post_id, file_path, file_name, file_size, content_type,
+                    title, logo_text, primary_color, accent_color, font_family, updated_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
+               ON CONFLICT (post_id) DO UPDATE SET
+                   workspace_id=EXCLUDED.workspace_id, file_path=EXCLUDED.file_path,
+                   file_name=EXCLUDED.file_name, file_size=EXCLUDED.file_size,
+                   content_type=EXCLUDED.content_type, title=EXCLUDED.title,
+                   logo_text=EXCLUDED.logo_text, primary_color=EXCLUDED.primary_color,
+                   accent_color=EXCLUDED.accent_color, font_family=EXCLUDED.font_family,
+                   updated_at=now()
+               RETURNING file_path""",
+            (ws, pid, relative_path, name, size, IMAGE_TYPES[kind], title.strip(), logo_text.strip(),
+             primary_color.lower(), accent_color.lower(), font_family))
+    except Exception:
+        try:
+            final.unlink()
+        except OSError:
+            pass
+        raise
+    if old and old.get("file_path") != relative_path:
+        previous = _abs(old["file_path"])
+        if previous:
+            try:
+                previous.unlink()
+            except OSError:
+                pass
+    return get_studio_cover(ws, pid)
+
+
+@router.get("/api/posts/{pid}/studio-cover/file")
+def studio_cover_file(pid: int, ctx: Ctx = Depends(current)):
+    _post(ctx.workspace_id, pid)
+    row = db.one(
+        "SELECT file_path, content_type FROM post_studio_covers WHERE post_id=%s AND workspace_id=%s",
+        (pid, ctx.workspace_id))
+    f = _abs(row["file_path"]) if row else None
+    if not f:
+        raise HTTPException(404, "No saved Studio cover for this post.")
+    return FileResponse(f, media_type=row["content_type"] or "image/png",
+                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@router.delete("/api/posts/{pid}/studio-cover")
+def studio_cover_delete(pid: int, ctx: Ctx = Depends(current)):
+    ws = ctx.workspace_id
+    _post(ws, pid)
+    _unlocked(ws, pid)
+    row = db.one("SELECT file_path FROM post_studio_covers WHERE post_id=%s AND workspace_id=%s", (pid, ws))
+    if row is None:
+        raise HTTPException(404, "No saved Studio cover for this post.")
+    db.execute("DELETE FROM post_studio_covers WHERE post_id=%s AND workspace_id=%s", (pid, ws))
+    cover_file = _abs(row["file_path"])
+    if cover_file:
+        try:
+            cover_file.unlink()
+        except OSError:
+            pass
+    shutil.rmtree(UPLOAD_ROOT / str(ws) / "studio-covers" / str(pid), ignore_errors=True)
+    return {"ok": True}
 
 
 @router.get("/media/i/{ws}/{pid}/{media_id}/{exp}/{sig}")

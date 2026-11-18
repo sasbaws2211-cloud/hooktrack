@@ -325,6 +325,7 @@ def _get_post(ws: int, post_id: int) -> dict:
         raise HTTPException(404, "Post not found")
     out = _post_out(row, logic.get_settings(ws))
     out["images"] = media.list_images(ws, post_id)
+    out["studio_cover"] = media.get_studio_cover(ws, post_id)
     approvals.annotate(ws, [out])
     return out
 

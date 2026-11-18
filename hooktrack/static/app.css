@@ -1671,6 +1671,30 @@ th { font-size: 10.5px; letter-spacing: .075em; }
   background: #000;
   object-fit: contain;
 }
+.studio-voiceover-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.studio-voiceover-file {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+.studio-voiceover-file input[type="file"] {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.studio-voice-preview {
+  display: block;
+  width: 100%;
+  margin: 12px 0 4px;
+}
 .studio-tool-buttons .btn.primary { color: var(--accent-text); }
 .studio-tool-buttons .btn.danger:not(:disabled) {
   color: var(--bad);
