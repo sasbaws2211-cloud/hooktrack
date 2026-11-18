@@ -2777,6 +2777,27 @@ pages.studio = async app => {
     return;
   }
   const sessionDraftKey = `hooktrack:studio-draft:${post.id}`;
+  const brandKitStorageKey = `hooktrack:studio-brand-kit:${state.me && state.me.workspace && state.me.workspace.id || 'browser'}`;
+  const defaultBrandKit = { logoText: '', primaryColor: '#ffffff', accentColor: '#ffe15a', fontFamily: 'Roboto' };
+  const studioFonts = ['Roboto', 'Arial', 'Montserrat', 'Poppins', 'Inter'];
+  const readStudioBrandKit = () => {
+    let saved;
+    try { saved = localStorage.getItem(brandKitStorageKey); } catch (error) {
+      throw new Error(`Could not read the saved brand kit: ${error.message || error}`);
+    }
+    if (!saved) return { ...defaultBrandKit };
+    let parsed;
+    try { parsed = JSON.parse(saved); } catch (error) {
+      throw new Error(`The saved brand kit is invalid: ${error.message || error}`);
+    }
+    const color = value => /^#[0-9a-f]{6}$/i.test(value || '') ? value : null;
+    return {
+      logoText: typeof parsed.logoText === 'string' ? parsed.logoText.slice(0, 60) : '',
+      primaryColor: color(parsed.primaryColor) || defaultBrandKit.primaryColor,
+      accentColor: color(parsed.accentColor) || defaultBrandKit.accentColor,
+      fontFamily: studioFonts.includes(parsed.fontFamily) ? parsed.fontFamily : defaultBrandKit.fontFamily,
+    };
+  };
   let sessionDraft = null;
   try {
     const saved = sessionStorage.getItem(sessionDraftKey);
@@ -2842,6 +2863,19 @@ pages.studio = async app => {
               ${state.shotstack && state.shotstack.configured ? '<button class="btn sm" id="studio-add-ai" disabled title="Generate and add a clip">+ AI clip</button>' : ''}
               <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
               <input type="file" id="studio-audio-upload" accept="audio/mpeg,audio/mp3,audio/mp4,audio/wav,audio/x-wav,audio/aac,audio/ogg" hidden>
+            </div>
+          </section>
+          <section class="studio-tool-group studio-tool-group-creator" aria-label="Creator tools">
+            <div class="studio-tool-label">Creator tools</div>
+            <div class="studio-tool-buttons">
+              <select id="studio-format-preset" aria-label="Output format" title="Choose an output format">
+                <option value="">Current format</option>
+                <option value="9:16">TikTok / Reels / Shorts · 9:16</option><option value="1:1">Square feed · 1:1</option>
+                <option value="4:5">Portrait feed · 4:5</option><option value="16:9">YouTube / landscape · 16:9</option>
+              </select>
+              <button class="btn sm" id="studio-safe-area" type="button" aria-pressed="false" title="Show guides for keeping important content clear of interface overlays">Safe area</button>
+              <button class="btn sm" id="studio-brand-kit" type="button">Brand kit</button>
+              <button class="btn sm" id="studio-cover-editor" type="button" title="Create and download a cover image from the current frame">Cover</button>
             </div>
           </section>
           <section class="studio-tool-group studio-tool-group-selection" aria-label="Selected clip tools">
@@ -3050,6 +3084,146 @@ pages.studio = async app => {
     ui = UIController.create(edit, canvas, { mergeFields: true });
     await canvas.load();
     await edit.load();
+    const studioPreview = $('[data-shotstack-studio]', app);
+    const formatPreset = $('#studio-format-preset');
+    const currentAspectRatio = edit.getOutputAspectRatio();
+    if (currentAspectRatio && Array.from(formatPreset.options).some(option => option.value === currentAspectRatio)) {
+      formatPreset.value = currentAspectRatio;
+    }
+    const safeAreaOverlay = document.createElement('div');
+    safeAreaOverlay.className = 'studio-safe-area-overlay';
+    safeAreaOverlay.setAttribute('aria-hidden', 'true');
+    safeAreaOverlay.innerHTML = '<span>Keep key text and faces inside this area</span><i></i>';
+    safeAreaOverlay.hidden = true;
+    studioPreview.style.position = 'relative';
+    studioPreview.append(safeAreaOverlay);
+    formatPreset.onchange = guard(async event => {
+      if (!event.target.value) return;
+      const result = await edit.setOutputAspectRatio(event.target.value);
+      if (result.status !== 'success') throw new Error(result.message || 'Could not change the output format.');
+      setStatus(`Output format set to ${event.target.options[event.target.selectedIndex].text}`, true);
+    });
+    $('#studio-safe-area').onclick = event => {
+      const enabled = safeAreaOverlay.hidden;
+      safeAreaOverlay.hidden = !enabled;
+      event.currentTarget.setAttribute('aria-pressed', String(enabled));
+    };
+    $('#studio-brand-kit').onclick = guard(async () => {
+      const brand = readStudioBrandKit();
+      const modal = openModal(`
+        <div class="modal-head"><h2>Workspace brand kit</h2><button class="icon-btn" type="button" data-close aria-label="Close">×</button></div>
+        <p class="small muted">Saved in this browser for this workspace. Applied to generated captions and cover exports.</p>
+        <label>Logo or brand name<input id="studio-brand-logo" maxlength="60" value="${esc(brand.logoText)}" placeholder="Your brand"></label>
+        <div class="studio-brand-fields">
+          <label>Primary color<input id="studio-brand-primary" type="color" value="${brand.primaryColor}"></label>
+          <label>Accent color<input id="studio-brand-accent" type="color" value="${brand.accentColor}"></label>
+          <label>Font
+            <select id="studio-brand-font">${studioFonts.map(font => `<option value="${font}"${font === brand.fontFamily ? ' selected' : ''}>${font}</option>`).join('')}</select>
+          </label>
+        </div>
+        <div class="modal-actions"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" id="studio-brand-save" type="button">Save brand kit</button></div>
+      `);
+      $('#studio-brand-save', modal).onclick = guard(async () => {
+        const next = {
+          logoText: $('#studio-brand-logo', modal).value.trim(),
+          primaryColor: $('#studio-brand-primary', modal).value,
+          accentColor: $('#studio-brand-accent', modal).value,
+          fontFamily: $('#studio-brand-font', modal).value,
+        };
+        try { localStorage.setItem(brandKitStorageKey, JSON.stringify(next)); } catch (error) {
+          throw new Error(`Could not save the brand kit in this browser: ${error.message || error}`);
+        }
+        modal.close();
+        toast('Brand kit saved for this workspace in this browser.');
+      });
+    });
+    $('#studio-cover-editor').onclick = guard(async () => {
+      if (!hasStudioContent()) throw new Error('Add video or image media before creating a cover.');
+      const brand = readStudioBrandKit();
+      const modal = openModal(`
+        <div class="modal-head"><h2>Create a cover image</h2><button class="icon-btn" type="button" data-close aria-label="Close">×</button></div>
+        <p class="small muted">Uses the current playhead frame and output format. Download the PNG, then add it wherever you publish the post.</p>
+        <label>Cover title<input id="studio-cover-title" maxlength="100" value="${esc(short(post.hook || post.caption || '', 100))}" placeholder="Add a short, readable title"></label>
+        <label>Brand name<input id="studio-cover-logo" maxlength="60" value="${esc(brand.logoText)}" placeholder="Optional"></label>
+        <div class="studio-brand-fields">
+          <label>Text color<input id="studio-cover-primary" type="color" value="${brand.primaryColor}"></label>
+          <label>Accent color<input id="studio-cover-accent" type="color" value="${brand.accentColor}"></label>
+          <label>Font
+            <select id="studio-cover-font">${studioFonts.map(font => `<option value="${font}"${font === brand.fontFamily ? ' selected' : ''}>${font}</option>`).join('')}</select>
+          </label>
+        </div>
+        <canvas id="studio-cover-preview" class="studio-cover-preview" aria-label="Cover image preview"></canvas>
+        <div class="modal-actions"><button class="btn" type="button" data-close>Close</button><button class="btn primary" id="studio-cover-download" type="button" disabled>Download PNG</button></div>
+      `, true);
+      const preview = $('#studio-cover-preview', modal);
+      const download = $('#studio-cover-download', modal);
+      edit.seek(Math.max(0, Number(edit.playbackTime) || 0));
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const frameData = await canvas.captureFrame({ format: 'png' });
+      const frame = new Image();
+      frame.src = frameData;
+      await frame.decode();
+      const drawCover = () => {
+        if (!frame.naturalWidth || !frame.naturalHeight) throw new Error('The captured frame has no image dimensions.');
+        preview.width = frame.naturalWidth;
+        preview.height = frame.naturalHeight;
+        const ctx = preview.getContext('2d');
+        if (!ctx) throw new Error('Could not prepare the cover image preview.');
+        ctx.drawImage(frame, 0, 0);
+        const shade = ctx.createLinearGradient(0, preview.height * 0.38, 0, preview.height);
+        shade.addColorStop(0, 'rgba(0,0,0,0)');
+        shade.addColorStop(1, 'rgba(0,0,0,0.78)');
+        ctx.fillStyle = shade;
+        ctx.fillRect(0, 0, preview.width, preview.height);
+        const title = $('#studio-cover-title', modal).value.trim();
+        const logo = $('#studio-cover-logo', modal).value.trim();
+        const scale = preview.width / 1080;
+        const fontFamily = $('#studio-cover-font', modal).value;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.shadowBlur = 12 * scale;
+        if (logo) {
+          ctx.font = `700 ${Math.round(34 * scale)}px "${fontFamily}", sans-serif`;
+          ctx.fillStyle = $('#studio-cover-accent', modal).value;
+          ctx.fillText(logo, preview.width / 2, preview.height * 0.13, preview.width * 0.82);
+        }
+        if (title) {
+          const fontSize = Math.round(Math.min(82 * scale, preview.width * 0.095));
+          ctx.font = `800 ${fontSize}px "${fontFamily}", sans-serif`;
+          ctx.fillStyle = $('#studio-cover-primary', modal).value;
+          const lines = [];
+          let line = '';
+          for (const word of title.split(/\s+/)) {
+            const candidate = line ? `${line} ${word}` : word;
+            if (line && ctx.measureText(candidate).width > preview.width * 0.82) {
+              lines.push(line);
+              line = word;
+            } else line = candidate;
+          }
+          if (line) lines.push(line);
+          const lineHeight = fontSize * 1.12;
+          const top = preview.height * 0.76 - (lines.length - 1) * lineHeight / 2;
+          lines.forEach((text, index) => ctx.fillText(text, preview.width / 2, top + index * lineHeight, preview.width * 0.84));
+        }
+        ctx.shadowBlur = 0;
+        download.disabled = false;
+      };
+      ['studio-cover-title', 'studio-cover-logo', 'studio-cover-primary', 'studio-cover-accent', 'studio-cover-font']
+        .forEach(id => $(`#${id}`, modal).addEventListener('input', guard(drawCover)));
+      download.onclick = guard(async () => {
+        const blob = await new Promise(resolve => preview.toBlob(resolve, 'image/png'));
+        if (!blob) throw new Error('The cover image could not be encoded as PNG.');
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `hooktrack-cover-${post.id}.png`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toast('Cover image downloaded.');
+      });
+      drawCover();
+    });
     const sdkCanDeleteClip = edit.canDeleteClip.bind(edit);
     const sdkDeleteClip = edit.deleteClip.bind(edit);
     const countEditClips = () => edit.getEdit().timeline.tracks.reduce(
@@ -3344,16 +3518,17 @@ pages.studio = async app => {
         (c.asset.src === `alias://${clip.alias}` || c.alias === localCaptionMarker(clip))))) {
         throw new Error('This video already has captions. Remove that caption clip before generating another set.');
       }
+      const brandKit = readStudioBrandKit();
       const presets = {
-        classic: { color: '#ffffff', active: '#ffe15a', background: false, stroke: 2, weight: 700 },
-        bold: { color: '#ffffff', active: '#ffcf24', background: false, stroke: 3, weight: 900 },
-        neon: { color: '#ffffff', active: '#5dffda', background: false, stroke: 2, weight: 800 },
-        boxed: { color: '#ffffff', active: '#ffffff', background: true, stroke: 0, weight: 700 },
-        minimal: { color: '#f5f5f5', active: '#f5f5f5', background: false, stroke: 0, weight: 500 },
+        classic: { color: brandKit.primaryColor, active: brandKit.accentColor, background: false, stroke: 2, weight: 700 },
+        bold: { color: brandKit.primaryColor, active: brandKit.accentColor, background: false, stroke: 3, weight: 900 },
+        neon: { color: brandKit.primaryColor, active: brandKit.accentColor, background: false, stroke: 2, weight: 800 },
+        boxed: { color: brandKit.primaryColor, active: brandKit.accentColor, background: true, stroke: 0, weight: 700 },
+        minimal: { color: brandKit.primaryColor, active: brandKit.primaryColor, background: false, stroke: 0, weight: 500 },
       };
       const modal = openModal(`
         <div class="modal-head"><h2>Transcribe on this device</h2><button class="icon-btn" type="button" data-close aria-label="Close">×</button></div>
-        <p class="studio-caption-privacy">Your selected clip's audio is processed in this browser and is not uploaded for transcription. First use downloads the transcription runtime and Whisper Tiny model (tens of megabytes); later uses can reuse the cached model. Word timing is estimated within Whisper's timestamped segments.</p>
+        <p class="studio-caption-privacy">Your selected clip's audio is processed in this browser and is not uploaded for transcription. Word timing is estimated within Whisper's timestamped segments.</p>
         <div class="studio-caption-progress" role="status" aria-live="polite">
           <span id="studio-caption-progress-label">Ready to transcribe.</span>
           <progress id="studio-caption-progress" max="100" value="0"></progress>
@@ -3378,8 +3553,8 @@ pages.studio = async app => {
               <option value="topRight">Top right</option>
             </select>
           </label>
-          <label>Text color <input id="studio-caption-color" type="color" value="#ffffff"></label>
-          <label>Active word <input id="studio-caption-active-color" type="color" value="#ffe15a"></label>
+          <label>Text color <input id="studio-caption-color" type="color" value="${brandKit.primaryColor}"></label>
+          <label>Active word <input id="studio-caption-active-color" type="color" value="${brandKit.accentColor}"></label>
           <label>Font size <output id="studio-caption-size-value">44 px</output>
             <input id="studio-caption-size" type="range" min="24" max="80" step="2" value="44">
           </label>
@@ -3573,7 +3748,7 @@ pages.studio = async app => {
             type: 'rich-caption',
             src: `data:text/vtt;charset=utf-8,${encodeURIComponent(vtt)}`,
             font: {
-              family: 'Roboto',
+              family: brandKit.fontFamily,
               size: Number($('#studio-caption-size', modal).value),
               weight: preset.weight,
               color: textColorInput.value,
