@@ -1,7 +1,9 @@
 import os
+import struct
 import sys
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -286,6 +288,86 @@ def _campaign_values(**overrides):
     return ads.CampaignDraftIn(**values).model_dump(mode="json")
 
 
+@pytest.mark.parametrize(
+    ("campaign_type", "creative_type"),
+    [("search", "text"), ("demand_gen", "video")],
+)
+def test_google_campaign_draft_can_be_created_without_general_media(monkeypatch, campaign_type, creative_type):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "google-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda query, params: calls.append((query, params)) or {
+        "id": 55, "status": "draft", "created_at": "now",
+    })
+    body = ads.CampaignDraftIn(**_campaign_values(
+        platform="google",
+        ad_connection_id="google-connection",
+        ad_account_id="customer-123",
+        google_campaign_type=campaign_type,
+        creative_type=creative_type,
+        media_asset_id=None,
+        post_id=None,
+        interests=[],
+        placement_platforms=[],
+        special_ad_categories=[],
+        pixel_id="",
+        url_tags="",
+    ))
+
+    result = ads.create_campaign_draft(body, _ctx())
+
+    assert result["status"] == "draft"
+    assert "INSERT INTO ad_campaign_drafts" in calls[0][0]
+    assert calls[0][1][3] == "google"
+
+
+@pytest.mark.parametrize(
+    ("campaign_type", "creative_type"),
+    [("search", "text"), ("demand_gen", "video")],
+)
+def test_google_campaign_draft_can_be_updated_without_general_media(monkeypatch, campaign_type, creative_type):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "google-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda query, params: calls.append((query, params)) or {
+        "id": 55, "status": "draft",
+    })
+    body = ads.CampaignDraftIn(**_campaign_values(
+        platform="google",
+        ad_connection_id="google-connection",
+        ad_account_id="customer-123",
+        google_campaign_type=campaign_type,
+        creative_type=creative_type,
+        media_asset_id=None,
+        post_id=None,
+        interests=[],
+        placement_platforms=[],
+        special_ad_categories=[],
+        pixel_id="",
+        url_tags="",
+    ))
+
+    result = ads.update_campaign_draft(55, body, _ctx())
+
+    assert result == {"id": 55, "status": "draft"}
+    assert "UPDATE ad_campaign_drafts SET" in calls[0][0]
+    assert calls[0][1][2] == "google"
+
+
+@pytest.mark.parametrize("operation", ["create", "update"])
+def test_non_google_campaign_drafts_still_require_exactly_one_media_choice(monkeypatch, operation):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: pytest.fail("database should not be called"))
+    body = ads.CampaignDraftIn(**_campaign_values(media_asset_id=None, post_id=None))
+
+    with pytest.raises(HTTPException) as error:
+        if operation == "create":
+            ads.create_campaign_draft(body, _ctx())
+        else:
+            ads.update_campaign_draft(55, body, _ctx())
+
+    assert error.value.status_code == 400
+    assert "Choose exactly one" in error.value.detail
+
+
 def test_meta_campaign_draft_maps_to_paused_create_payload(monkeypatch):
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
     monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "image/png"})
@@ -396,8 +478,10 @@ def test_google_search_campaign_maps_keywords_and_rsa_text(monkeypatch):
 def test_google_youtube_demand_gen_campaign_uses_video_id_and_uploaded_logo(monkeypatch):
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "google-connection"})
     monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {
-        "content_type": "image/png", "file_size": 1024,
+        "file_path": "7/ads/logo.png", "content_type": "image/png", "file_size": 1024,
     })
+    monkeypatch.setattr(ads.media, "_abs", lambda _path: Path("logo.png"))
+    monkeypatch.setattr(ads, "_image_dimensions", lambda _path: (512, 512))
     monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/logo.png")
     values = _campaign_values(
         platform="google",
@@ -429,6 +513,59 @@ def test_google_youtube_demand_gen_campaign_uses_video_id_and_uploaded_logo(monk
     assert request["demandGen"]["businessName"] == "HookTrack"
     assert "goal" not in request
     assert "imageUrl" not in request
+
+
+@pytest.mark.parametrize(
+    ("image_data", "expected_dimensions"),
+    [
+        (b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", 300, 300),
+         (300, 300)),
+        (b"\xff\xd8\xff\xc0\x00\x0b\x08\x00\x64\x00\x80\x03", (128, 100)),
+        (b"not an image", None),
+        (b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", 0, 0), None),
+    ],
+)
+def test_campaign_logo_dimension_reader(image_data, expected_dimensions, tmp_path):
+    image_path = tmp_path / "logo"
+    image_path.write_bytes(image_data)
+
+    assert ads._image_dimensions(image_path) == expected_dimensions
+
+
+@pytest.mark.parametrize("dimensions", [None, (640, 320)])
+def test_google_demand_gen_rejects_invalid_or_non_square_logo(monkeypatch, dimensions):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "google-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {
+        "file_path": "7/ads/logo.png", "content_type": "image/png", "file_size": 1024,
+    })
+    monkeypatch.setattr(ads.media, "_abs", lambda _path: Path("logo.png"))
+    monkeypatch.setattr(ads, "_image_dimensions", lambda _path: dimensions)
+    values = _campaign_values(
+        platform="google",
+        ad_connection_id="google-connection",
+        ad_account_id="customer-123",
+        google_campaign_type="demand_gen",
+        headline="Watch us work",
+        body="Social marketing made easier.",
+        google_business_name="HookTrack",
+        google_long_headline="Make every social campaign easier to manage",
+        youtube_video_id="abcdefghijk",
+        brand_logo_asset_id=42,
+        media_asset_id=None,
+        creative_type="video",
+        objective="traffic",
+        interests=[],
+        placement_platforms=[],
+        special_ad_categories=[],
+        pixel_id="",
+        url_tags="",
+    )
+
+    with pytest.raises(HTTPException) as error:
+        ads._campaign_request(7, values)
+
+    assert error.value.status_code == 400
+    assert "square JPEG or PNG" in error.value.detail
 
 
 def test_linkedin_campaign_maps_single_image_and_company_page(monkeypatch):
@@ -611,6 +748,23 @@ def test_google_campaign_create_explicitly_confirms_paused_status(monkeypatch):
     assert pause_calls == [("google-campaign", "paused", "google")]
 
 
+def test_linkedin_campaign_create_requires_all_activation_ids(monkeypatch):
+    updates = []
+    monkeypatch.setattr(ads.latehub, "create_standalone_ad", lambda *_args: {
+        "ad": {"_id": "zernio-ad", "platformCampaignId": "group-1"},
+    })
+    monkeypatch.setattr(ads.db, "execute", lambda query, params: updates.append((query, params)))
+
+    with pytest.raises(HTTPException) as error:
+        ads._campaign_create_result(
+            7, 42, {"name": "Spring launch"}, "linkedin-key", "linkedin",
+        )
+
+    assert error.value.status_code == 502
+    assert "required campaign identifiers" in error.value.detail
+    assert updates[0][1][2:5] == ("group-1", "", "zernio-ad")
+
+
 def test_linkedin_campaign_launch_enables_group_campaign_and_ad_in_order(monkeypatch):
     calls = []
     monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {
@@ -633,6 +787,50 @@ def test_linkedin_campaign_launch_enables_group_campaign_and_ad_in_order(monkeyp
         ("campaign", ("campaign-1", "active", "linkedin")),
         ("ad", ("ad-1", "active", "linkedin")),
     ]
+
+
+def test_linkedin_campaign_with_incomplete_ids_cannot_be_launched(monkeypatch):
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {
+        "id": 42, "status": "paused", "platform": "linkedin", "platform_campaign_id": "group-1",
+        "platform_ad_set_id": "", "zernio_ad_id": "ad-1", "pending_status": "",
+    })
+    monkeypatch.setattr(ads.db, "execute", lambda *_args: pytest.fail("status should not be updated"))
+    monkeypatch.setattr(
+        ads.latehub, "update_ad_campaign_status",
+        lambda *_args: pytest.fail("provider should not be called"),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        ads.update_campaign_status(42, ads.CampaignStatusIn(status="active"), _ctx())
+
+    assert error.value.status_code == 409
+    assert "identifiers are incomplete" in error.value.detail
+
+
+@pytest.mark.parametrize(
+    ("provider_status", "expected_status", "pending_should_remain"),
+    [(403, 403, False), (503, 502, True)],
+)
+def test_campaign_status_error_code_matches_provider_certainty(
+    monkeypatch, provider_status, expected_status, pending_should_remain,
+):
+    updates = []
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {
+        "id": 42, "status": "paused", "platform": "meta", "platform_campaign_id": "campaign-1",
+        "platform_ad_set_id": "adset-1", "zernio_ad_id": "ad-1", "pending_status": "",
+    })
+    monkeypatch.setattr(ads.db, "execute", lambda query, params: updates.append((query, params)))
+
+    def fail_provider(*_args, **_kwargs):
+        raise latehub.LateHubError("provider rejected status change", provider_status)
+
+    monkeypatch.setattr(ads.latehub, "update_ad_campaign_status", fail_provider)
+
+    with pytest.raises(HTTPException) as error:
+        ads.update_campaign_status(42, ads.CampaignStatusIn(status="active"), _ctx())
+
+    assert error.value.status_code == expected_status
+    assert ("pending_status=''" in updates[-1][0]) is not pending_should_remain
 
 
 def test_campaign_reporting_merges_selected_accounts_for_all_builder_platforms(monkeypatch):

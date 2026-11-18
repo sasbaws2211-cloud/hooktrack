@@ -6,9 +6,11 @@ import hmac
 import os
 import re
 import secrets
+import struct
 import time
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -138,7 +140,7 @@ def _connections(workspace_id: int) -> list[dict]:
     try:
         return latehub.ads_connections(workspace_id)
     except latehub.LateHubError as error:
-        raise HTTPException(502, str(error)) from error
+        raise HTTPException(502 if unknown else error.status or 502, str(error)) from error
 
 
 def _connection(workspace_id: int, platform: str, account_id: str) -> dict:
@@ -162,7 +164,7 @@ def _selected_ad_account(
     try:
         accounts = latehub.ad_accounts(connection["id"])
     except latehub.LateHubError as error:
-        raise HTTPException(502, str(error)) from error
+        raise HTTPException(502 if unknown else error.status or 502, str(error)) from error
     account = next((item for item in accounts
                     if item["id"] == ad_account_id and item.get("selected")), None)
     if not account:
@@ -184,6 +186,52 @@ def _asset_url(workspace_id: int, asset_id: int) -> str:
     exp = int(time.time()) + media.SIGNED_TTL_S
     sig = media._sign(workspace_id, asset_id, row["file_path"], exp)
     return f"{base}/api/ads/media/ads/{workspace_id}/{asset_id}/{exp}/{sig}"
+
+
+def _image_dimensions(path: Path) -> tuple[int, int] | None:
+    try:
+        with path.open("rb") as image:
+            header = image.read(24)
+            if header.startswith(b"\x89PNG\r\n\x1a\n"):
+                if len(header) < 24 or struct.unpack(">I", header[8:12])[0] != 13 or header[12:16] != b"IHDR":
+                    return None
+                width, height = struct.unpack(">II", header[16:24])
+                return (width, height) if width and height else None
+            if not header.startswith(b"\xff\xd8"):
+                return None
+            image.seek(2)
+            while True:
+                prefix = image.read(1)
+                while prefix and prefix != b"\xff":
+                    prefix = image.read(1)
+                while prefix == b"\xff":
+                    prefix = image.read(1)
+                if not prefix:
+                    return None
+                marker = prefix[0]
+                if marker in (0xD8, 0xD9, 0x01) or 0xD0 <= marker <= 0xD7:
+                    if marker == 0xD9:
+                        return None
+                    continue
+                segment_length = image.read(2)
+                if len(segment_length) != 2:
+                    return None
+                length = struct.unpack(">H", segment_length)[0]
+                if length < 2:
+                    return None
+                if marker in {
+                    0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF,
+                }:
+                    frame = image.read(5)
+                    if len(frame) != 5:
+                        return None
+                    height, width = struct.unpack(">HH", frame[1:5])
+                    return (width, height) if width and height else None
+                if marker == 0xDA:
+                    return None
+                image.seek(length - 2, 1)
+    except OSError as error:
+        raise HTTPException(400, "Could not read the uploaded logo. Upload it again.") from error
 
 
 def _post_media_url(workspace_id: int, post_id: int, creative_type: str, platform: str = "meta") -> str:
@@ -242,6 +290,16 @@ def _url_tags(value: str) -> list[dict]:
     return tags
 
 
+def _validate_campaign_media_choice(platform: str, media_asset_id: int | None, post_id: int | None) -> None:
+    if platform == "google":
+        if media_asset_id is not None or post_id is not None:
+            raise HTTPException(
+                400, "Google campaigns use campaign-type-specific creative fields, not general media.")
+        return
+    if (media_asset_id is None) == (post_id is None):
+        raise HTTPException(400, "Choose exactly one uploaded asset or existing published post.")
+
+
 def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
     platform = values.get("platform", "meta")
     values = {
@@ -264,8 +322,7 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
     is_google_search = platform == "google" and values["google_campaign_type"] == "search"
     is_google_demand_gen = platform == "google" and values["google_campaign_type"] == "demand_gen"
     needs_media = platform in ("meta", "tiktok", "linkedin")
-    if needs_media and (values["media_asset_id"] is None) == (values["post_id"] is None):
-        raise HTTPException(400, "Choose exactly one uploaded asset or existing published post.")
+    _validate_campaign_media_choice(platform, values["media_asset_id"], values["post_id"])
     if is_google_demand_gen and not values["brand_logo_asset_id"]:
         raise HTTPException(400, "Google Demand Gen requires a square logo image.")
     if values["age_max"] < values["age_min"]:
@@ -469,13 +526,19 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         request_body["additionalDescriptions"] = [values["google_extra_description"].strip()]
     if is_google_demand_gen:
         logo = db.one(
-            """SELECT content_type, file_size FROM ad_campaign_assets
+            """SELECT file_path, content_type, file_size FROM ad_campaign_assets
                 WHERE id=%s AND workspace_id=%s""",
             (values["brand_logo_asset_id"], workspace_id),
         )
         if (not logo or logo["content_type"] not in ("image/jpeg", "image/png")
                 or logo["file_size"] > 5 * 1024 * 1024):
             raise HTTPException(400, "Upload a JPEG or PNG logo image for Google Demand Gen.")
+        logo_path = media._abs(logo["file_path"])
+        if not logo_path:
+            raise HTTPException(404, "Campaign logo was not found. Upload it again before creating this campaign.")
+        logo_dimensions = _image_dimensions(logo_path)
+        if not logo_dimensions or logo_dimensions[0] != logo_dimensions[1]:
+            raise HTTPException(400, "Google Demand Gen requires a valid square JPEG or PNG logo image.")
         logo_url = _asset_url(workspace_id, values["brand_logo_asset_id"])
         request_body["campaignType"] = "demand_gen"
         request_body["demandGen"] = {
@@ -534,15 +597,20 @@ def _campaign_create_result(
         )
         raise HTTPException(502, "The provider response was not confirmed. Retry this campaign safely.")
     ad = result.get("ad") if isinstance(result, dict) else None
-    if not isinstance(ad, dict) or not ad.get("platformCampaignId") or not ad.get("_id"):
+    if (not isinstance(ad, dict) or not ad.get("platformCampaignId") or not ad.get("_id")
+            or (platform == "linkedin" and not ad.get("platformAdSetId"))):
         db.execute(
-            """UPDATE ad_campaign_drafts SET status='unknown', response_json=%s, error=%s, updated_at=now()
+            """UPDATE ad_campaign_drafts SET status='unknown', response_json=%s, error=%s,
+                      platform_campaign_id=%s, platform_ad_set_id=%s, zernio_ad_id=%s, updated_at=now()
                 WHERE id=%s AND workspace_id=%s""",
-            (db.Json(result or {}), "Provider created the request but returned no campaign identifiers.",
-             draft_id, workspace_id),
+            (db.Json(result or {}), "Provider created the request but returned incomplete campaign identifiers.",
+             str(ad.get("platformCampaignId") or "") if isinstance(ad, dict) else "",
+             str(ad.get("platformAdSetId") or "") if isinstance(ad, dict) else "",
+             str(ad.get("_id") or "") if isinstance(ad, dict) else "", draft_id, workspace_id),
         )
         raise HTTPException(
-            502, f"{platform.title()} may have created the campaign, but the provider response lacked campaign IDs. "
+            502, f"{platform.title()} may have created the campaign, but the provider response lacked required "
+                 "campaign identifiers. "
                  "Check the platform's Ads Manager before retrying.")
     if platform != "meta" or str(ad.get("configuredStatus") or "").upper() != "PAUSED":
         try:
@@ -787,8 +855,7 @@ def signed_campaign_asset(ws: int, asset_id: int, exp: int, sig: str):
 def create_campaign_draft(body: CampaignDraftIn, ctx: Ctx = Depends(admin)):
     values = body.model_dump(mode="json")
     _selected_ad_account(ctx.workspace_id, values["ad_connection_id"], values["ad_account_id"], values["platform"])
-    if (values["media_asset_id"] is None) == (values["post_id"] is None):
-        raise HTTPException(400, "Choose exactly one uploaded asset or existing published post.")
+    _validate_campaign_media_choice(values["platform"], values["media_asset_id"], values["post_id"])
     draft = db.one(
         """INSERT INTO ad_campaign_drafts
                (workspace_id, campaign_name, ad_account_id, platform, status, draft_json, idempotency_key)
@@ -803,8 +870,7 @@ def create_campaign_draft(body: CampaignDraftIn, ctx: Ctx = Depends(admin)):
 def update_campaign_draft(draft_id: int, body: CampaignDraftIn, ctx: Ctx = Depends(admin)):
     values = body.model_dump(mode="json")
     _selected_ad_account(ctx.workspace_id, values["ad_connection_id"], values["ad_account_id"], values["platform"])
-    if (values["media_asset_id"] is None) == (values["post_id"] is None):
-        raise HTTPException(400, "Choose exactly one uploaded asset or existing published post.")
+    _validate_campaign_media_choice(values["platform"], values["media_asset_id"], values["post_id"])
     row = db.one(
         """UPDATE ad_campaign_drafts SET campaign_name=%s, ad_account_id=%s, platform=%s, draft_json=%s,
                   status='draft', idempotency_key=%s, request_json='{}'::jsonb,
@@ -911,6 +977,11 @@ def update_campaign_status(draft_id: int, body: CampaignStatusIn, ctx: Ctx = Dep
         raise HTTPException(404, "Campaign draft not found.")
     if row["status"] not in ("paused", "active"):
         raise HTTPException(409, "Create the campaign as paused before changing its delivery status.")
+    if row["platform"] == "linkedin" and not (
+        row["platform_campaign_id"] and row["platform_ad_set_id"] and row["zernio_ad_id"]
+    ):
+        raise HTTPException(
+            409, "LinkedIn campaign identifiers are incomplete. Check LinkedIn Campaign Manager before proceeding.")
     if row["status"] == body.status and not row["pending_status"]:
         return {"id": draft_id, "status": body.status, "unchanged": True}
     db.execute(
@@ -940,7 +1011,7 @@ def update_campaign_status(draft_id: int, body: CampaignStatusIn, ctx: Ctx = Dep
                     WHERE id=%s AND workspace_id=%s""",
                 (str(error)[:1000], draft_id, ctx.workspace_id),
             )
-        raise HTTPException(502, str(error)) from error
+        raise HTTPException(502 if unknown else error.status or 502, str(error)) from error
     db.execute(
         """UPDATE ad_campaign_drafts SET status=%s, pending_status='', error='',
                   response_json=%s, updated_at=now()
