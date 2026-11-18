@@ -2890,6 +2890,7 @@ pages.studio = async app => {
               <button class="btn sm" id="studio-trim-start" disabled title="Select a video and place the playhead inside it">Trim start</button>
               <button class="btn sm" id="studio-trim-end" disabled title="Select a video and place the playhead inside it">Trim end</button>
               <button class="btn sm" id="studio-split-clip" disabled title="Select a video clip and place the playhead inside it">Split</button>
+              <button class="btn sm" id="studio-continue-video" disabled title="Select a video clip to generate a continuation">Continue video</button>
             </div>
           </section>
           <section class="studio-tool-group" aria-label="Draft and history">
@@ -3397,6 +3398,7 @@ pages.studio = async app => {
     redoButton.onclick = guard(async () => { await edit.redo(); syncHistoryButtons(); });
     syncHistoryButtons();
     const splitButton = $('#studio-split-clip', app);
+    const continueVideoButton = $('#studio-continue-video', app);
     const duplicateButton = $('#studio-duplicate-clip', app), deleteButton = $('#studio-delete-clip', app);
     const trimStartButton = $('#studio-trim-start', app), trimEndButton = $('#studio-trim-end', app);
     const propertiesToggle = $('#studio-properties-toggle', app), propertiesPanel = $('#studio-properties', app);
@@ -3433,6 +3435,10 @@ pages.studio = async app => {
       splitButton.title = selected ? 'Split the selected video at the playhead' : 'Select a video clip to split it';
       trimStartButton.title = selected ? 'Remove the selected video from its start to the playhead' : 'Select a video clip to trim';
       trimEndButton.title = selected ? 'Remove the selected video from the playhead to its end' : 'Select a video clip to trim';
+      continueVideoButton.disabled = locked || !selected;
+      continueVideoButton.title = locked ? 'Move this card back to Scripted before editing'
+        : selected ? 'Generate a new AI segment from this video’s last frame'
+          : 'Select a video clip to generate a continuation';
       const selectedVideo = getSelectedVideo();
       const alreadyCaptioned = selectedVideo &&
         edit.getEdit().timeline.tracks.some(track => (track.clips || []).some(clip =>
@@ -3952,6 +3958,96 @@ pages.studio = async app => {
       }
       return { trackIndex, clipIndex, clip, start, length, playhead, elapsed };
     };
+    continueVideoButton.onclick = guard(async () => {
+      if (locked) throw new Error('Move this card back to Scripted before editing.');
+      const location = getSelectedLocation();
+      const sourceClip = getSelectedVideo();
+      if (!location || !sourceClip) throw new Error('Select a video clip to continue.');
+      const { start, length } = await getVideoTiming(sourceClip);
+      if (!Number.isFinite(start) || !Number.isFinite(length) || length <= 0) {
+        throw new Error('Could not determine the selected video’s end time.');
+      }
+
+      const previousTime = Number(edit.playbackTime) || 0;
+      let startingFrame;
+      try {
+        setStatus('Capturing the selected video’s last frame…');
+        edit.seek(Math.max(start, start + length - 0.05));
+        await new Promise(resolve => setTimeout(resolve, 50));
+        startingFrame = await canvas.captureFrame({ format: 'png' });
+        if (typeof startingFrame !== 'string' || !startingFrame.startsWith('data:image/png')) {
+          throw new Error('Studio could not capture a PNG from the selected video.');
+        }
+      } finally {
+        edit.seek(previousTime);
+      }
+
+      const choice = await new Promise(resolve => {
+        let settled = false;
+        const finish = value => {
+          if (settled) return;
+          settled = true;
+          observer.disconnect();
+          resolve(value);
+        };
+        const modal = openModal(`<h2>Continue video with AI</h2>
+          <p class="small muted">WaveSpeedAI will use the selected clip’s last frame to generate a new segment after it. Continuity may vary. Generation uses your WaveSpeedAI credits.</p>
+          <label class="small muted">Describe what happens next</label>
+          <textarea id="studio-continue-prompt" rows="3" maxlength="4000" style="width:100%"
+            placeholder="The camera slowly pulls back as the subject walks toward the door"></textarea>
+          <label class="small muted">Aspect ratio</label>
+          <select id="studio-continue-size" style="width:100%;margin-bottom:10px">
+            <option value="832*480">Landscape · 16:9</option><option value="480*832">Portrait · 9:16</option>
+          </select>
+          <label class="small muted">Duration</label>
+          <select id="studio-continue-duration" style="width:100%;margin-bottom:10px">
+            <option value="5">5 seconds</option><option value="10">10 seconds</option>
+          </select>
+          <label class="small muted">Negative prompt <span class="muted">(optional)</span></label>
+          <textarea id="studio-continue-negative" rows="2" maxlength="1000" style="width:100%"
+            placeholder="Things to avoid, e.g. blur, jitter, distorted hands"></textarea>
+          <div class="actions"><span class="spacer"></span><button class="btn" type="button" data-close>Cancel</button>
+            <button class="btn primary" id="studio-continue-submit" type="button">Generate continuation</button></div>`, true);
+        const observer = new MutationObserver(() => {
+          if (!document.body.contains(modal)) finish(null);
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        $('#studio-continue-submit', modal).onclick = () => {
+          const prompt = $('#studio-continue-prompt', modal).value.trim();
+          if (!prompt) {
+            toast('Describe what happens next.', true);
+            return;
+          }
+          finish({
+            prompt,
+            size: $('#studio-continue-size', modal).value,
+            duration: Number($('#studio-continue-duration', modal).value),
+            negativePrompt: $('#studio-continue-negative', modal).value.trim(),
+          });
+          modal.close();
+        };
+        $('#studio-continue-prompt', modal).focus();
+      });
+      if (!choice) return;
+
+      const result = await edit.addClip(location.trackIndex, {
+        asset: {
+          type: 'video',
+          prompt: choice.prompt,
+          model: 'wavespeed-ai/wan-2.1/i2v-480p',
+          image_src: startingFrame,
+          duration: choice.duration,
+          size: choice.size,
+          negative_prompt: choice.negativePrompt,
+        },
+        start: start + length,
+        length: choice.duration,
+      });
+      if (result.status !== 'success') {
+        throw new Error(result.message || 'Could not add the continuation clip.');
+      }
+      setStatus('Generating continuation after selected video…', true);
+    });
     const runTrim = guard(async mode => {
       const selected = await getTrimSelection();
       if (!selected) return;

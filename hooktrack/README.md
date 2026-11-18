@@ -58,7 +58,8 @@ with a Test connection button. Server-wide defaults: `ANTHROPIC_API_KEY`, `OPENA
 Studio's **AI clip** generator uses WaveSpeedAI; set `WAVESPEED_API_KEY` in the server process environment (or use
 `HOOKTRACK_WAVESPEED_API_KEY`) and restart HookTrack. The key stays server-side. Studio offers FLUX Dev and FLUX Schnell
 for images, with 1–4 selectable image variations, and Wan 2.1 text-to-video and image-to-video at 480p; image-to-video can animate a still already on the
-timeline. Video generation supports 5- or 10-second clips in landscape or portrait with an optional negative prompt.
+timeline. Select a video clip and choose **Continue video** to capture its last frame and generate a following segment. Video generation supports 5- or
+10-second clips in landscape or portrait with an optional negative prompt; generated continuations may not be seamless.
 Generation usage is billed to the WaveSpeedAI account, so check its
 current pricing and account credits before generating. WaveSpeedAI trial credits, if offered, depend on account eligibility.
 Shotstack remains available for cloud rendering and is not used for these generations.
