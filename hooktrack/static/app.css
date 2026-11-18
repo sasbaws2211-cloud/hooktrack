@@ -1879,7 +1879,7 @@ body.studio-fit .studio-workspace [data-shotstack-timeline] {
   body.studio-fit #app > .studio-workspace {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(240px, 280px);
-    grid-template-rows: minmax(280px, 1fr) clamp(125px, 20vh, 220px);
+    grid-template-rows: minmax(240px, 1fr) clamp(190px, 30vh, 300px);
     grid-template-areas:
       "preview tools"
       "timeline timeline";
@@ -1933,7 +1933,7 @@ body.studio-fit .studio-workspace [data-shotstack-timeline] {
 }
 @media (min-width: 1100px) and (max-height: 700px) {
   body.studio-fit #app > .studio-workspace {
-    grid-template-rows: minmax(220px, 1fr) clamp(105px, 18vh, 160px);
+    grid-template-rows: minmax(190px, 1fr) clamp(160px, 27vh, 220px);
   }
   body.studio-fit .studio-toolbar { padding: 8px 10px; }
 }
