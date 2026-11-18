@@ -1875,6 +1875,69 @@ body.studio-fit .studio-workspace [data-shotstack-timeline] {
   }
 }
 
+@media (min-width: 1100px) {
+  body.studio-fit #app > .studio-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 280px);
+    grid-template-rows: minmax(280px, 1fr) clamp(125px, 20vh, 220px);
+    grid-template-areas:
+      "preview tools"
+      "timeline timeline";
+  }
+  body.studio-fit .studio-toolbar {
+    grid-area: tools;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 1px solid var(--border);
+  }
+  body.studio-fit .studio-toolbar-groups {
+    flex-direction: column;
+    gap: 8px;
+  }
+  body.studio-fit .studio-tool-group,
+  body.studio-fit .studio-tool-group:first-child,
+  body.studio-fit .studio-tool-group:last-child {
+    width: 100%;
+    min-width: 0;
+    padding: 0 0 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  body.studio-fit .studio-tool-group:last-child { padding-bottom: 0; border-bottom: 0; }
+  body.studio-fit .studio-tool-group-selection { flex-basis: auto; }
+  body.studio-fit .studio-tool-buttons { gap: 5px; }
+  body.studio-fit .studio-tool-buttons .btn { min-height: 29px; padding: 4px 8px; }
+  body.studio-fit .studio-workspace [data-shotstack-studio] {
+    grid-area: preview;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: auto;
+  }
+  body.studio-fit .studio-workspace [data-shotstack-timeline] {
+    grid-area: timeline;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: auto;
+  }
+  body.studio-fit .studio-toolbar-status {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  body.studio-fit .studio-toolbar-status #studio-status { text-align: left; }
+}
+@media (min-width: 1100px) and (max-height: 700px) {
+  body.studio-fit #app > .studio-workspace {
+    grid-template-rows: minmax(220px, 1fr) clamp(105px, 18vh, 160px);
+  }
+  body.studio-fit .studio-toolbar { padding: 8px 10px; }
+}
+
 @media (min-width: 861px) {
   .sidebar-toggle { display: inline-flex; align-items: center; justify-content: center; }
   .sidebar-toggle:hover { color: var(--text); background: var(--surface-2); }
