@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import ads, latehub
@@ -672,6 +673,274 @@ def test_meta_campaign_draft_maps_to_paused_create_payload(monkeypatch):
     assert request["promotedObject"] == {
         "pixelId": "1729525464415281", "customEventType": "PURCHASE",
     }
+
+
+def test_meta_campaign_maps_advantage_plus_features_and_multi_advertiser_separately(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "image/png"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/campaign-image.png")
+
+    request, _ = ads._campaign_request(7, _campaign_values(
+        meta_enhance_cta="OPT_IN",
+        meta_image_brightness_and_contrast="OPT_OUT",
+        meta_text_optimizations="OPT_IN",
+        meta_multi_advertiser="OPT_OUT",
+    ))
+
+    assert request["creativeFeatures"] == {
+        "enhance_cta": "OPT_IN",
+        "image_brightness_and_contrast": "OPT_OUT",
+        "text_optimizations": "OPT_IN",
+    }
+    assert request["multiAdvertiser"] == "OPT_OUT"
+    assert "standard_enhancements" not in request["creativeFeatures"]
+
+
+def test_meta_campaign_omits_default_advantage_plus_settings(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "image/png"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/campaign-image.png")
+
+    request, _ = ads._campaign_request(7, _campaign_values())
+
+    assert "creativeFeatures" not in request
+    assert "multiAdvertiser" not in request
+
+
+def test_non_meta_campaign_rejects_advantage_plus_settings(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "tiktok-connection"})
+
+    with pytest.raises(HTTPException, match="only for Meta campaigns"):
+        ads._campaign_request(7, _campaign_values(
+            platform="tiktok",
+            ad_connection_id="tiktok-connection",
+            ad_account_id="advertiser-1",
+            creative_type="video",
+            meta_text_optimizations="OPT_OUT",
+        ))
+
+
+def test_meta_dynamic_creative_builds_image_asset_feed_from_workspace_assets(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(
+        ads.db, "one",
+        lambda query, params: seen.append((query, params)) or {"content_type": "image/png"},
+    )
+    monkeypatch.setattr(ads, "_asset_url", lambda _workspace_id, asset_id: f"https://hooktrack.example/{asset_id}.png")
+    values = _campaign_values(
+        media_asset_id=None,
+        post_id=None,
+        headline="",
+        body="",
+        link_url="",
+        meta_creative_format="dynamic",
+        meta_dynamic_media_type="image",
+        meta_dynamic_media_asset_ids=[41, 42],
+        meta_dynamic_bodies=["First primary text", "Second primary text"],
+        meta_dynamic_titles=["First headline", "Second headline"],
+        meta_dynamic_descriptions=["First description"],
+        meta_dynamic_link_urls=["https://example.com/first", "https://example.com/second"],
+        meta_dynamic_call_to_action_types=["LEARN_MORE", "SHOP_NOW"],
+    )
+
+    request, _ = ads._campaign_request(7, values)
+
+    assert request["dynamicCreative"] == {
+        "imageUrls": ["https://hooktrack.example/41.png", "https://hooktrack.example/42.png"],
+        "callToActionTypes": ["LEARN_MORE", "SHOP_NOW"],
+        "bodies": ["First primary text", "Second primary text"],
+        "titles": ["First headline", "Second headline"],
+        "descriptions": ["First description"],
+        "linkUrls": ["https://example.com/first", "https://example.com/second"],
+    }
+    assert not {"imageUrl", "video", "headline", "body", "linkUrl", "callToAction"} & request.keys()
+    assert [params for _query, params in seen] == [(41, 7), (42, 7)]
+
+
+def test_meta_dynamic_creative_builds_video_asset_feed(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "video/mp4"})
+    monkeypatch.setattr(ads, "_asset_url", lambda _workspace_id, asset_id: f"https://hooktrack.example/{asset_id}.mp4")
+
+    request, _ = ads._campaign_request(7, _campaign_values(
+        creative_type="video",
+        media_asset_id=None,
+        post_id=None,
+        headline="",
+        body="",
+        link_url="",
+        meta_creative_format="dynamic",
+        meta_dynamic_media_type="video",
+        meta_dynamic_media_asset_ids=[41],
+        meta_dynamic_link_urls=["https://example.com/video"],
+        meta_dynamic_call_to_action_types=["WATCH_MORE", "CALL_NOW"],
+    ))
+
+    assert request["dynamicCreative"] == {
+        "videoUrls": ["https://hooktrack.example/41.mp4"],
+        "callToActionTypes": ["WATCH_MORE", "CALL_NOW"],
+        "linkUrls": ["https://example.com/video"],
+    }
+
+
+def test_meta_dynamic_creative_passes_optional_carousel_ad_format(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "image/png"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/41.png")
+
+    request, _ = ads._campaign_request(7, _campaign_values(
+        media_asset_id=None,
+        post_id=None,
+        headline="",
+        body="",
+        link_url="",
+        meta_creative_format="dynamic",
+        meta_dynamic_media_asset_ids=[41],
+        meta_dynamic_ad_format="CAROUSEL_IMAGE",
+        meta_dynamic_link_urls=["https://example.com"],
+        meta_dynamic_call_to_action_types=["SHOP_NOW"],
+    ))
+
+    assert request["dynamicCreative"]["adFormat"] == "CAROUSEL_IMAGE"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"objective": "page_likes"}, "not supported with the page likes objective"),
+        ({"meta_dynamic_media_type": "video", "creative_type": "image"}, "must match its image or video asset pool"),
+        ({"meta_dynamic_ad_format": "CAROUSEL_IMAGE", "meta_dynamic_media_type": "video",
+          "creative_type": "video"}, "ad format must match"),
+    ],
+)
+def test_meta_dynamic_creative_rejects_incompatible_goal_or_format(monkeypatch, overrides, message):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "image/png"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/41.png")
+    values = {
+        "media_asset_id": None,
+        "post_id": None,
+        "headline": "",
+        "body": "",
+        "link_url": "",
+        "meta_creative_format": "dynamic",
+        "meta_dynamic_media_asset_ids": [41],
+        "meta_dynamic_link_urls": ["https://example.com"],
+        "meta_dynamic_call_to_action_types": ["LEARN_MORE"],
+    }
+    values.update(overrides)
+
+    with pytest.raises(HTTPException, match=message):
+        ads._campaign_request(7, _campaign_values(**values))
+
+
+def test_meta_dynamic_creative_draft_does_not_require_single_media(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda query, params: calls.append((query, params)) or {
+        "id": 19, "status": "draft", "created_at": "2026-11-18T00:00:00Z",
+    })
+    body = ads.CampaignDraftIn(**_campaign_values(
+        media_asset_id=None,
+        post_id=None,
+        headline="",
+        body="",
+        link_url="",
+        meta_creative_format="dynamic",
+        meta_dynamic_media_asset_ids=[41],
+        meta_dynamic_link_urls=["https://example.com"],
+        meta_dynamic_call_to_action_types=["LEARN_MORE"],
+    ))
+
+    result = ads.create_campaign_draft(body, _ctx())
+
+    assert result["id"] == 19
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"meta_dynamic_media_asset_ids": []}, "between 1 and 10"),
+        ({"meta_dynamic_media_asset_ids": [41, 41]}, "different uploaded asset"),
+        ({"meta_dynamic_call_to_action_types": []}, "at least one call to action"),
+        ({"meta_dynamic_link_urls": ["http://example.com"]}, "complete HTTPS URL"),
+        ({"meta_dynamic_bodies": [""]}, "blank entries"),
+        ({"meta_dynamic_call_to_action_types": ["UNSUPPORTED"]}, "supported Meta dynamic creative call-to-action"),
+    ],
+)
+def test_meta_dynamic_creative_rejects_invalid_asset_pools_and_options(monkeypatch, overrides, message):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "image/png"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/41.png")
+    values = {
+        "media_asset_id": None,
+        "post_id": None,
+        "headline": "",
+        "body": "",
+        "link_url": "",
+        "meta_creative_format": "dynamic",
+        "meta_dynamic_media_asset_ids": [41],
+        "meta_dynamic_link_urls": ["https://example.com"],
+        "meta_dynamic_call_to_action_types": ["LEARN_MORE"],
+    }
+    values.update(overrides)
+
+    with pytest.raises(HTTPException, match=message):
+        ads._campaign_request(7, _campaign_values(**values))
+
+
+def test_meta_dynamic_creative_limits_text_option_count():
+    with pytest.raises(ValidationError):
+        _campaign_values(
+            meta_creative_format="dynamic",
+            meta_dynamic_media_asset_ids=[41],
+            meta_dynamic_call_to_action_types=["LEARN_MORE"],
+            meta_dynamic_titles=["Headline"] * 6,
+        )
+
+
+def test_non_dynamic_campaign_still_requires_primary_text_headline_and_destination():
+    with pytest.raises(ValidationError, match="Enter primary text"):
+        _campaign_values(body="")
+    with pytest.raises(ValidationError, match="Enter a campaign headline"):
+        _campaign_values(headline="")
+    with pytest.raises(ValidationError, match="Enter a landing page URL"):
+        _campaign_values(link_url="")
+
+
+def test_meta_dynamic_creative_validates_workspace_asset_type_and_lead_form_links(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "video/mp4"})
+    with pytest.raises(HTTPException, match="require supported uploaded image"):
+        ads._campaign_request(7, _campaign_values(
+            media_asset_id=None,
+            post_id=None,
+            headline="",
+            body="",
+            link_url="",
+            meta_creative_format="dynamic",
+            meta_dynamic_media_asset_ids=[41],
+            meta_dynamic_call_to_action_types=["LEARN_MORE"],
+            meta_dynamic_link_urls=["https://example.com"],
+        ))
+
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "image/png"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/41.png")
+    request, _ = ads._campaign_request(7, _campaign_values(
+        objective="lead_generation",
+        media_asset_id=None,
+        post_id=None,
+        headline="",
+        body="",
+        link_url="",
+        meta_creative_format="dynamic",
+        meta_lead_gen_form_id="form-123",
+        meta_dynamic_media_asset_ids=[41],
+        meta_dynamic_call_to_action_types=["SIGN_UP"],
+    ))
+    assert "linkUrls" not in request["dynamicCreative"]
 
 
 def test_meta_carousel_campaign_maps_distinct_workspace_images_without_single_media(monkeypatch):

@@ -16,13 +16,31 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from . import db, latehub, media, sociavault
 from .auth import Ctx, admin, current
 
 log = logging.getLogger("hooktrack.ads")
 router = APIRouter(prefix="/api/ads", tags=["ads"])
+_META_DYNAMIC_CTA_TYPES = frozenset("""
+BOOK_TRAVEL CONTACT_US DONATE DONATE_NOW DOWNLOAD GET_DIRECTIONS GO_LIVE INTERESTED LEARN_MORE
+SEE_DETAILS LIKE_PAGE MESSAGE_PAGE RAISE_MONEY SAVE SEND_TIP SHOP_NOW SIGN_UP VIEW_INSTAGRAM_PROFILE
+INSTAGRAM_MESSAGE LOYALTY_LEARN_MORE PURCHASE_GIFT_CARDS PAY_TO_ACCESS SEE_MORE TRY_IN_CAMERA
+WHATSAPP_LINK GET_IN_TOUCH TRY_NOW ASK_A_QUESTION START_A_CHAT CHAT_NOW ASK_US CHAT_WITH_US
+SHOP_ON_RETAILER BOOK_NOW CHECK_AVAILABILITY ORDER_NOW WHATSAPP_MESSAGE GET_MOBILE_APP
+INSTALL_MOBILE_APP USE_MOBILE_APP INSTALL_APP USE_APP PLAY_GAME TRY_DEMO WATCH_VIDEO WATCH_MORE
+OPEN_LINK NO_BUTTON LISTEN_MUSIC MOBILE_DOWNLOAD GET_OFFER GET_OFFER_VIEW BUY_NOW BUY_TICKETS
+UPDATE_APP BET_NOW ADD_TO_CART SELL_NOW GET_SHOWTIMES LISTEN_NOW GET_EVENT_TICKETS REMIND_ME
+SEARCH_MORE PRE_REGISTER SWIPE_UP_PRODUCT SWIPE_UP_SHOP PLAY_GAME_ON_FACEBOOK VISIT_WORLD
+OPEN_INSTANT_APP JOIN_GROUP GET_PROMOTIONS SEND_UPDATES INQUIRE_NOW VISIT_PROFILE CHAT_ON_WHATSAPP
+EXPLORE_MORE CONFIRM JOIN_CHANNEL MAKE_AN_APPOINTMENT ASK_ABOUT_SERVICES BOOK_A_CONSULTATION
+GET_A_QUOTE BUY_VIA_MESSAGE ASK_FOR_MORE_INFO VIEW_PRODUCT VIEW_CHANNEL WATCH_LIVE_VIDEO
+JOIN_LIVE_VIDEO IMAGINE WATCH_NOW STREAM_NOW BUY_ACTIVITY_TICKETS CALL MISSED_CALL CALL_NOW
+CALL_ME APPLY_NOW BUY GET_QUOTE SUBSCRIBE RECORD_NOW VOTE_NOW GIVE_FREE_RIDES REGISTER_NOW
+OPEN_MESSENGER_EXT EVENT_RSVP CIVIC_ACTION SEND_INVITES REFER_FRIENDS REQUEST_TIME SEE_MENU SEARCH
+TRY_IT TRY_ON LINK_CARD DIAL_CODE FIND_YOUR_GROUPS START_ORDER
+""".split())
 
 
 class ConnectAdsIn(BaseModel):
@@ -97,17 +115,29 @@ class CampaignDraftIn(BaseModel):
     daily_budget: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     end_date: date
     creative_type: Literal["image", "video", "text"] = "image"
-    meta_creative_format: Literal["single", "carousel", "placement_assets"] = "single"
+    meta_creative_format: Literal["single", "carousel", "placement_assets", "dynamic"] = "single"
     meta_carousel_cards: list[MetaCarouselCardIn] = Field(default_factory=list, max_length=10)
     meta_placement_asset_type: Literal["image", "video"] = "image"
     meta_default_media_asset_id: int | None = Field(default=None, gt=0)
     meta_placement_rules: list[MetaPlacementRuleIn] = Field(default_factory=list, max_length=10)
+    meta_dynamic_media_type: Literal["image", "video"] = "image"
+    meta_dynamic_ad_format: Literal["default", "SINGLE_IMAGE", "CAROUSEL_IMAGE", "SINGLE_VIDEO"] = "default"
+    meta_dynamic_media_asset_ids: list[int] = Field(default_factory=list, max_length=10)
+    meta_dynamic_bodies: list[str] = Field(default_factory=list, max_length=5)
+    meta_dynamic_titles: list[str] = Field(default_factory=list, max_length=5)
+    meta_dynamic_descriptions: list[str] = Field(default_factory=list, max_length=5)
+    meta_dynamic_link_urls: list[str] = Field(default_factory=list, max_length=10)
+    meta_dynamic_call_to_action_types: list[str] = Field(default_factory=list, max_length=120)
+    meta_enhance_cta: Literal["default", "OPT_IN", "OPT_OUT"] = "default"
+    meta_image_brightness_and_contrast: Literal["default", "OPT_IN", "OPT_OUT"] = "default"
+    meta_text_optimizations: Literal["default", "OPT_IN", "OPT_OUT"] = "default"
+    meta_multi_advertiser: Literal["default", "OPT_OUT"] = "default"
     media_asset_id: int | None = Field(default=None, gt=0)
     post_id: int | None = Field(default=None, gt=0)
     brand_logo_asset_id: int | None = Field(default=None, gt=0)
     headline: str = Field(default="", max_length=255)
-    body: str = Field(min_length=1, max_length=5000)
-    link_url: str = Field(min_length=1, max_length=2048)
+    body: str = Field(default="", max_length=5000)
+    link_url: str = Field(default="", max_length=2048)
     google_campaign_type: Literal["search", "demand_gen"] = "search"
     google_keywords: list[str] = Field(default_factory=list, max_length=30)
     google_extra_headlines: list[str] = Field(default_factory=list, max_length=14)
@@ -155,6 +185,18 @@ class CampaignDraftIn(BaseModel):
     meta_custom_event_str: str = Field(default="", max_length=100)
     meta_offline_dataset_id: str = Field(default="", max_length=100)
     url_tags: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_required_creative_copy(self):
+        if self.platform == "meta" and self.meta_creative_format == "dynamic":
+            return self
+        if not self.body.strip():
+            raise ValueError("Enter primary text.")
+        if self.platform in ("meta", "google", "linkedin") and not self.headline.strip():
+            raise ValueError("Enter a campaign headline.")
+        if not self.link_url.strip():
+            raise ValueError("Enter a landing page URL.")
+        return self
 
 
 class CampaignStatusIn(BaseModel):
@@ -388,6 +430,18 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         "meta_placement_asset_type": "image",
         "meta_default_media_asset_id": None,
         "meta_placement_rules": [],
+        "meta_dynamic_media_type": "image",
+        "meta_dynamic_ad_format": "default",
+        "meta_dynamic_media_asset_ids": [],
+        "meta_dynamic_bodies": [],
+        "meta_dynamic_titles": [],
+        "meta_dynamic_descriptions": [],
+        "meta_dynamic_link_urls": [],
+        "meta_dynamic_call_to_action_types": [],
+        "meta_enhance_cta": "default",
+        "meta_image_brightness_and_contrast": "default",
+        "meta_text_optimizations": "default",
+        "meta_multi_advertiser": "default",
         "linkedin_organization_id": "",
         "behaviors": [],
         "work_positions": [],
@@ -408,10 +462,19 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         end_date = date.fromisoformat(end_date)
     is_google_search = platform == "google" and values["google_campaign_type"] == "search"
     is_google_demand_gen = platform == "google" and values["google_campaign_type"] == "demand_gen"
+    is_meta_dynamic = platform == "meta" and values["meta_creative_format"] == "dynamic"
     needs_media = platform in ("meta", "tiktok", "linkedin")
     if platform != "meta" and (
         values["meta_creative_format"] != "single" or values["meta_carousel_cards"]
         or values["meta_default_media_asset_id"] is not None or values["meta_placement_rules"]
+        or values["meta_dynamic_media_asset_ids"] or values["meta_dynamic_bodies"]
+        or values["meta_dynamic_titles"] or values["meta_dynamic_descriptions"]
+        or values["meta_dynamic_link_urls"] or values["meta_dynamic_call_to_action_types"]
+        or values["meta_dynamic_ad_format"] != "default"
+        or any(values[field] != "default" for field in (
+            "meta_enhance_cta", "meta_image_brightness_and_contrast",
+            "meta_text_optimizations", "meta_multi_advertiser",
+        ))
     ):
         raise HTTPException(400, "Meta creative-format settings are available only for Meta campaigns.")
     if platform == "meta" and values["meta_creative_format"] != "carousel" and values["meta_carousel_cards"]:
@@ -420,13 +483,23 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         values["meta_default_media_asset_id"] is not None or values["meta_placement_rules"]
     ):
         raise HTTPException(400, "Remove placement assets or select the Meta per-placement format.")
+    if platform == "meta" and values["meta_creative_format"] != "dynamic" and (
+        any(values[field] for field in (
+            "meta_dynamic_media_asset_ids", "meta_dynamic_bodies", "meta_dynamic_titles",
+            "meta_dynamic_descriptions", "meta_dynamic_link_urls", "meta_dynamic_call_to_action_types",
+        )) or values["meta_dynamic_ad_format"] != "default"
+    ):
+        raise HTTPException(400, "Remove dynamic creative assets or select the Meta dynamic creative format.")
     is_meta_carousel = platform == "meta" and values["meta_creative_format"] == "carousel"
     is_meta_placement_assets = platform == "meta" and values["meta_creative_format"] == "placement_assets"
+    is_meta_dynamic = platform == "meta" and values["meta_creative_format"] == "dynamic"
     if is_meta_carousel and values["creative_type"] != "image":
         raise HTTPException(400, "Meta carousel cards require the image creative type.")
     if is_meta_placement_assets and values["creative_type"] != values["meta_placement_asset_type"]:
         raise HTTPException(400, "Meta placement creative type must match its image or video assets.")
-    if not is_meta_carousel and not is_meta_placement_assets:
+    if is_meta_dynamic and values["creative_type"] != values["meta_dynamic_media_type"]:
+        raise HTTPException(400, "Meta dynamic creative type must match its image or video asset pool.")
+    if not is_meta_carousel and not is_meta_placement_assets and not is_meta_dynamic:
         _validate_campaign_media_choice(platform, values["media_asset_id"], values["post_id"])
     elif values["media_asset_id"] is not None or values["post_id"] is not None:
         raise HTTPException(400, "Choose the selected Meta creative format instead of single media.")
@@ -438,9 +511,9 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         raise HTTPException(400, "This ad platform requires a minimum target age of 18.")
     if not values["campaign_name"].strip():
         raise HTTPException(400, "Enter a campaign name.")
-    if not values["body"].strip():
+    if not values["body"].strip() and not is_meta_dynamic:
         raise HTTPException(400, "Enter primary text.")
-    if platform in ("meta", "google", "linkedin") and not values["headline"].strip():
+    if platform in ("meta", "google", "linkedin") and not values["headline"].strip() and not is_meta_dynamic:
         raise HTTPException(400, "Enter a campaign headline.")
     if platform == "tiktok" and Decimal(str(values["daily_budget"])) < Decimal("20"):
         raise HTTPException(400, "TikTok's minimum daily budget is 20 in the ad account's currency.")
@@ -456,9 +529,10 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         raise HTTPException(400, "Countries must be ISO two-letter country codes.")
     if len(set(countries)) != len(countries):
         raise HTTPException(400, "Choose each country only once.")
-    parsed_url = urlparse(values["link_url"])
-    if parsed_url.scheme != "https" or not parsed_url.hostname or parsed_url.username or parsed_url.password:
-        raise HTTPException(400, "The landing page URL must be a complete HTTPS URL.")
+    if not is_meta_dynamic or values["link_url"].strip():
+        parsed_url = urlparse(values["link_url"])
+        if parsed_url.scheme != "https" or not parsed_url.hostname or parsed_url.username or parsed_url.password:
+            raise HTTPException(400, "The landing page URL must be a complete HTTPS URL.")
     if end_date <= date.today():
         raise HTTPException(400, "Choose a campaign end date after today.")
     if values["objective"] == "video_views" and values["creative_type"] != "video":
@@ -534,7 +608,47 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
     if platform == "meta":
         goal = values["objective"]
         event = values["conversion_event"]
-        if values["meta_creative_format"] == "carousel":
+        if is_meta_dynamic:
+            if goal == "page_likes":
+                raise HTTPException(400, "Meta dynamic creative is not supported with the page likes objective.")
+            asset_ids = values["meta_dynamic_media_asset_ids"]
+            if not 1 <= len(asset_ids) <= 10:
+                raise HTTPException(400, "Meta dynamic creative needs between 1 and 10 uploaded images or videos.")
+            if len(set(asset_ids)) != len(asset_ids):
+                raise HTTPException(400, "Choose a different uploaded asset for each dynamic creative option.")
+            if not values["meta_dynamic_call_to_action_types"]:
+                raise HTTPException(400, "Choose at least one call to action for Meta dynamic creative.")
+            if any(value not in _META_DYNAMIC_CTA_TYPES
+                   for value in values["meta_dynamic_call_to_action_types"]):
+                raise HTTPException(400, "Choose supported Meta dynamic creative call-to-action types.")
+            if values["meta_dynamic_ad_format"] not in (
+                ("default", "SINGLE_IMAGE", "CAROUSEL_IMAGE")
+                if values["meta_dynamic_media_type"] == "image" else ("default", "SINGLE_VIDEO")
+            ):
+                raise HTTPException(400, "The Meta dynamic ad format must match the selected image or video assets.")
+            if len(set(values["meta_dynamic_call_to_action_types"])) != len(
+                values["meta_dynamic_call_to_action_types"]
+            ):
+                raise HTTPException(400, "Choose each dynamic creative call to action only once.")
+            if any(not text.strip() for field in (
+                "meta_dynamic_bodies", "meta_dynamic_titles", "meta_dynamic_descriptions",
+            ) for text in values[field]):
+                raise HTTPException(400, "Remove blank entries from Meta dynamic creative text variations.")
+            if any(len(text.strip()) > 5000 for text in values["meta_dynamic_bodies"]):
+                raise HTTPException(400, "Meta dynamic primary text variations must be 5,000 characters or fewer.")
+            if any(len(text.strip()) > 255 for field in (
+                "meta_dynamic_titles", "meta_dynamic_descriptions",
+            ) for text in values[field]):
+                raise HTTPException(400, "Meta dynamic headlines and descriptions must be 255 characters or fewer.")
+            link_urls = [url.strip() for url in values["meta_dynamic_link_urls"] if url.strip()]
+            if goal != "lead_generation" and not link_urls:
+                raise HTTPException(400, "Add at least one destination URL for Meta dynamic creative.")
+            for link in link_urls:
+                parsed_link = urlparse(link)
+                if (parsed_link.scheme != "https" or not parsed_link.hostname
+                        or parsed_link.username or parsed_link.password):
+                    raise HTTPException(400, "Each Meta dynamic creative destination must be a complete HTTPS URL.")
+        elif values["meta_creative_format"] == "carousel":
             cards = values["meta_carousel_cards"]
             if not 2 <= len(cards) <= 10:
                 raise HTTPException(400, "Meta carousel ads require between 2 and 10 image cards.")
@@ -641,7 +755,7 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
     }:
         raise HTTPException(400, "Choose supported Meta placement platforms.")
 
-    if is_meta_carousel or is_meta_placement_assets:
+    if is_meta_carousel or is_meta_placement_assets or is_meta_dynamic:
         media_url = ""
     elif needs_media and values["media_asset_id"] is not None:
         asset = db.one(
@@ -679,15 +793,62 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
     if not is_google_demand_gen:
         request_body["goal"] = values["objective"]
     if platform == "meta":
-        request_body["body"] = values["body"].strip()
-        request_body["linkUrl"] = values["link_url"].strip()
-        request_body["callToAction"] = values["call_to_action"]
-        request_body["headline"] = values["headline"].strip()
+        if not is_meta_dynamic:
+            request_body["body"] = values["body"].strip()
+            request_body["linkUrl"] = values["link_url"].strip()
+            request_body["callToAction"] = values["call_to_action"]
+            request_body["headline"] = values["headline"].strip()
         request_body["advantageAudience"] = 0
+        creative_features = {
+            provider_key: values[field]
+            for field, provider_key in (
+                ("meta_enhance_cta", "enhance_cta"),
+                ("meta_image_brightness_and_contrast", "image_brightness_and_contrast"),
+                ("meta_text_optimizations", "text_optimizations"),
+            )
+            if values[field] != "default"
+        }
+        if creative_features:
+            request_body["creativeFeatures"] = creative_features
+        if values["meta_multi_advertiser"] != "default":
+            request_body["multiAdvertiser"] = values["meta_multi_advertiser"]
         if not values["special_ad_categories"]:
             request_body["ageMin"] = values["age_min"]
             request_body["ageMax"] = values["age_max"]
-        if values["meta_creative_format"] == "placement_assets":
+        if is_meta_dynamic:
+            media_type = values["meta_dynamic_media_type"]
+            allowed_content_types = ("image/jpeg", "image/png") if media_type == "image" else (
+                "video/mp4", "video/quicktime",
+            )
+            urls = []
+            for asset_id in values["meta_dynamic_media_asset_ids"]:
+                asset = db.one(
+                    """SELECT content_type FROM ad_campaign_assets
+                        WHERE id=%s AND workspace_id=%s""",
+                    (asset_id, workspace_id),
+                )
+                if not asset:
+                    raise HTTPException(404, "A Meta dynamic creative asset was not found in this workspace.")
+                if asset["content_type"] not in allowed_content_types:
+                    raise HTTPException(400, f"Meta dynamic {media_type} creatives require supported uploaded {media_type} assets.")
+                urls.append(_asset_url(workspace_id, asset_id))
+            dynamic_creative = {
+                "imageUrls" if media_type == "image" else "videoUrls": urls,
+                "callToActionTypes": values["meta_dynamic_call_to_action_types"],
+            }
+            if values["meta_dynamic_ad_format"] != "default":
+                dynamic_creative["adFormat"] = values["meta_dynamic_ad_format"]
+            for field, provider_field in (
+                ("meta_dynamic_bodies", "bodies"),
+                ("meta_dynamic_titles", "titles"),
+                ("meta_dynamic_descriptions", "descriptions"),
+                ("meta_dynamic_link_urls", "linkUrls"),
+            ):
+                entries = [item.strip() for item in values[field] if item.strip()]
+                if entries:
+                    dynamic_creative[provider_field] = entries
+            request_body["dynamicCreative"] = dynamic_creative
+        elif values["meta_creative_format"] == "placement_assets":
             asset_type = values["meta_placement_asset_type"]
             allowed_content_types = ("image/jpeg", "image/png") if asset_type == "image" else (
                 "video/mp4", "video/quicktime",
@@ -1194,7 +1355,8 @@ def signed_campaign_asset(ws: int, asset_id: int, exp: int, sig: str):
 def create_campaign_draft(body: CampaignDraftIn, ctx: Ctx = Depends(admin)):
     values = body.model_dump(mode="json")
     _selected_ad_account(ctx.workspace_id, values["ad_connection_id"], values["ad_account_id"], values["platform"])
-    _validate_campaign_media_choice(values["platform"], values["media_asset_id"], values["post_id"])
+    if values["platform"] != "meta" or values["meta_creative_format"] == "single":
+        _validate_campaign_media_choice(values["platform"], values["media_asset_id"], values["post_id"])
     draft = db.one(
         """INSERT INTO ad_campaign_drafts
                (workspace_id, campaign_name, ad_account_id, platform, status, draft_json, idempotency_key)
@@ -1209,7 +1371,8 @@ def create_campaign_draft(body: CampaignDraftIn, ctx: Ctx = Depends(admin)):
 def update_campaign_draft(draft_id: int, body: CampaignDraftIn, ctx: Ctx = Depends(admin)):
     values = body.model_dump(mode="json")
     _selected_ad_account(ctx.workspace_id, values["ad_connection_id"], values["ad_account_id"], values["platform"])
-    _validate_campaign_media_choice(values["platform"], values["media_asset_id"], values["post_id"])
+    if values["platform"] != "meta" or values["meta_creative_format"] == "single":
+        _validate_campaign_media_choice(values["platform"], values["media_asset_id"], values["post_id"])
     row = db.one(
         """UPDATE ad_campaign_drafts SET campaign_name=%s, ad_account_id=%s, platform=%s, draft_json=%s,
                   status='draft', idempotency_key=%s, request_json='{}'::jsonb,

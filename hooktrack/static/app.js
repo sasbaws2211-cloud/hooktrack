@@ -5870,6 +5870,27 @@ pages.ads = async app => {
     video: (d.campaign_assets || []).filter(item =>
       ['video/mp4', 'video/quicktime'].includes(String(item.content_type).toLowerCase())),
   };
+  state.metaDynamicMediaType = state.metaDynamicMediaType || 'image';
+  state.metaDynamicMediaAssetIds = state.metaDynamicMediaAssetIds || [];
+  state.metaDynamicCreative = state.metaDynamicCreative || {};
+  const metaDynamicCallToActions = `BOOK_TRAVEL CONTACT_US DONATE DONATE_NOW DOWNLOAD GET_DIRECTIONS GO_LIVE INTERESTED
+    LEARN_MORE SEE_DETAILS LIKE_PAGE MESSAGE_PAGE RAISE_MONEY SAVE SEND_TIP SHOP_NOW SIGN_UP
+    VIEW_INSTAGRAM_PROFILE INSTAGRAM_MESSAGE LOYALTY_LEARN_MORE PURCHASE_GIFT_CARDS PAY_TO_ACCESS
+    SEE_MORE TRY_IN_CAMERA WHATSAPP_LINK GET_IN_TOUCH TRY_NOW ASK_A_QUESTION START_A_CHAT CHAT_NOW
+    ASK_US CHAT_WITH_US SHOP_ON_RETAILER BOOK_NOW CHECK_AVAILABILITY ORDER_NOW WHATSAPP_MESSAGE
+    GET_MOBILE_APP INSTALL_MOBILE_APP USE_MOBILE_APP INSTALL_APP USE_APP PLAY_GAME TRY_DEMO WATCH_VIDEO
+    WATCH_MORE OPEN_LINK NO_BUTTON LISTEN_MUSIC MOBILE_DOWNLOAD GET_OFFER GET_OFFER_VIEW BUY_NOW
+    BUY_TICKETS UPDATE_APP BET_NOW ADD_TO_CART SELL_NOW GET_SHOWTIMES LISTEN_NOW GET_EVENT_TICKETS
+    REMIND_ME SEARCH_MORE PRE_REGISTER SWIPE_UP_PRODUCT SWIPE_UP_SHOP PLAY_GAME_ON_FACEBOOK VISIT_WORLD
+    OPEN_INSTANT_APP JOIN_GROUP GET_PROMOTIONS SEND_UPDATES INQUIRE_NOW VISIT_PROFILE CHAT_ON_WHATSAPP
+    EXPLORE_MORE CONFIRM JOIN_CHANNEL MAKE_AN_APPOINTMENT ASK_ABOUT_SERVICES BOOK_A_CONSULTATION
+    GET_A_QUOTE BUY_VIA_MESSAGE ASK_FOR_MORE_INFO VIEW_PRODUCT VIEW_CHANNEL WATCH_LIVE_VIDEO
+    JOIN_LIVE_VIDEO IMAGINE WATCH_NOW STREAM_NOW BUY_ACTIVITY_TICKETS CALL MISSED_CALL CALL_NOW CALL_ME
+    APPLY_NOW BUY GET_QUOTE SUBSCRIBE RECORD_NOW VOTE_NOW GIVE_FREE_RIDES REGISTER_NOW OPEN_MESSENGER_EXT
+    EVENT_RSVP CIVIC_ACTION SEND_INVITES REFER_FRIENDS REQUEST_TIME SEE_MENU SEARCH TRY_IT TRY_ON LINK_CARD
+    DIAL_CODE FIND_YOUR_GROUPS START_ORDER`.trim().split(/\s+/);
+  const metaDynamicCallToActionLabel = value => value.toLowerCase().split('_')
+    .map(word => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join(' ');
   const metaPlacementGroups = [
     { key: 'facebook', label: 'Facebook', parent: 'publisher_platforms', values: [['feed','Feed'],['right_hand_column','Right column'],['marketplace','Marketplace'],['story','Stories'],['search','Search'],['instream_video','In-stream video'],['facebook_reels','Reels'],['facebook_reels_overlay','Reels overlay'],['profile_feed','Profile feed'],['notification','Notifications']], field: 'facebook_positions', api: 'facebookPositions' },
     { key: 'instagram', label: 'Instagram', parent: 'publisher_platforms', values: [['stream','Feed'],['story','Stories'],['explore','Explore'],['explore_home','Explore home'],['reels','Reels'],['profile_feed','Profile feed'],['ig_search','Search'],['profile_reels','Profile Reels']], field: 'instagram_positions', api: 'instagramPositions' },
@@ -5910,7 +5931,7 @@ pages.ads = async app => {
     return `<article class="card ads-campaign-card">
       <div class="row" style="align-items:flex-start"><b style="flex:1">${esc(draft.campaign_name)}</b><span class="pill">${esc(draft.status.replace('_', ' '))}</span></div>
       <p class="muted small">${esc(names[`${draft.platform}ads`] || 'Meta Ads')} · ${esc(form.objective || form.google_campaign_type || '')} · ${esc(String(form.daily_budget || ''))}/day · ends ${esc(String(form.end_date || ''))} · ${esc(form.creative_type || '')}</p>
-      <p class="small">${form.headline ? `<b>${esc(form.headline)}</b><br>` : ''}${esc(short(form.body || '', 180))}<br><span class="muted">${esc(form.link_url || '')}</span></p>
+      <p class="small">${form.meta_creative_format === 'dynamic' ? 'Dynamic creative asset pool' : `${form.headline ? `<b>${esc(form.headline)}</b><br>` : ''}${esc(short(form.body || '', 180))}<br><span class="muted">${esc(form.link_url || '')}</span>`}</p>
       ${draft.platform_campaign_id ? `<p class="small">Spend ${fmt(metrics.spend || 0)} · ${fmt(metrics.impressions || 0)} impressions · ${fmt(metrics.clicks || 0)} clicks${reported && reported.currency ? ` · ${esc(reported.currency)}` : ''}${reported ? ` · ${esc(names[`${draft.platform}ads`] || 'Meta Ads')} status: ${esc(reported.status || 'unknown')}` : ''}</p>` : ''}
       ${draft.status === 'unknown' && !draft.retry_safe ? `<p class="small" style="color:var(--bad)">Automatic retry window expired. Check ${esc(names[`${draft.platform}ads`] || 'Meta Ads')} before taking action.</p>` : ''}
       ${draft.error ? `<p class="small" style="color:var(--bad)">${esc(draft.error)}</p>` : ''}
@@ -5962,6 +5983,18 @@ pages.ads = async app => {
           <input id="camp-meta-placement-description-${index}" data-meta-placement-copy="description" maxlength="255" value="${esc(rule.description || '')}" style="width:100%"></div>
       </div>
     </article>`;
+  const metaDynamicAssetOptions = mediaType => (mediaType === 'video'
+    ? campaignPlacementAssets.video : campaignCarouselAssets);
+  const metaDynamicAssetsMarkup = () => metaDynamicAssetOptions(state.metaDynamicMediaType)
+    .map(asset => `<option value="${asset.id}" ${(state.metaDynamicMediaAssetIds || []).includes(asset.id) ? 'selected' : ''}>${esc(asset.file_name)}</option>`)
+    .join('');
+  const metaDynamicAdFormatOptions = mediaType => mediaType === 'video'
+    ? [['default', 'Meta default (single video)'], ['SINGLE_VIDEO', 'Single video']]
+    : [['default', 'Meta default (single image)'], ['SINGLE_IMAGE', 'Single image'], ['CAROUSEL_IMAGE', 'Dynamic image carousel']];
+  const metaDynamicAdFormatMarkup = () => metaDynamicAdFormatOptions(state.metaDynamicMediaType)
+    .map(([value, label]) => `<option value="${value}" ${(state.metaDynamicCreative.ad_format || 'default') === value ? 'selected' : ''}>${label}</option>`)
+    .join('');
+  const metaDynamicTextValue = field => (state.metaDynamicCreative[field] || []).join('\n');
   const campaignBuilder = `<section class="card ads-builder" id="campaign-builder">
     <div class="ads-section-heading"><div><span class="ads-kicker">CAMPAIGN WORKSPACE</span><h2>Build a campaign</h2>
       <p class="small muted">Set up your audience and creative, save a draft, then review before launch.</p></div>
@@ -6030,9 +6063,24 @@ pages.ads = async app => {
           <label class="small muted" for="camp-meta-creative-format">Meta creative format</label>
           <select id="camp-meta-creative-format" style="width:100%">
             <option value="single">Single image or video</option><option value="carousel">Carousel (2–10 image cards)</option>
-            <option value="placement_assets">Different asset by placement</option>
+            <option value="placement_assets">Different asset by placement</option><option value="dynamic">Dynamic creative (Meta optimizes an asset pool)</option>
           </select>
           <span class="small muted">Carousel cards use JPEG or PNG assets. Per-placement ads use an image-only or video-only set of uploaded assets.</span>
+          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-top:10px">
+            ${[
+              ['camp-meta-enhance-cta', 'Enhanced call to action'],
+              ['camp-meta-image-enhancements', 'Image brightness and contrast'],
+              ['camp-meta-text-optimizations', 'Text optimizations'],
+            ].map(([id, label]) => `<div><label class="small muted" for="${id}">${label}</label>
+              <select id="${id}" style="width:100%">
+                <option value="default">Use Meta default</option><option value="OPT_IN">Opt in</option><option value="OPT_OUT">Opt out</option>
+              </select></div>`).join('')}
+            <div><label class="small muted" for="camp-meta-multi-advertiser">Multi-advertiser ads</label>
+              <select id="camp-meta-multi-advertiser" style="width:100%">
+                <option value="default">Use Meta default</option><option value="OPT_OUT">Opt out</option>
+              </select></div>
+          </div>
+          <span class="small muted">Enhancement choices are sent individually. Multi-advertiser opt-out is a separate Meta field; the deprecated standard_enhancements bundle is never sent.</span>
         </div>
         <div id="camp-meta-carousel-wrap" hidden style="grid-column:1/-1">
           <div class="row" style="justify-content:space-between;align-items:center">
@@ -6064,9 +6112,35 @@ pages.ads = async app => {
           ${campaignPlacementAssets.image.length ? '' : '<p class="notice">Upload JPEG or PNG images for image placement assets.</p>'}
           ${campaignPlacementAssets.video.length ? '' : '<p class="notice">Upload MP4 or MOV videos for video placement assets.</p>'}
         </div>
+        <div id="camp-meta-dynamic-wrap" hidden style="grid-column:1/-1">
+          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px">
+            <div><label class="small muted" for="camp-meta-dynamic-type">Dynamic asset type</label>
+              <select id="camp-meta-dynamic-type" style="width:100%">
+                <option value="image" ${state.metaDynamicMediaType === 'image' ? 'selected' : ''}>Images</option>
+                <option value="video" ${state.metaDynamicMediaType === 'video' ? 'selected' : ''}>Videos</option>
+              </select></div>
+            <div><label class="small muted" for="camp-meta-dynamic-ad-format">Ad format</label>
+              <select id="camp-meta-dynamic-ad-format" style="width:100%">${metaDynamicAdFormatMarkup()}</select></div>
+            <div><label class="small muted" for="camp-meta-dynamic-assets">Asset pool (1–10 workspace uploads)</label>
+              <select id="camp-meta-dynamic-assets" multiple size="5" style="width:100%">${metaDynamicAssetsMarkup()}</select></div>
+            <div><label class="small muted" for="camp-meta-dynamic-ctas">Call-to-action options</label>
+              <select id="camp-meta-dynamic-ctas" multiple size="5" required style="width:100%">
+                ${metaDynamicCallToActions.map(value => `<option value="${value}" ${(state.metaDynamicCreative.call_to_action_types || []).includes(value) ? 'selected' : ''}>${metaDynamicCallToActionLabel(value)}</option>`).join('')}
+              </select></div>
+            <div><label class="small muted" for="camp-meta-dynamic-bodies">Primary text options (up to 5; one per line)</label>
+              <textarea id="camp-meta-dynamic-bodies" maxlength="25000" rows="5" style="width:100%">${esc(metaDynamicTextValue('bodies'))}</textarea></div>
+            <div><label class="small muted" for="camp-meta-dynamic-titles">Headline options (up to 5; one per line)</label>
+              <textarea id="camp-meta-dynamic-titles" maxlength="1275" rows="5" style="width:100%">${esc(metaDynamicTextValue('titles'))}</textarea></div>
+            <div><label class="small muted" for="camp-meta-dynamic-descriptions">Description options (up to 5; one per line)</label>
+              <textarea id="camp-meta-dynamic-descriptions" maxlength="1275" rows="5" style="width:100%">${esc(metaDynamicTextValue('descriptions'))}</textarea></div>
+            <div><label class="small muted" for="camp-meta-dynamic-links">Destination URL options (HTTPS; optional for lead ads)</label>
+              <textarea id="camp-meta-dynamic-links" maxlength="20480" rows="4" style="width:100%">${esc(metaDynamicTextValue('link_urls'))}</textarea></div>
+          </div>
+          <p class="small muted">Meta automatically combines the selected assets and options. Upload assets to the workspace first. Image or video pools are exclusive; Meta allows up to 10 assets and 5 options per text field.</p>
+        </div>
         <div id="camp-headline-wrap" ${builderPlatform === 'tiktok' ? 'hidden' : ''}><label class="small muted" for="camp-headline">Headline</label><input id="camp-headline" maxlength="255" ${builderPlatform === 'tiktok' ? '' : 'required'} style="width:100%"></div>
-        <div><label class="small muted" for="camp-body"><span id="camp-body-label">${builderPlatform === 'tiktok' ? 'Video caption' : 'Primary text'}</span></label><textarea id="camp-body" maxlength="5000" required style="width:100%;min-height:84px"></textarea></div>
-        <div><label class="small muted" for="camp-link">Landing page URL (HTTPS)</label><input id="camp-link" type="url" required placeholder="https://example.com" style="width:100%"></div>
+        <div id="camp-body-wrap"><label class="small muted" for="camp-body"><span id="camp-body-label">${builderPlatform === 'tiktok' ? 'Video caption' : 'Primary text'}</span></label><textarea id="camp-body" maxlength="5000" required style="width:100%;min-height:84px"></textarea></div>
+        <div id="camp-link-wrap"><label class="small muted" for="camp-link">Landing page URL (HTTPS)</label><input id="camp-link" type="url" required placeholder="https://example.com" style="width:100%"></div>
         <div id="camp-google-search-fields" hidden>
           <label class="small muted" for="camp-google-keywords">Search keywords (one per line)</label><textarea id="camp-google-keywords" style="width:100%;min-height:70px" placeholder="project management software"></textarea>
           <label class="small muted" for="camp-google-headlines">Additional headlines (one per line; at least two)</label><textarea id="camp-google-headlines" style="width:100%;min-height:70px" placeholder="Plan projects together&#10;Try it free today"></textarea>
@@ -7378,6 +7452,25 @@ pages.ads = async app => {
     description: $('[data-meta-carousel-description]', card).value.trim(),
     link_url: $('[data-meta-carousel-link]', card).value.trim(),
   }));
+  const readMetaDynamicCreative = () => {
+    const lines = id => $(`#${id}`, app).value.split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+    return {
+      media_asset_ids: $$('option:checked', $('#camp-meta-dynamic-assets', app)).map(option => Number(option.value)),
+      media_type: $('#camp-meta-dynamic-type', app).value,
+      bodies: lines('camp-meta-dynamic-bodies'),
+      titles: lines('camp-meta-dynamic-titles'),
+      descriptions: lines('camp-meta-dynamic-descriptions'),
+      link_urls: lines('camp-meta-dynamic-links'),
+      call_to_action_types: $$('option:checked', $('#camp-meta-dynamic-ctas', app)).map(option => option.value),
+      ad_format: $('#camp-meta-dynamic-ad-format', app).value,
+    };
+  };
+  const renderMetaDynamicAssets = () => {
+    const select = $('#camp-meta-dynamic-assets', app);
+    const selected = new Set((state.metaDynamicMediaAssetIds || []).map(Number));
+    select.innerHTML = metaDynamicAssetsMarkup();
+    $$('option', select).forEach(option => { option.selected = selected.has(Number(option.value)); });
+  };
   const renderMetaCarouselCards = () => {
     state.metaCarouselCards = state.metaCarouselCards || [{}, {}];
     carouselCards.innerHTML = state.metaCarouselCards.map(metaCarouselCardMarkup).join('');
@@ -7388,12 +7481,28 @@ pages.ads = async app => {
     const format = isMeta ? $('#camp-meta-creative-format', app).value : 'single';
     const isCarousel = isMeta && format === 'carousel';
     const isPlacementAssets = isMeta && format === 'placement_assets';
+    const isDynamic = isMeta && format === 'dynamic';
     $('#camp-meta-creative-format-wrap', app).hidden = !isMeta;
     $('#camp-meta-carousel-wrap', app).hidden = !isCarousel;
     $('#camp-meta-placement-wrap', app).hidden = !isPlacementAssets;
-    $('#camp-single-media-select-wrap', app).hidden = isCarousel || isPlacementAssets || platform === 'google';
-    mediaSelect.disabled = isCarousel || isPlacementAssets || platform === 'google';
-    mediaSelect.required = !isCarousel && !isPlacementAssets && platform !== 'google';
+    $('#camp-meta-dynamic-wrap', app).hidden = !isDynamic;
+    $('#camp-media-wrap', app).hidden = platform === 'google' || isDynamic;
+    $('#camp-single-media-select-wrap', app).hidden = isCarousel || isPlacementAssets || isDynamic || platform === 'google';
+    mediaSelect.disabled = isCarousel || isPlacementAssets || isDynamic || platform === 'google';
+    mediaSelect.required = !isCarousel && !isPlacementAssets && !isDynamic && platform !== 'google';
+    $('#camp-headline-wrap', app).hidden = platform === 'tiktok' || isDynamic;
+    $('#camp-headline', app).required = platform !== 'tiktok' && !isDynamic;
+    $('#camp-body-wrap', app).hidden = isDynamic;
+    $('#camp-body', app).required = !isDynamic;
+    $('#camp-link-wrap', app).hidden = isDynamic;
+    $('#camp-link', app).required = !isDynamic;
+    $('#camp-cta-wrap', app).hidden = isDynamic || platform === 'google';
+    ['camp-meta-dynamic-type', 'camp-meta-dynamic-ad-format', 'camp-meta-dynamic-assets', 'camp-meta-dynamic-ctas',
+      'camp-meta-dynamic-bodies', 'camp-meta-dynamic-titles', 'camp-meta-dynamic-descriptions',
+      'camp-meta-dynamic-links'].forEach(id => {
+      const input = $(`#${id}`, app);
+      if (input) input.disabled = !isDynamic;
+    });
     const defaultAsset = $('#camp-meta-placement-default', app);
     if (defaultAsset) {
       defaultAsset.disabled = !isPlacementAssets;
@@ -7457,9 +7566,30 @@ pages.ads = async app => {
   if ($('#camp-meta-creative-format', app)) $('#camp-meta-creative-format', app).onchange = () => {
     state.metaCarouselCards = readMetaCarouselCards();
     state.metaPlacementRules = readMetaPlacementRules();
+    state.metaDynamicCreative = readMetaDynamicCreative();
+    state.metaDynamicMediaAssetIds = state.metaDynamicCreative.media_asset_ids;
     state.metaDefaultMediaAssetId = Number($('#camp-meta-placement-default', app).value) || null;
     updateMetaCreativeFields();
   };
+  if ($('#camp-meta-dynamic-type', app)) $('#camp-meta-dynamic-type', app).onchange = () => {
+    state.metaDynamicMediaType = $('#camp-meta-dynamic-type', app).value;
+    state.metaDynamicMediaAssetIds = [];
+    const availableFormats = metaDynamicAdFormatOptions(state.metaDynamicMediaType).map(([value]) => value);
+    state.metaDynamicCreative.ad_format = availableFormats.includes(state.metaDynamicCreative.ad_format)
+      ? state.metaDynamicCreative.ad_format : 'default';
+    $('#camp-meta-dynamic-ad-format', app).innerHTML = metaDynamicAdFormatMarkup();
+    renderMetaDynamicAssets();
+  };
+  if ($('#camp-meta-dynamic-assets', app)) $('#camp-meta-dynamic-assets', app).onchange = () => {
+    state.metaDynamicMediaAssetIds = readMetaDynamicCreative().media_asset_ids;
+  };
+  ['camp-meta-dynamic-bodies', 'camp-meta-dynamic-titles', 'camp-meta-dynamic-descriptions',
+    'camp-meta-dynamic-links', 'camp-meta-dynamic-ctas', 'camp-meta-dynamic-ad-format'].forEach(id => {
+    const input = $(`#${id}`, app);
+    if (input) input.oninput = input.onchange = () => {
+      state.metaDynamicCreative = readMetaDynamicCreative();
+    };
+  });
   const renderSelectedInterests = () => {
     const selected = state.campaignInterests || [];
     interestList.innerHTML = selected.length
@@ -7730,6 +7860,7 @@ pages.ads = async app => {
       const dailyBudget = Number($('#camp-budget', app).value);
       const platform = $('#camp-platform', app).value;
       const googleType = $('#camp-google-type', app).value;
+      const objective = $('#camp-objective', app).value;
       const googleText = id => $(`#${id}`, app).value.trim();
       const usesMedia = platform !== 'google';
       const metaCreativeFormat = platform === 'meta' ? $('#camp-meta-creative-format', app).value : 'single';
@@ -7739,6 +7870,11 @@ pages.ads = async app => {
       const metaPlacementAssetType = $('#camp-meta-placement-type', app).value;
       const metaPlacementRulesValue = platform === 'meta' && metaCreativeFormat === 'placement_assets'
         ? readMetaPlacementRules() : [];
+      const metaDynamicCreativeValue = platform === 'meta' && metaCreativeFormat === 'dynamic'
+        ? readMetaDynamicCreative() : {
+          media_asset_ids: [], media_type: 'image', bodies: [], titles: [], descriptions: [],
+              link_urls: [], call_to_action_types: [], ad_format: 'default',
+        };
       if (metaCreativeFormat === 'carousel') {
         if (metaCarouselCardsValue.length < 2 || metaCarouselCardsValue.length > 10
           || metaCarouselCardsValue.some(card => !card.media_asset_id)
@@ -7769,17 +7905,35 @@ pages.ads = async app => {
           return;
         }
       }
+      if (metaCreativeFormat === 'dynamic') {
+        const validUrl = value => {
+          try {
+            const link = new URL(value);
+            return link.protocol === 'https:' && Boolean(link.hostname) && !link.username && !link.password;
+          } catch { return false; }
+        };
+        if (metaDynamicCreativeValue.media_asset_ids.length < 1 || metaDynamicCreativeValue.media_asset_ids.length > 10
+          || metaDynamicCreativeValue.call_to_action_types.length < 1
+          || ['bodies', 'titles', 'descriptions'].some(field => metaDynamicCreativeValue[field].length > 5)
+          || metaDynamicCreativeValue.link_urls.length > 10
+          || (objective !== 'lead_generation' && metaDynamicCreativeValue.link_urls.length === 0)
+          || metaDynamicCreativeValue.link_urls.some(url => !validUrl(url))) {
+          toast('Choose 1–10 uploaded assets and at least one call to action. Add up to 5 text options and valid HTTPS destinations (destinations are optional for lead ads).', true);
+          return;
+        }
+      }
       const values = {
         platform,
         ad_connection_id: campaignConnectionFor(platform)?.id || '',
         ad_account_id: $('#camp-account', app).value,
         campaign_name: $('#camp-name', app).value.trim(),
-        objective: $('#camp-objective', app).value,
+        objective,
         daily_budget: dailyBudget,
         end_date: $('#camp-end-date', app).value,
         creative_type: platform === 'google' ? (googleType === 'search' ? 'text' : 'video')
           : metaCreativeFormat === 'carousel' ? 'image'
             : metaCreativeFormat === 'placement_assets' ? metaPlacementAssetType
+              : metaCreativeFormat === 'dynamic' ? metaDynamicCreativeValue.media_type
               : mediaSelect.selectedOptions[0]?.dataset.kind || '',
         meta_creative_format: metaCreativeFormat,
         meta_carousel_cards: metaCarouselCardsValue,
@@ -7787,13 +7941,25 @@ pages.ads = async app => {
         meta_default_media_asset_id: metaCreativeFormat === 'placement_assets'
           ? Number($('#camp-meta-placement-default', app).value) || null : null,
         meta_placement_rules: metaPlacementRulesValue,
-        media_asset_id: usesMedia && !['carousel', 'placement_assets'].includes(metaCreativeFormat) && mediaChoice[0] === 'asset' ? Number(mediaChoice[1]) : null,
-        post_id: usesMedia && !['carousel', 'placement_assets'].includes(metaCreativeFormat) && mediaChoice[0] === 'post' ? Number(mediaChoice[1]) : null,
+        meta_dynamic_media_type: metaDynamicCreativeValue.media_type,
+        meta_dynamic_ad_format: metaDynamicCreativeValue.ad_format,
+        meta_dynamic_media_asset_ids: metaDynamicCreativeValue.media_asset_ids,
+        meta_dynamic_bodies: metaDynamicCreativeValue.bodies,
+        meta_dynamic_titles: metaDynamicCreativeValue.titles,
+        meta_dynamic_descriptions: metaDynamicCreativeValue.descriptions,
+        meta_dynamic_link_urls: metaDynamicCreativeValue.link_urls,
+        meta_dynamic_call_to_action_types: metaDynamicCreativeValue.call_to_action_types,
+        meta_enhance_cta: platform === 'meta' ? $('#camp-meta-enhance-cta', app).value : 'default',
+        meta_image_brightness_and_contrast: platform === 'meta' ? $('#camp-meta-image-enhancements', app).value : 'default',
+        meta_text_optimizations: platform === 'meta' ? $('#camp-meta-text-optimizations', app).value : 'default',
+        meta_multi_advertiser: platform === 'meta' ? $('#camp-meta-multi-advertiser', app).value : 'default',
+        media_asset_id: usesMedia && !['carousel', 'placement_assets', 'dynamic'].includes(metaCreativeFormat) && mediaChoice[0] === 'asset' ? Number(mediaChoice[1]) : null,
+        post_id: usesMedia && !['carousel', 'placement_assets', 'dynamic'].includes(metaCreativeFormat) && mediaChoice[0] === 'post' ? Number(mediaChoice[1]) : null,
         brand_logo_asset_id: platform === 'google' && googleType === 'demand_gen'
           ? Number($('#camp-brand-logo', app).value) || null : null,
-        headline: $('#camp-headline', app).value.trim(),
-        body: $('#camp-body', app).value.trim(),
-        link_url: $('#camp-link', app).value.trim(),
+        headline: metaCreativeFormat === 'dynamic' ? '' : $('#camp-headline', app).value.trim(),
+        body: metaCreativeFormat === 'dynamic' ? '' : $('#camp-body', app).value.trim(),
+        link_url: metaCreativeFormat === 'dynamic' ? '' : $('#camp-link', app).value.trim(),
         google_campaign_type: googleType,
         google_keywords: googleText('camp-google-keywords').split(/\r?\n/).map(item => item.trim()).filter(Boolean),
         google_extra_headlines: googleText('camp-google-headlines').split(/\r?\n/).map(item => item.trim()).filter(Boolean),
@@ -7856,6 +8022,9 @@ pages.ads = async app => {
         state.metaCarouselCards = [{}, {}];
         state.metaPlacementRules = [{}];
         state.metaDefaultMediaAssetId = null;
+        state.metaDynamicMediaType = 'image';
+        state.metaDynamicMediaAssetIds = [];
+        state.metaDynamicCreative = {};
         state.campaignInterests = [];
         state.campaignBehaviors = [];
         state.campaignWorkPositions = [];
@@ -7894,6 +8063,16 @@ pages.ads = async app => {
     state.metaPlacementAssetType = values.meta_placement_asset_type || 'image';
     state.metaDefaultMediaAssetId = values.meta_default_media_asset_id || null;
     state.metaPlacementRules = values.meta_placement_rules?.length ? values.meta_placement_rules : [{}];
+    state.metaDynamicMediaType = values.meta_dynamic_media_type || 'image';
+    state.metaDynamicMediaAssetIds = values.meta_dynamic_media_asset_ids || [];
+    state.metaDynamicCreative = {
+      bodies: values.meta_dynamic_bodies || [],
+      titles: values.meta_dynamic_titles || [],
+      descriptions: values.meta_dynamic_descriptions || [],
+      link_urls: values.meta_dynamic_link_urls || [],
+      call_to_action_types: values.meta_dynamic_call_to_action_types || [],
+      ad_format: values.meta_dynamic_ad_format || 'default',
+    };
     $('#camp-platform', app).value = platform;
     setCampaignPlatform(platform, true);
     if ($('#camp-google-type', app)) $('#camp-google-type', app).value = values.google_campaign_type || 'search';
@@ -7904,7 +8083,14 @@ pages.ads = async app => {
     setMetaObjectiveFields();
     if ($('#camp-meta-creative-format', app)) {
       $('#camp-meta-creative-format', app).value = values.meta_creative_format || 'single';
+      $('#camp-meta-dynamic-type', app).value = state.metaDynamicMediaType;
+      $('#camp-meta-dynamic-ad-format', app).innerHTML = metaDynamicAdFormatMarkup();
+      $('#camp-meta-enhance-cta', app).value = values.meta_enhance_cta || 'default';
+      $('#camp-meta-image-enhancements', app).value = values.meta_image_brightness_and_contrast || 'default';
+      $('#camp-meta-text-optimizations', app).value = values.meta_text_optimizations || 'default';
+      $('#camp-meta-multi-advertiser', app).value = values.meta_multi_advertiser || 'default';
       renderMetaCarouselCards();
+      renderMetaDynamicAssets();
       if ($('#camp-meta-placement-type', app)) {
         $('#camp-meta-placement-type', app).value = state.metaPlacementAssetType;
         refreshMetaPlacementAssets();
@@ -7917,6 +8103,15 @@ pages.ads = async app => {
     if ($('#camp-headline', app)) $('#camp-headline', app).value = values.headline || '';
     if ($('#camp-body', app)) $('#camp-body', app).value = values.body || '';
     if ($('#camp-link', app)) $('#camp-link', app).value = values.link_url || '';
+    if ($('#camp-meta-dynamic-bodies', app)) $('#camp-meta-dynamic-bodies', app).value = state.metaDynamicCreative.bodies.join('\n');
+    if ($('#camp-meta-dynamic-titles', app)) $('#camp-meta-dynamic-titles', app).value = state.metaDynamicCreative.titles.join('\n');
+    if ($('#camp-meta-dynamic-descriptions', app)) $('#camp-meta-dynamic-descriptions', app).value = state.metaDynamicCreative.descriptions.join('\n');
+    if ($('#camp-meta-dynamic-links', app)) $('#camp-meta-dynamic-links', app).value = state.metaDynamicCreative.link_urls.join('\n');
+    if ($('#camp-meta-dynamic-ctas', app)) {
+      $$('option', $('#camp-meta-dynamic-ctas', app)).forEach(option => {
+        option.selected = state.metaDynamicCreative.call_to_action_types.includes(option.value);
+      });
+    }
     if ($('#camp-google-keywords', app)) $('#camp-google-keywords', app).value = (values.google_keywords || []).join('\n');
     if ($('#camp-google-headlines', app)) $('#camp-google-headlines', app).value = (values.google_extra_headlines || []).join('\n');
     if ($('#camp-google-description', app)) $('#camp-google-description', app).value = values.google_extra_description || '';
