@@ -5819,11 +5819,12 @@ pages.ads = async app => {
       ? (connection.ad_accounts || []).map(a => `<span class="pill">${esc(a.name)}${a.currency ? ` · ${esc(a.currency)}` : ''} · ${a.selected ? 'selected' : 'not selected'}</span>`).join(' ')
         || '<span class="muted small">No usable ad accounts were returned. Check account access and selection in the ad platform.</span>'
       : '<span class="muted small">Not connected</span>';
-    return `<div class="card">
-      <div class="row" style="align-items:flex-start"><div style="flex:1"><h2 style="margin:0">${names[adsKey]}</h2>
+    return `<div class="card ads-connection-card ads-connection-${platform}">
+      <div class="row ads-connection-head"><span class="ads-platform-mark">${platform === 'google' ? 'G' : platform === 'linkedin' ? 'in' : platform === 'tiktok' ? '♪' : 'M'}</span><div class="ads-connection-title"><h2>${names[adsKey]}</h2>
         <p class="muted small" style="margin:5px 0 10px">${connection ? 'Connected to this workspace' : platform === 'google' ? 'Connect Google Ads directly; no Google publishing account is required.' : platform === 'linkedin' ? 'Connect the LinkedIn account that has access to the Company Page and ad account.' : platform === 'tiktok' ? 'Connect TikTok Ads and link the matching TikTok publishing account to enable Spark Ads.' : 'Connect an ad account you are authorized to manage.'}</p>
         ${connection && platform === 'tiktok' && linkedPosting ? `<p class="muted small">Linked TikTok identity: ${esc(linkedPosting.display_name || linkedPosting.username || 'TikTok account')}${linkedPosting.username ? ` · @${esc(linkedPosting.username.replace(/^@/, ''))}` : ''}</p>` : ''}
-        ${connection ? accountList : ''}${connection && connection.error ? `<p class="small" style="color:var(--bad)">${esc(connection.error)}</p>` : ''}
+        </div>${connection ? '<span class="ads-connected-badge"><i></i> Connected</span>' : ''}</div>
+        <div class="ads-connection-content">${connection ? accountList : ''}${connection && connection.error ? `<p class="small" style="color:var(--bad)">${esc(connection.error)}</p>` : ''}
         ${!connection && d.can_manage && d.configured ? platform === 'google'
           ? `<button class="btn primary" type="button" data-ads-connect="${platform}">Connect ${names[adsKey]}</button>`
           : posting.length
@@ -5832,7 +5833,7 @@ pages.ads = async app => {
                `<option value="${esc(a.id)}">${esc(a.display_name || a.username || a.platform)}${a.username ? ` · @${esc(a.username.replace(/^@/, ''))}` : ''}</option>`).join('')}</select>
              <button class="btn primary" type="button" data-ads-connect="${platform}">Connect ${names[adsKey]}</button>`
           : `<p class="small muted">Connect a ${platform === 'tiktok' ? 'TikTok' : platform === 'linkedin' ? 'LinkedIn' : 'Facebook or Instagram'} publishing account first in Settings → Publishing.</p>`
-          : ''}</div>${connection ? '<span class="pill">Connected</span>' : ''}</div>
+          : ''}</div>
     </div>`;
   };
   const metaConnection = d.ads_connections.find(item => item.platform === 'metaads');
@@ -5843,6 +5844,7 @@ pages.ads = async app => {
   const tiktokAdAccounts = (tiktokConnection && tiktokConnection.ad_accounts || []).filter(item => item.selected);
   const googleAdAccounts = (googleConnection && googleConnection.ad_accounts || []).filter(item => item.selected);
   const linkedinAdAccounts = (linkedinConnection && linkedinConnection.ad_accounts || []).filter(item => item.selected);
+  const activeCampaignCount = (d.campaign_drafts || []).filter(item => item.status === 'active').length;
   const campaignConnections = {
     meta: metaConnection, tiktok: tiktokConnection, google: googleConnection, linkedin: linkedinConnection,
   };
@@ -5882,7 +5884,7 @@ pages.ads = async app => {
           : d.can_manage
             ? `<button class="btn sm" type="button" data-campaign-status="${draft.id}" data-status="${draft.status === 'active' ? 'paused' : 'active'}">${draft.status === 'active' ? 'Pause' : 'Launch'}</button>`
             : '';
-    return `<article class="card">
+    return `<article class="card ads-campaign-card">
       <div class="row" style="align-items:flex-start"><b style="flex:1">${esc(draft.campaign_name)}</b><span class="pill">${esc(draft.status.replace('_', ' '))}</span></div>
       <p class="muted small">${esc(names[`${draft.platform}ads`] || 'Meta Ads')} · ${esc(form.objective || form.google_campaign_type || '')} · ${esc(String(form.daily_budget || ''))}/day · ends ${esc(String(form.end_date || ''))} · ${esc(form.creative_type || '')}</p>
       <p class="small">${form.headline ? `<b>${esc(form.headline)}</b><br>` : ''}${esc(short(form.body || '', 180))}<br><span class="muted">${esc(form.link_url || '')}</span></p>
@@ -5892,16 +5894,18 @@ pages.ads = async app => {
       <div class="actions">${action}</div>
     </article>`;
   }).join('');
-  const campaignBuilder = `<section class="card" style="margin:12px 0 20px">
-    <h2 style="margin:0 0 4px">Build an ad campaign</h2>
-    <p class="small muted">Save a draft, create it paused for review, then explicitly launch it. No spend starts until you choose Launch.</p>
+  const campaignBuilder = `<section class="card ads-builder" id="campaign-builder">
+    <div class="ads-section-heading"><div><span class="ads-kicker">CAMPAIGN WORKSPACE</span><h2>Build a campaign</h2>
+      <p class="small muted">Set up your audience and creative, save a draft, then review before launch.</p></div>
+      <span class="ads-safety-note"><i></i> Campaigns start paused</span></div>
     <div style="max-width:320px;margin:10px 0"><label class="small muted" for="camp-platform">Ad platform</label>
       <select id="camp-platform" style="width:100%"><option value="meta" ${builderPlatform === 'meta' ? 'selected' : ''}>Meta</option><option value="tiktok" ${builderPlatform === 'tiktok' ? 'selected' : ''}>TikTok</option><option value="google" ${builderPlatform === 'google' ? 'selected' : ''}>Google Ads (Search + YouTube)</option><option value="linkedin" ${builderPlatform === 'linkedin' ? 'selected' : ''}>LinkedIn</option></select></div>
     <p id="camp-connection-notice" class="notice" ${builderConnection ? 'hidden' : ''}>Connect ${names[`${builderPlatform}ads`] || 'Meta Ads'} above and select an available ad account to start a draft.</p>
     <p id="camp-connection-error" class="notice" style="color:var(--bad)" ${builderConnection?.error ? '' : 'hidden'}>${esc(builderConnection?.error || '')}</p>
     <p id="camp-platform-note" class="small muted"></p>
     <form id="campaign-builder-form">
-      <div class="grid clients-grid" style="gap:10px">
+      <div class="grid ads-form-grid" style="gap:10px">
+        <div class="ads-form-divider"><span>Campaign setup</span></div>
         <div><label class="small muted" for="camp-account"><span id="camp-account-label">${names[`${builderPlatform}ads`] || 'Meta Ads'} ad account</span></label>
           <select id="camp-account" required style="width:100%">${builderAdAccounts.map(item =>
             `<option value="${esc(item.id)}">${esc(item.name)}${item.currency ? ` · ${esc(item.currency)}` : ''}</option>`).join('')}</select></div>
@@ -5914,6 +5918,7 @@ pages.ads = async app => {
           <input id="camp-budget" type="number" min="1" step="0.01" required style="width:100%"></div>
         <div><label class="small muted" for="camp-end-date">Campaign end date</label>
           <input id="camp-end-date" type="date" required style="width:100%"></div>
+        <div class="ads-form-divider"><span>Creative and destination</span></div>
         <div id="camp-media-wrap" ${['google'].includes(builderPlatform) ? 'hidden' : ''}><label class="small muted" for="camp-media">Creative media</label>
           <select id="camp-media" required style="width:100%">${campaignMediaOptions.filter(item =>
             (item.platform === 'both' || item.platform === builderPlatform) &&
@@ -5993,10 +5998,10 @@ pages.ads = async app => {
       ${d.can_manage ? `<div class="actions"><button id="camp-save" class="btn primary" type="submit">Save campaign draft</button></div>` : '<p class="small muted">Ask a workspace admin to create and launch campaigns.</p>'}
     </form>
   </section>
-  <section style="margin:16px 0 20px"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Campaign drafts and ad reports</h2><button class="btn sm" type="button" id="camp-report-refresh">Refresh reports</button></div>
+  <section class="ads-section ads-campaigns"><div class="ads-section-heading"><div><span class="ads-kicker">CAMPAIGNS</span><h2>Campaign drafts and reports</h2></div><button class="btn sm" type="button" id="camp-report-refresh">Refresh reports</button></div>
     ${campaignReportError ? `<p class="notice" style="color:var(--bad)">${esc(campaignReportError)}</p>` : ''}
-    ${(d.campaign_drafts || []).length ? `<div class="grid clients-grid" style="margin-top:10px">${campaignDraftCards}</div>` : '<p class="small muted">No campaign drafts yet.</p>'}
-    ${(campaignReport.campaigns || []).length ? `<details style="margin-top:10px"><summary>Campaigns from connected ad accounts (${campaignReport.campaigns.length})</summary><div class="card"><ul class="list">${campaignReport.campaigns.map(campaign =>
+    ${(d.campaign_drafts || []).length ? `<div class="grid ads-campaign-grid">${campaignDraftCards}</div>` : '<div class="empty card"><p>No campaign drafts yet. Use the campaign workspace above to get started.</p></div>'}
+    ${(campaignReport.campaigns || []).length ? `<details class="ads-report-details"><summary>Campaigns from connected ad accounts (${campaignReport.campaigns.length})</summary><div class="card"><ul class="list">${campaignReport.campaigns.map(campaign =>
       `<li><span style="flex:1"><b>${esc(campaign.campaignName || campaign.platformCampaignId || 'Campaign')}</b><span class="muted"> · ${esc(campaign.platform || '')} · ${esc(campaign.status || '')} · ${esc(campaign.currency || '')}</span><div class="small muted">Spend ${fmt(campaign.metrics?.spend || 0)} · ${fmt(campaign.metrics?.impressions || 0)} impressions · ${fmt(campaign.metrics?.clicks || 0)} clicks</div></span></li>`).join('')}</ul></div></details>` : ''}
   </section>`;
   const platformForPost = post => {
@@ -6012,7 +6017,7 @@ pages.ads = async app => {
       && (!connection?.parent_account_id || connection.parent_account_id === post.tiktok_posting_account_id));
     const canBoost = platform && connection && tiktokIdentityMatches && (connection.ad_accounts || []).some(a => a.selected)
       && d.can_manage && !existing;
-    return `<article class="card">
+    return `<article class="card ads-boost-card">
       <div class="row" style="gap:8px;align-items:flex-start"><span class="pill">${esc(post.platform || '')}</span><b style="flex:1">${esc(short(post.hook || post.caption || 'Published post', 100))}</b></div>
       <p class="muted small" style="margin:8px 0">${esc(post.handle || '')} · ${esc(String(post.post_date || '').slice(0, 10))} · ${fmt(post.views || 0)} views · ${fmt(post.comments || 0)} comments</p>
       ${existing ? `<p class="small">${existing.status === 'created' ? 'Boost submitted' : existing.status === 'unknown' ? 'Submission needs confirmation' : 'Submission in progress'}${existing.error ? ` · ${esc(existing.error)}` : ''}</p>
@@ -6021,23 +6026,39 @@ pages.ads = async app => {
           : `<span class="muted small">${!platform ? 'This network is not supported in this first release.' : !connection ? `Connect ${platform === 'meta' ? 'Meta' : 'TikTok'} Ads above to boost.` : !d.can_manage ? 'Ask a workspace admin to launch ads.' : !tiktokIdentityMatches ? 'This post belongs to a different TikTok identity than the one linked to TikTok Ads.' : 'No selected ad account is available.'}</span>`}
     </article>`;
   }).join('');
-  app.innerHTML = `<div class="page-head"><div><div class="eyebrow">PAID PROMOTION</div><h1>Ads</h1>
-    <div class="sub">Build campaigns for Meta, TikTok, Google Ads (including YouTube Demand Gen) and LinkedIn. Your ad account pays the platform directly.</div></div></div>
+  app.innerHTML = `<div class="ads-page">
+    <div class="page-head ads-hero"><div><div class="eyebrow">PAID PROMOTION</div><h1>Advertising</h1>
+    <div class="sub">Create and manage campaigns across Meta, TikTok, Google and LinkedIn.</div></div>
+      <div class="ads-hero-actions"><button class="btn primary" type="button" data-ads-scroll="campaign-builder">Create campaign <span aria-hidden="true">↗</span></button><button class="btn" type="button" data-ads-scroll="ads-connections">Manage connections</button></div>
+    </div>
+    <div class="grid ads-overview" aria-label="Advertising overview">
+      <article class="card ads-overview-item"><span class="ads-overview-icon">↗</span><div><span>Connected platforms</span><b>${d.ads_connections.length}<small> / 4</small></b></div></article>
+      <article class="card ads-overview-item"><span class="ads-overview-icon drafts">▤</span><div><span>Campaign drafts</span><b>${(d.campaign_drafts || []).length}</b></div></article>
+      <article class="card ads-overview-item"><span class="ads-overview-icon active">◉</span><div><span>Active campaigns</span><b>${activeCampaignCount}</b></div></article>
+      <article class="card ads-overview-item"><span class="ads-overview-icon spend">#</span><div><span>Reported campaigns</span><b>${(campaignReport.campaigns || []).length}</b></div></article>
+    </div>
     ${connectNotice}
     ${!d.configured ? '<div class="notice" style="margin-bottom:12px">Managed publishing and Ads are not configured on this server yet. Ask the platform admin to set up Zernio.</div>' : ''}
-    <p class="small muted">Submitting a boost creates an ad immediately; actual delivery may wait for platform review. Set a daily budget and an end date; the confirmation shows the estimated scheduled budget. Actual charges and delivery are controlled by Meta or TikTok. For now, pause or edit a live boost in that platform’s Ads Manager.</p>
-    <div class="grid clients-grid" style="margin:12px 0 20px">${connectCard('meta')}${connectCard('tiktok')}${connectCard('google')}${connectCard('linkedin')}</div>
+    <section id="ads-connections" class="ads-section"><div class="ads-section-heading"><div><span class="ads-kicker">ACCOUNTS</span><h2>Ad platform connections</h2><p class="small muted">Connect the accounts your workspace is authorized to manage.</p></div></div>
+      <div class="grid ads-connection-grid">${connectCard('meta')}${connectCard('tiktok')}${connectCard('google')}${connectCard('linkedin')}</div>
+    </section>
     ${campaignBuilder}
-    <div class="row" style="justify-content:space-between;margin:16px 0 8px"><h2 style="margin:0">Published posts to boost</h2><button class="btn sm" id="ads-refresh">Refresh</button></div>
-    ${cards ? `<div class="grid clients-grid">${cards}</div>` : '<div class="empty card"><h2>No boostable posts yet</h2><p>Sync a published TikTok, Instagram, or Facebook post first. The post must have its platform ID in Hooks.</p></div>'}
-    <div class="row" style="justify-content:space-between;margin:24px 0 8px"><h2 style="margin:0">Recent boosts</h2></div>
+    <section class="ads-section"><div class="ads-section-heading"><div><span class="ads-kicker">PROMOTION</span><h2>Boost a published post</h2><p class="small muted">Promote a post that is already performing well on Facebook, Instagram or TikTok.</p></div><button class="btn sm" id="ads-refresh">Refresh</button></div>
+    ${cards ? `<div class="grid ads-boost-grid">${cards}</div>` : '<div class="empty card"><h2>No boostable posts yet</h2><p>Sync a published TikTok, Instagram, or Facebook post first. The post must have its platform ID in Hooks.</p></div>'}
+    </section>
+    <section class="ads-section ads-history"><div class="ads-section-heading"><div><span class="ads-kicker">ACTIVITY</span><h2>Recent boosts</h2></div></div>
     ${d.boosts.length ? `<div class="card"><ul class="list">${d.boosts.map(b => `<li><span style="flex:1;min-width:0"><b>${esc(b.campaign_name)}</b>
       <span class="muted"> · ${esc(names[b.platform === 'meta' ? 'metaads' : 'tiktokads'])} · ${esc(String(b.daily_budget))}/day for ${b.duration_days} days · ${esc(b.status)}</span>
       ${b.error ? `<div class="small" style="color:var(--bad)">${esc(b.error)}</div>` : ''}</span>
       ${b.status === 'unknown' && d.can_manage ? `<button class="btn sm" data-boost-retry="${b.id}">Retry safely</button>` : ''}</li>`).join('')}</ul></div>`
-      : '<p class="small muted">Boost submissions will appear here.</p>'}`;
+      : '<div class="empty card"><p>No boost activity yet.</p></div>'}
+    </section>
+  </div>`;
 
   $('#ads-refresh', app).onclick = () => route();
+  $$('[data-ads-scroll]', app).forEach(button => button.onclick = () => {
+    document.getElementById(button.dataset.adsScroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
   const mediaSelect = $('#camp-media', app);
   const uploadInput = $('#camp-upload', app);
   const logoUploadInput = $('#camp-logo-upload', app);
