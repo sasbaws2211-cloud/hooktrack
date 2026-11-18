@@ -2068,6 +2068,37 @@ body.studio-fit .studio-workspace [data-shotstack-timeline] {
 .ads-hero .sub { max-width: 600px; margin-top: 7px; }
 .ads-hero-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .ads-hero-actions .btn { min-height: 40px; }
+.ads-page [hidden] { display: none !important; }
+.ads-tabs {
+  display: flex;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.ads-tab {
+  min-height: 36px;
+  padding: 7px 13px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ads-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.ads-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ads-overview { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .ads-overview-item {
   display: flex;

@@ -28,6 +28,7 @@ router = APIRouter(prefix="/api/ads", tags=["ads"])
 class ConnectAdsIn(BaseModel):
     platform: Literal["meta", "tiktok", "google", "linkedin"]
     posting_account_id: str = Field(default="", max_length=200)
+    login_mode: Literal["classic", "business"] = "classic"
 
 
 class BoostIn(BaseModel):
@@ -54,7 +55,10 @@ class CampaignDraftIn(BaseModel):
     ad_connection_id: str = Field(min_length=1, max_length=200)
     ad_account_id: str = Field(min_length=1, max_length=200)
     campaign_name: str = Field(min_length=1, max_length=100)
-    objective: Literal["awareness", "traffic", "video_views", "conversions", "engagement"] = "traffic"
+    objective: Literal[
+        "awareness", "traffic", "video_views", "conversions", "engagement", "lead_generation",
+        "lead_conversion", "app_promotion", "catalog_sales", "page_likes", "page_visits",
+    ] = "traffic"
     daily_budget: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     end_date: date
     creative_type: Literal["image", "video", "text"] = "image"
@@ -91,11 +95,29 @@ class CampaignDraftIn(BaseModel):
     ]] = Field(default_factory=list, max_length=6)
     pixel_id: str = Field(default="", max_length=100)
     conversion_event: str = Field(default="PURCHASE", max_length=100)
+    meta_page_id: str = Field(default="", max_length=100)
+    meta_lead_gen_form_id: str = Field(default="", max_length=100)
+    meta_application_id: str = Field(default="", max_length=100)
+    meta_object_store_url: str = Field(default="", max_length=2048)
+    meta_product_catalog_id: str = Field(default="", max_length=100)
+    meta_product_set_id: str = Field(default="", max_length=100)
+    meta_custom_conversion_id: str = Field(default="", max_length=100)
+    meta_custom_event_str: str = Field(default="", max_length=100)
+    meta_offline_dataset_id: str = Field(default="", max_length=100)
     url_tags: str = Field(default="", max_length=1000)
 
 
 class CampaignStatusIn(BaseModel):
     status: Literal["active", "paused"]
+
+
+class MetaAdsRequestIn(BaseModel):
+    ad_connection_id: str = Field(min_length=1, max_length=200)
+    ad_account_id: str = Field(min_length=1, max_length=200)
+    method: Literal["GET", "POST", "PUT", "DELETE"]
+    path: str = Field(min_length=5, max_length=512)
+    query: dict = Field(default_factory=dict)
+    body: dict = Field(default_factory=dict)
 
 
 def _handle(value: str, platform: str) -> str:
@@ -353,8 +375,18 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         raise HTTPException(400, "Choose a campaign end date after today.")
     if values["objective"] == "video_views" and values["creative_type"] != "video":
         raise HTTPException(400, "The video views objective requires a video creative.")
-    if platform in ("meta", "tiktok") and values["objective"] == "conversions" and not values["pixel_id"]:
+    if (platform in ("meta", "tiktok") and values["objective"] == "conversions" and not values["pixel_id"]
+            and not (platform == "meta" and values["meta_custom_conversion_id"])):
         raise HTTPException(400, f"Choose a {platform.title()} pixel for a conversions campaign.")
+    if platform == "meta" and values["objective"] not in {
+        "awareness", "traffic", "video_views", "conversions", "engagement", "lead_generation",
+        "lead_conversion", "app_promotion", "catalog_sales", "page_likes", "page_visits",
+    }:
+        raise HTTPException(400, "Choose a Meta-supported campaign objective.")
+    if platform == "tiktok" and values["objective"] not in (
+        "awareness", "traffic", "video_views", "conversions", "engagement",
+    ):
+        raise HTTPException(400, "TikTok supports Awareness, Traffic, Video views, Conversions, or Engagement.")
     if platform == "google" and values["objective"] not in ("traffic", "awareness", "engagement"):
         raise HTTPException(400, "Google Ads campaigns support Traffic, Awareness, or Engagement objectives.")
     if platform == "linkedin" and values["objective"] not in (
@@ -411,6 +443,53 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         organization_id = values["linkedin_organization_id"].strip()
         if organization_id and not re.fullmatch(r"(?:\d+|urn:li:organization:\d+)", organization_id):
             raise HTTPException(400, "Enter a numeric LinkedIn Company Page ID or urn:li:organization ID.")
+    if platform == "meta":
+        goal = values["objective"]
+        event = values["conversion_event"]
+        if goal in ("conversions", "lead_conversion", "catalog_sales"):
+            if goal == "catalog_sales" and values["meta_custom_conversion_id"]:
+                raise HTTPException(400, "Catalog sales uses a pixel event, not a custom conversion ID.")
+            if goal == "catalog_sales" and not values["pixel_id"]:
+                raise HTTPException(400, "Catalog sales requires a Meta pixel.")
+            if not values["meta_custom_conversion_id"] and not values["pixel_id"]:
+                raise HTTPException(400, "Choose a Meta pixel or custom conversion for this campaign objective.")
+            if not values["meta_custom_conversion_id"] or goal == "catalog_sales":
+                allowed_events = {
+                    "PURCHASE", "LEAD", "COMPLETE_REGISTRATION", "ADD_TO_CART", "INITIATE_CHECKOUT",
+                    "ADD_PAYMENT_INFO", "SUBSCRIBE", "START_TRIAL", "VIEW_CONTENT", "SEARCH",
+                    "CONTACT", "SUBMIT_APPLICATION", "SCHEDULE", "OTHER",
+                }
+                if event not in allowed_events:
+                    raise HTTPException(400, "Choose a supported Meta conversion event.")
+            if (not values["meta_custom_conversion_id"] or goal == "catalog_sales") and (
+                event == "OTHER" and not values["meta_custom_event_str"].strip()
+            ):
+                raise HTTPException(400, "Enter the case-sensitive custom Meta event name for OTHER.")
+            if (not values["meta_custom_conversion_id"] or goal == "catalog_sales") and (
+                event != "OTHER" and values["meta_custom_event_str"].strip()
+            ):
+                raise HTTPException(400, "A custom Meta event name is only valid with the OTHER event.")
+            if values["meta_custom_conversion_id"] and goal != "catalog_sales" and (
+                values["meta_custom_event_str"].strip() or event != "PURCHASE"
+            ):
+                raise HTTPException(400, "A Meta custom conversion ID cannot be combined with a pixel event.")
+            if not values["meta_custom_conversion_id"] or goal == "catalog_sales":
+                if goal in ("conversions", "catalog_sales") and event in {
+                    "LEAD", "CONTACT", "SUBMIT_APPLICATION", "SCHEDULE",
+                }:
+                    raise HTTPException(400, "Use Lead conversions for Meta lead events.")
+                if goal == "lead_conversion" and event in {
+                    "PURCHASE", "ADD_TO_CART", "INITIATE_CHECKOUT", "ADD_PAYMENT_INFO",
+                }:
+                    raise HTTPException(400, "Choose a lead event for the Meta Lead conversions objective.")
+        if goal == "lead_generation" and not values["meta_lead_gen_form_id"].strip():
+            raise HTTPException(400, "Choose a Meta instant form for a lead generation campaign.")
+        if goal == "app_promotion":
+            app_url = urlparse(values["meta_object_store_url"])
+            if not values["meta_application_id"].strip() or app_url.scheme != "https" or not app_url.hostname:
+                raise HTTPException(400, "App promotion requires an app ID and HTTPS app store URL.")
+        if goal == "catalog_sales" and not values["meta_product_set_id"].strip():
+            raise HTTPException(400, "Catalog sales requires a Meta product set ID.")
     if platform in ("meta", "tiktok") and values["special_ad_categories"] and values["interests"]:
         raise HTTPException(400, "Remove interest targeting for ads with a special ad category.")
     if platform == "tiktok" and values["creative_type"] != "video":
@@ -559,12 +638,35 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         request_body["tracking"] = {"pixelId": values["pixel_id"]}
     if platform == "meta" and values["url_tags"]:
         request_body.setdefault("tracking", {})["urlTags"] = _url_tags(values["url_tags"])
-    if platform in ("meta", "tiktok") and values["objective"] == "conversions":
-        allowed_events = {"PURCHASE", "COMPLETE_REGISTRATION", "ADD_TO_CART", "INITIATE_CHECKOUT",
-                          "ADD_PAYMENT_INFO", "SUBSCRIBE", "START_TRIAL", "VIEW_CONTENT", "SEARCH"}
-        if platform == "tiktok":
-            allowed_events = {"ON_WEB_ORDER", "INITIATE_ORDER", "ON_WEB_CART", "ON_WEB_REGISTER", "ON_WEB_DETAIL",
-                              "FORM", "ON_WEB_SEARCH", "ON_WEB_ADD_TO_WISHLIST", "LANDING_PAGE_VIEW"}
+    if platform == "meta" and values["objective"] in ("conversions", "lead_conversion", "catalog_sales"):
+        if values["meta_custom_conversion_id"] and values["objective"] != "catalog_sales":
+            promoted_object = {"customConversionId": values["meta_custom_conversion_id"].strip()}
+        else:
+            promoted_object = {
+                "pixelId": values["pixel_id"],
+                "customEventType": values["conversion_event"],
+            }
+            if values["conversion_event"] == "OTHER":
+                promoted_object["customEventStr"] = values["meta_custom_event_str"].strip()
+        if values["objective"] == "catalog_sales":
+            promoted_object["productSetId"] = values["meta_product_set_id"].strip()
+            if values["meta_product_catalog_id"].strip():
+                promoted_object["productCatalogId"] = values["meta_product_catalog_id"].strip()
+        if values["meta_offline_dataset_id"].strip():
+            promoted_object["offlineConversionDataSetId"] = values["meta_offline_dataset_id"].strip()
+        request_body["promotedObject"] = promoted_object
+    elif platform == "meta" and values["objective"] == "lead_generation":
+        request_body["leadGenFormId"] = values["meta_lead_gen_form_id"].strip()
+        if values["meta_page_id"].strip():
+            request_body["promotedObject"] = {"pageId": values["meta_page_id"].strip()}
+    elif platform == "meta" and values["objective"] == "app_promotion":
+        request_body["promotedObject"] = {
+            "applicationId": values["meta_application_id"].strip(),
+            "objectStoreUrl": values["meta_object_store_url"].strip(),
+        }
+    elif platform == "tiktok" and values["objective"] == "conversions":
+        allowed_events = {"ON_WEB_ORDER", "INITIATE_ORDER", "ON_WEB_CART", "ON_WEB_REGISTER", "ON_WEB_DETAIL",
+                          "FORM", "ON_WEB_SEARCH", "ON_WEB_ADD_TO_WISHLIST", "LANDING_PAGE_VIEW"}
         if values["conversion_event"] not in allowed_events:
             raise HTTPException(400, f"Choose a supported conversion event for {platform.title()} Ads.")
         request_body["promotedObject"] = {
@@ -1055,6 +1157,63 @@ def list_ad_pixels(
         raise HTTPException(502, str(error)) from error
 
 
+@router.post("/meta/request")
+def meta_ads_request(body: MetaAdsRequestIn, ctx: Ctx = Depends(admin)):
+    """Expose Zernio's documented Meta Ads operations with workspace-scoped credentials."""
+    connection = _selected_ad_account(
+        ctx.workspace_id, body.ad_connection_id, body.ad_account_id, "meta")
+    path = body.path
+    valid_ads_path = (
+        path.startswith("/ads/")
+        and not path.startswith("//")
+        and all(part not in ("", ".", "..") for part in path.split("/")[1:])
+        and re.fullmatch(r"/ads/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*", path) is not None
+    )
+    tracking_match = re.fullmatch(
+        r"/accounts/([A-Za-z0-9_-]+)/tracking-tags(?:/([A-Za-z0-9_-]+)(?:/([A-Za-z0-9_-]+))?)?",
+        path,
+    )
+    valid_tracking_path = bool(tracking_match and tracking_match.group(1) == connection["id"])
+    if not valid_ads_path and not valid_tracking_path and path != "/events":
+        raise HTTPException(400, "Choose a Zernio Ads endpoint path. Only Ads, tracking-tag, and conversion-event endpoints are allowed.")
+
+    params = dict(body.query)
+    request_body = dict(body.body)
+    for data in (params, request_body):
+        for field, expected in (("accountId", connection["id"]), ("adAccountId", body.ad_account_id)):
+            if field in data and str(data[field]) != expected:
+                raise HTTPException(400, f"{field} must match the selected workspace Ads account.")
+    params["accountId"] = connection["id"]
+    if path != "/events":
+        params["adAccountId"] = body.ad_account_id
+    account_scoped_create_paths = {
+        "/ads/create", "/ads/campaigns", "/ads/boost", "/ads/messaging", "/ads/call",
+        "/ads/creatives", "/ads/audiences", "/ads/lead-forms", "/ads/rf-predictions",
+        "/ads/images", "/ads/videos",
+    }
+    if path in account_scoped_create_paths and body.method == "POST":
+        request_body.setdefault("accountId", connection["id"])
+        request_body.setdefault("adAccountId", body.ad_account_id)
+    if path == "/events":
+        destination_id = str(request_body.get("destinationId") or "")
+        if not destination_id:
+            raise HTTPException(400, "Choose a Meta pixel destination before sending conversion events.")
+        try:
+            pixels = latehub.ad_tracking_tags(connection["id"], body.ad_account_id)
+        except latehub.LateHubError as error:
+            raise HTTPException(502, str(error)) from error
+        if destination_id not in {str(pixel.get("id") or "") for pixel in pixels}:
+            raise HTTPException(400, "The conversion destination must be a pixel available to the selected ad account.")
+    try:
+        return latehub.meta_ads_request(
+            body.method, path, params=params,
+            body=request_body if body.method != "GET" else None,
+        )
+    except latehub.LateHubError as error:
+        raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 409, 422, 429) else 502,
+                            str(error)) from error
+
+
 @router.get("/campaigns")
 def campaign_reporting(ctx: Ctx = Depends(current)):
     connections = _connections(ctx.workspace_id)
@@ -1105,7 +1264,9 @@ def connect_ads(body: ConnectAdsIn, request: Request, ctx: Ctx = Depends(admin))
     base_url = (os.environ.get("HOOKTRACK_PUBLIC_URL") or str(request.base_url)).rstrip("/")
     try:
         result = latehub.connect_ads_url(
-            ctx.workspace_id, body.platform, f"{base_url}/#/ads", body.posting_account_id)
+            ctx.workspace_id, body.platform, f"{base_url}/#/ads", body.posting_account_id,
+            login_mode=body.login_mode,
+        )
     except latehub.LateHubError as error:
         raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 409, 429, 503) else 502,
                             str(error)) from error

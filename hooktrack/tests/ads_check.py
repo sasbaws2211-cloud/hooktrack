@@ -38,6 +38,82 @@ def test_ad_account_listing_is_scoped_to_zernio_connection(monkeypatch):
     })]
 
 
+def test_meta_ads_tool_binds_requests_to_selected_connection_and_account(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *args: seen.append(args) or {"id": "meta-connection"})
+    monkeypatch.setattr(
+        latehub, "meta_ads_request",
+        lambda method, path, **kwargs: seen.append((method, path, kwargs)) or {"ok": True},
+    )
+    request = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="POST", path="/ads/audiences", body={"type": "customer_list", "name": "Customers"},
+    )
+
+    assert ads.meta_ads_request(request, _ctx()) == {"ok": True}
+    assert seen[0] == (7, "meta-connection", "act-1", "meta")
+    assert seen[1] == ("POST", "/ads/audiences", {
+        "params": {"accountId": "meta-connection", "adAccountId": "act-1"},
+        "body": {
+            "type": "customer_list", "name": "Customers",
+            "accountId": "meta-connection", "adAccountId": "act-1",
+        },
+    })
+
+
+def test_meta_ads_tool_rejects_mismatched_account_and_unsafe_paths(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    request = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="GET", path="/ads/tree", query={"accountId": "another-connection"},
+    )
+    with pytest.raises(HTTPException, match="accountId must match"):
+        ads.meta_ads_request(request, _ctx())
+
+    for path in ("/ads/../accounts", "/ads//audiences", "/accounts/another-connection/tracking-tags"):
+        request = ads.MetaAdsRequestIn(
+            ad_connection_id="meta-connection", ad_account_id="act-1",
+            method="GET", path=path,
+        )
+        with pytest.raises(HTTPException, match="endpoint path"):
+            ads.meta_ads_request(request, _ctx())
+
+
+def test_meta_events_tool_does_not_inject_ad_account_field(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.latehub, "ad_tracking_tags", lambda *_args: [{"id": "pixel-1"}])
+    monkeypatch.setattr(
+        latehub, "meta_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"events_received": 1},
+    )
+    request = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="POST", path="/events", body={"destinationId": "pixel-1", "events": []},
+    )
+
+    assert ads.meta_ads_request(request, _ctx()) == {"events_received": 1}
+    assert calls == [("POST", "/events", {
+        "params": {"accountId": "meta-connection"},
+        "body": {"destinationId": "pixel-1", "events": []},
+    })]
+
+
+def test_meta_events_tool_rejects_pixel_outside_selected_account(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.latehub, "ad_tracking_tags", lambda *_args: [{"id": "another-pixel"}])
+    monkeypatch.setattr(latehub, "meta_ads_request", lambda *_args, **_kwargs: calls.append("called"))
+    request = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="POST", path="/events", body={"destinationId": "pixel-1", "events": []},
+    )
+
+    with pytest.raises(HTTPException, match="pixel available to the selected ad account"):
+        ads.meta_ads_request(request, _ctx())
+    assert calls == []
+
+
 def test_workspace_account_lists_separate_publishing_and_ads_accounts(monkeypatch):
     monkeypatch.setattr(latehub, "ensure_profile", lambda _workspace_id: "own-profile")
     monkeypatch.setattr(latehub.db, "query", lambda *_args, **_kwargs: [])
@@ -85,6 +161,25 @@ def test_meta_ads_uses_the_selected_facebook_or_instagram_connection_path(monkey
 
     assert calls[0][1] == "/connect/instagram/ads"
     assert calls[0][2]["params"]["accountId"] == "ig-posting"
+
+
+def test_meta_business_login_connects_without_a_publishing_account(monkeypatch):
+    monkeypatch.setattr(latehub, "ensure_profile", lambda _workspace_id: "profile-7")
+    monkeypatch.setattr(latehub, "accounts", lambda _workspace_id: pytest.fail("Business Login is standalone"))
+    calls = []
+    monkeypatch.setattr(latehub, "_call", lambda method, path, **kwargs:
+                        calls.append((method, path, kwargs)) or {"authUrl": "https://facebook.com/oauth"})
+
+    result = latehub.connect_ads_url(
+        7, "meta", "https://hooktrack.example/#/ads", "", login_mode="business",
+    )
+
+    assert result == {"auth_url": "https://facebook.com/oauth", "already_connected": False}
+    assert calls == [("GET", "/connect/facebook/ads", {"params": {
+        "profileId": "profile-7",
+        "loginMode": "business",
+        "redirect_url": "https://hooktrack.example/#/ads",
+    }})]
 
 
 def test_google_ads_connection_starts_standalone_oauth(monkeypatch):
@@ -396,6 +491,71 @@ def test_meta_campaign_draft_maps_to_paused_create_payload(monkeypatch):
     assert request["promotedObject"] == {
         "pixelId": "1729525464415281", "customEventType": "PURCHASE",
     }
+
+
+@pytest.mark.parametrize(
+    ("objective", "overrides", "expected"),
+    [
+        ("lead_generation", {"meta_lead_gen_form_id": "form-1", "meta_page_id": "page-1"},
+         {"leadGenFormId": "form-1", "promotedObject": {"pageId": "page-1"}}),
+        ("lead_conversion", {"conversion_event": "LEAD"},
+         {"promotedObject": {"pixelId": "1729525464415281", "customEventType": "LEAD"}}),
+        ("app_promotion", {"meta_application_id": "app-1",
+                           "meta_object_store_url": "https://apps.example/app"},
+         {"promotedObject": {"applicationId": "app-1", "objectStoreUrl": "https://apps.example/app"}}),
+        ("catalog_sales", {"meta_product_set_id": "set-1", "meta_product_catalog_id": "catalog-1"},
+         {"promotedObject": {
+             "pixelId": "1729525464415281", "customEventType": "PURCHASE",
+             "productSetId": "set-1", "productCatalogId": "catalog-1",
+         }}),
+        ("conversions", {"conversion_event": "OTHER", "meta_custom_event_str": "TrialStarted"},
+         {"promotedObject": {
+             "pixelId": "1729525464415281", "customEventType": "OTHER",
+             "customEventStr": "TrialStarted",
+         }}),
+        ("conversions", {"pixel_id": "", "meta_custom_conversion_id": "custom-1"},
+         {"promotedObject": {"customConversionId": "custom-1"}}),
+    ],
+)
+def test_meta_campaign_supports_documented_conversion_goals(monkeypatch, objective, overrides, expected):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "image/png"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/ad.png")
+
+    request, _ = ads._campaign_request(7, _campaign_values(objective=objective, **overrides))
+
+    assert request["status"] == "PAUSED"
+    for key, value in expected.items():
+        assert request[key] == value
+
+
+@pytest.mark.parametrize(
+    ("objective", "overrides", "message"),
+    [
+        ("lead_generation", {}, "instant form"),
+        ("lead_conversion", {"pixel_id": "", "meta_custom_conversion_id": ""},
+         "pixel or custom conversion"),
+        ("conversions", {"conversion_event": "OTHER"}, "custom Meta event name"),
+        ("app_promotion", {"meta_application_id": "app-1", "meta_object_store_url": "http://apps.example/app"},
+         "HTTPS app store URL"),
+        ("catalog_sales", {"meta_product_set_id": ""}, "product set ID"),
+    ],
+)
+def test_meta_campaign_validates_objective_specific_inputs(monkeypatch, objective, overrides, message):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+
+    with pytest.raises(HTTPException, match=message):
+        ads._campaign_request(7, _campaign_values(objective=objective, **overrides))
+
+
+def test_non_meta_platform_rejects_meta_only_objective(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "tiktok-connection"})
+
+    with pytest.raises(HTTPException, match="TikTok supports"):
+        ads._campaign_request(7, _campaign_values(
+            platform="tiktok", ad_connection_id="tiktok-connection", ad_account_id="advertiser-1",
+            objective="lead_generation", creative_type="video", placement_platforms=[], url_tags="",
+        ))
 
 
 def test_tiktok_campaign_maps_video_targeting_and_pixel_to_create_payload(monkeypatch):

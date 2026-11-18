@@ -5827,10 +5827,17 @@ pages.ads = async app => {
         <div class="ads-connection-content">${connection ? accountList : ''}${connection && connection.error ? `<p class="small" style="color:var(--bad)">${esc(connection.error)}</p>` : ''}
         ${!connection && d.can_manage && d.configured ? platform === 'google'
           ? `<button class="btn primary" type="button" data-ads-connect="${platform}">Connect ${names[adsKey]}</button>`
-          : posting.length
-          ? `<label class="small muted" for="ads-parent-${platform}">Linked publishing account</label>
-             <select id="ads-parent-${platform}" style="width:100%;margin:4px 0 8px">${posting.map(a =>
-               `<option value="${esc(a.id)}">${esc(a.display_name || a.username || a.platform)}${a.username ? ` · @${esc(a.username.replace(/^@/, ''))}` : ''}</option>`).join('')}</select>
+          : posting.length || platform === 'meta'
+          ? `${platform === 'meta' ? `<label class="small muted" for="ads-meta-login-mode">Meta Ads login mode</label>
+             <select id="ads-meta-login-mode" style="width:100%;margin:4px 0 8px">
+               <option value="classic" ${posting.length ? 'selected' : ''}>Classic — use a connected Facebook or Instagram account</option>
+               <option value="business" ${posting.length ? '' : 'selected'}>Facebook Login for Business — connect Meta Ads directly</option>
+             </select>` : ''}
+             ${posting.length ? `<div id="ads-parent-wrap-${platform}" style="flex:0 0 100%">
+               <label class="small muted" for="ads-parent-${platform}">Linked publishing account</label>
+               <select id="ads-parent-${platform}" style="width:100%;margin:4px 0 8px">${posting.map(a =>
+                 `<option value="${esc(a.id)}">${esc(a.display_name || a.username || a.platform)}${a.username ? ` · @${esc(a.username.replace(/^@/, ''))}` : ''}</option>`).join('')}</select>
+             </div>` : ''}
              <button class="btn primary" type="button" data-ads-connect="${platform}">Connect ${names[adsKey]}</button>`
           : `<p class="small muted">Connect a ${platform === 'tiktok' ? 'TikTok' : platform === 'linkedin' ? 'LinkedIn' : 'Facebook or Instagram'} publishing account first in Settings → Publishing.</p>`
           : ''}</div>
@@ -5913,7 +5920,36 @@ pages.ads = async app => {
         <div id="camp-google-type-wrap" ${builderPlatform === 'google' ? '' : 'hidden'}><label class="small muted" for="camp-google-type">Google campaign type</label>
           <select id="camp-google-type" style="width:100%"><option value="search">Search campaign</option><option value="demand_gen">YouTube video (Demand Gen)</option></select></div>
         <div id="camp-objective-wrap"><label class="small muted" for="camp-objective">Objective</label>
-          <select id="camp-objective" style="width:100%"><option value="traffic">Traffic</option><option value="awareness">Awareness</option><option value="engagement">Engagement</option><option value="video_views">Video views</option><option value="conversions">Conversions (Meta only)</option></select></div>
+          <select id="camp-objective" style="width:100%">
+            ${[
+              ['traffic', 'Traffic'], ['awareness', 'Awareness'], ['engagement', 'Engagement'],
+              ['video_views', 'Video views'], ['conversions', 'Sales conversions'],
+              ['lead_generation', 'Lead generation'], ['lead_conversion', 'Lead conversions'],
+              ['app_promotion', 'App promotion'], ['catalog_sales', 'Catalog sales'],
+              ['page_likes', 'Page likes'], ['page_visits', 'Page visits'],
+            ].map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}
+          </select></div>
+        <div id="camp-meta-objective-fields" hidden>
+          <div data-meta-objective="lead_generation">
+            <label class="small muted" for="camp-meta-form">Instant form ID</label><input id="camp-meta-form" maxlength="100" style="width:100%">
+            <label class="small muted" for="camp-meta-page">Facebook Page ID (optional if Zernio can infer it)</label><input id="camp-meta-page" maxlength="100" style="width:100%">
+          </div>
+          <div data-meta-objective="lead_conversion conversions catalog_sales">
+            <label class="small muted" for="camp-meta-custom-conversion">Custom Conversion ID (optional)</label><input id="camp-meta-custom-conversion" maxlength="100" style="width:100%">
+            <label class="small muted" for="camp-meta-custom-event">Custom event name (only when event is OTHER)</label><input id="camp-meta-custom-event" maxlength="100" style="width:100%">
+          </div>
+          <div data-meta-objective="app_promotion">
+            <label class="small muted" for="camp-meta-app">Meta application ID</label><input id="camp-meta-app" maxlength="100" style="width:100%">
+            <label class="small muted" for="camp-meta-store-url">App Store URL (HTTPS)</label><input id="camp-meta-store-url" type="url" maxlength="2048" style="width:100%">
+          </div>
+          <div data-meta-objective="catalog_sales">
+            <label class="small muted" for="camp-meta-catalog">Product catalog ID (optional)</label><input id="camp-meta-catalog" maxlength="100" style="width:100%">
+            <label class="small muted" for="camp-meta-product-set">Product set ID</label><input id="camp-meta-product-set" maxlength="100" style="width:100%">
+          </div>
+          <div data-meta-objective="conversions lead_conversion catalog_sales">
+            <label class="small muted" for="camp-meta-offline-dataset">Offline conversion dataset ID (optional)</label><input id="camp-meta-offline-dataset" maxlength="100" style="width:100%">
+          </div>
+        </div>
         <div><label class="small muted" for="camp-budget"><span id="camp-budget-label">Daily budget</span> (<span id="camp-currency">${esc(builderAdAccounts[0]?.currency || 'account currency')}</span>)</label>
           <input id="camp-budget" type="number" min="1" step="0.01" required style="width:100%"></div>
         <div><label class="small muted" for="camp-end-date">Campaign end date</label>
@@ -5983,7 +6019,7 @@ pages.ads = async app => {
             <button class="btn sm" type="button" id="camp-load-pixels">Load pixels</button>
             <div style="flex:1"><label class="small muted" for="camp-event">Conversion event</label><select id="camp-event" style="width:100%"><optgroup id="camp-meta-events" label="Meta">${[
               'PURCHASE','COMPLETE_REGISTRATION','ADD_TO_CART','INITIATE_CHECKOUT','ADD_PAYMENT_INFO',
-              'SUBSCRIBE','START_TRIAL','VIEW_CONTENT','SEARCH',
+              'SUBSCRIBE','START_TRIAL','VIEW_CONTENT','SEARCH','LEAD','CONTACT','SUBMIT_APPLICATION','SCHEDULE','OTHER',
             ].map(event => `<option value="${event}">${event.replaceAll('_',' ')}</option>`).join('')}</optgroup><optgroup id="camp-tiktok-events" label="TikTok" ${builderPlatform === 'tiktok' ? '' : 'hidden'}>${[
               'ON_WEB_ORDER','INITIATE_ORDER','ON_WEB_CART','ON_WEB_REGISTER','ON_WEB_DETAIL',
               'FORM','ON_WEB_SEARCH','ON_WEB_ADD_TO_WISHLIST','LANDING_PAGE_VIEW',
@@ -6026,6 +6062,24 @@ pages.ads = async app => {
           : `<span class="muted small">${!platform ? 'This network is not supported in this first release.' : !connection ? `Connect ${platform === 'meta' ? 'Meta' : 'TikTok'} Ads above to boost.` : !d.can_manage ? 'Ask a workspace admin to launch ads.' : !tiktokIdentityMatches ? 'This post belongs to a different TikTok identity than the one linked to TikTok Ads.' : 'No selected ad account is available.'}</span>`}
     </article>`;
   }).join('');
+  const metaToday = new Date().toISOString().slice(0, 10);
+  const metaMonthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const metaToolsPresets = [
+    {label:'Create a campaign',method:'POST',path:'/ads/create',query:{},body:{name:'Spring campaign',goal:'traffic',budgetAmount:25,budgetType:'daily',status:'PAUSED',headline:'Headline',body:'Primary text',imageUrl:'https://example.com/image.jpg',linkUrl:'https://example.com',countries:['US']}},
+    {label:'Read campaign tree',method:'GET',path:'/ads/tree',query:{fromDate:metaMonthAgo,toDate:metaToday},body:{}},
+    {label:'Search targeting',method:'GET',path:'/ads/targeting/search',query:{q:'gardening',dimension:'interest'},body:{}},
+    {label:'Create audience',method:'POST',path:'/ads/audiences',query:{},body:{type:'customer_list',name:'New customer list'}},
+    {label:'List audiences',method:'GET',path:'/ads/audiences',query:{},body:{}},
+    {label:'Create instant lead form',method:'POST',path:'/ads/lead-forms',query:{},body:{name:'Lead form',pageId:'',questions:[]}},
+    {label:'List leads',method:'GET',path:'/ads/leads',query:{},body:{}},
+    {label:'Create standalone creative',method:'POST',path:'/ads/creatives',query:{},body:{name:'Creative',headline:'Headline',body:'Primary text',imageUrl:'https://example.com/image.jpg',linkUrl:'https://example.com',callToAction:'LEARN_MORE'}},
+    {label:'Read Meta insights',method:'GET',path:'/ads/insights',query:{fromDate:metaMonthAgo,toDate:metaToday},body:{}},
+    {label:'Request Reach & Frequency prediction',method:'POST',path:'/ads/rf-predictions',query:{},body:{name:'Reach estimate',goal:'reach',budgetAmount:100,budgetType:'daily',countries:['US']}},
+    {label:'Create click-to-message ad',method:'POST',path:'/ads/messaging',query:{},body:{destination:'messenger',goal:'engagement',budgetAmount:25,budgetType:'daily',status:'PAUSED'}},
+    {label:'Create call ad',method:'POST',path:'/ads/call',query:{},body:{goal:'traffic',budgetAmount:25,budgetType:'daily',status:'PAUSED'}},
+    {label:'List conversion destinations',method:'GET',path:'/ads/conversions/destinations',query:{},body:{}},
+  ];
+  const activeAdsTab = state.adsTab || 'campaigns';
   app.innerHTML = `<div class="ads-page">
     <div class="page-head ads-hero"><div><div class="eyebrow">PAID PROMOTION</div><h1>Advertising</h1>
     <div class="sub">Create and manage campaigns across Meta, TikTok, Google and LinkedIn.</div></div>
@@ -6039,10 +6093,46 @@ pages.ads = async app => {
     </div>
     ${connectNotice}
     ${!d.configured ? '<div class="notice" style="margin-bottom:12px">Managed publishing and Ads are not configured on this server yet. Ask the platform admin to set up Zernio.</div>' : ''}
+    <div class="ads-tabs" role="tablist" aria-label="Advertising tools">
+      ${[['campaigns', 'Campaigns'], ['boosts', 'Boosts'], ['meta', 'Meta tools'], ['connections', 'Connections']].map(([tab, label]) =>
+        `<button class="ads-tab${activeAdsTab === tab ? ' active' : ''}" type="button" role="tab"
+          id="ads-tab-${tab}" aria-controls="ads-panel-${tab}" aria-selected="${activeAdsTab === tab}"
+          data-ads-tab="${tab}">${label}</button>`).join('')}
+    </div>
+    <div id="ads-panel-connections" role="tabpanel" aria-labelledby="ads-tab-connections" ${activeAdsTab === 'connections' ? '' : 'hidden'}>
     <section id="ads-connections" class="ads-section"><div class="ads-section-heading"><div><span class="ads-kicker">ACCOUNTS</span><h2>Ad platform connections</h2><p class="small muted">Connect the accounts your workspace is authorized to manage.</p></div></div>
       <div class="grid ads-connection-grid">${connectCard('meta')}${connectCard('tiktok')}${connectCard('google')}${connectCard('linkedin')}</div>
     </section>
+    </div>
+    <div id="ads-panel-meta" role="tabpanel" aria-labelledby="ads-tab-meta" ${activeAdsTab === 'meta' ? '' : 'hidden'}>
+      <section class="ads-section ads-meta-tools">
+        <div class="ads-section-heading"><div><span class="ads-kicker">ZERNIO META ADS API</span><h2>Meta Ads tools</h2>
+          <p class="small muted">Run Zernio’s documented Meta Ads operations for this workspace. See the <a href="https://docs.zernio.com/platforms/meta-ads" target="_blank" rel="noopener noreferrer">Zernio Meta Ads docs</a> for request fields and limits.</p></div></div>
+        ${metaConnection && metaAdAccounts.length && d.can_manage ? `<form id="meta-tools-form" class="card">
+          <p class="small muted">This advanced workspace covers campaign hierarchy, audience and pixel operations, creative tools, previews, lead forms, messaging/call ads, insights, conversion events and Reach &amp; Frequency. Write requests can create or change ads; verify the selected ad account and request before submitting.</p>
+          <label class="small muted" for="meta-tools-preset">Start from an operation template</label>
+          <select id="meta-tools-preset" style="width:100%;margin-bottom:10px"><option value="">Choose a template…</option>
+            ${metaToolsPresets.map((preset, index) => `<option value="${index}">${esc(preset.label)}</option>`).join('')}</select>
+          <div class="row"><div style="flex:1"><label class="small muted" for="meta-tools-account">Meta ad account</label>
+            <select id="meta-tools-account" required style="width:100%">${metaAdAccounts.map(item =>
+              `<option value="${esc(item.id)}">${esc(item.name)}${item.currency ? ` · ${esc(item.currency)}` : ''}</option>`).join('')}</select></div>
+            <div style="flex:1"><label class="small muted" for="meta-tools-method">Method</label>
+              <select id="meta-tools-method"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select></div></div>
+          <label class="small muted" for="meta-tools-path">Zernio Ads API path</label>
+          <input id="meta-tools-path" required maxlength="512" placeholder="/ads/audiences" style="width:100%">
+          <label class="small muted" for="meta-tools-query">Query parameters (JSON object)</label>
+          <textarea id="meta-tools-query" spellcheck="false" style="width:100%;min-height:64px;font-family:monospace">{}</textarea>
+          <label class="small muted" for="meta-tools-body">Request body (JSON object)</label>
+          <textarea id="meta-tools-body" spellcheck="false" style="width:100%;min-height:150px;font-family:monospace">{}</textarea>
+          <div class="actions"><button id="meta-tools-run" class="btn primary" type="submit">Run Meta Ads request</button></div>
+          <pre id="meta-tools-result" class="card small" style="display:none;white-space:pre-wrap;overflow:auto;max-height:420px"></pre>
+        </form>` : `<div class="empty card"><p>${!d.can_manage ? 'Ask a workspace admin to manage Meta Ads.' : !metaConnection ? 'Connect Meta Ads to this workspace first.' : 'Select a Meta ad account in the provider before using Meta Ads tools.'}</p></div>`}
+      </section>
+    </div>
+    <div id="ads-panel-campaigns" role="tabpanel" aria-labelledby="ads-tab-campaigns" ${activeAdsTab === 'campaigns' ? '' : 'hidden'}>
     ${campaignBuilder}
+    </div>
+    <div id="ads-panel-boosts" role="tabpanel" aria-labelledby="ads-tab-boosts" ${activeAdsTab === 'boosts' ? '' : 'hidden'}>
     <section class="ads-section"><div class="ads-section-heading"><div><span class="ads-kicker">PROMOTION</span><h2>Boost a published post</h2><p class="small muted">Promote a post that is already performing well on Facebook, Instagram or TikTok.</p></div><button class="btn sm" id="ads-refresh">Refresh</button></div>
     ${cards ? `<div class="grid ads-boost-grid">${cards}</div>` : '<div class="empty card"><h2>No boostable posts yet</h2><p>Sync a published TikTok, Instagram, or Facebook post first. The post must have its platform ID in Hooks.</p></div>'}
     </section>
@@ -6053,10 +6143,77 @@ pages.ads = async app => {
       ${b.status === 'unknown' && d.can_manage ? `<button class="btn sm" data-boost-retry="${b.id}">Retry safely</button>` : ''}</li>`).join('')}</ul></div>`
       : '<div class="empty card"><p>No boost activity yet.</p></div>'}
     </section>
+    </div>
   </div>`;
 
   $('#ads-refresh', app).onclick = () => route();
+  if ($('#ads-meta-login-mode', app)) $('#ads-meta-login-mode', app).onchange = () => {
+    const postingWrap = $('#ads-parent-wrap-meta', app);
+    if (postingWrap) postingWrap.hidden = $('#ads-meta-login-mode', app).value === 'business';
+  };
+  if ($('#meta-tools-preset', app)) $('#meta-tools-preset', app).onchange = () => {
+    const preset = metaToolsPresets[Number($('#meta-tools-preset', app).value)];
+    if (!preset) return;
+    $('#meta-tools-method', app).value = preset.method;
+    $('#meta-tools-path', app).value = preset.path;
+    $('#meta-tools-query', app).value = JSON.stringify(preset.query, null, 2);
+    $('#meta-tools-body', app).value = JSON.stringify(preset.body, null, 2);
+  };
+  if ($('#meta-tools-form', app)) $('#meta-tools-form', app).onsubmit = guard(async event => {
+    event.preventDefault();
+    const method = $('#meta-tools-method', app).value;
+    let query, body;
+    try {
+      query = JSON.parse($('#meta-tools-query', app).value || '{}');
+      body = JSON.parse($('#meta-tools-body', app).value || '{}');
+    } catch (error) {
+      toast(`Request JSON is invalid: ${error.message}`, true);
+      return;
+    }
+    if (!query || Array.isArray(query) || typeof query !== 'object'
+      || !body || Array.isArray(body) || typeof body !== 'object') {
+      toast('Query and request body must each be JSON objects.', true);
+      return;
+    }
+    if (method !== 'GET' && !await askConfirm(
+      'This request may create, update, delete, or spend against Meta ads. Continue only if you reviewed the selected account and JSON.',
+      { title: 'Run Meta Ads write request', ok: 'Run request', danger: true },
+    )) return;
+    const button = $('#meta-tools-run', app);
+    const result = $('#meta-tools-result', app);
+    result.style.display = 'block';
+    result.textContent = 'Request in progress…';
+    busy(button, true, 'Running…');
+    try {
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method,
+        path: $('#meta-tools-path', app).value.trim(),
+        query,
+        body,
+      });
+      result.textContent = JSON.stringify(response, null, 2);
+    } catch (error) {
+      result.textContent = error.message;
+      throw error;
+    } finally { if (button.isConnected) busy(button, false); }
+  });
+  $$('[data-ads-tab]', app).forEach(button => button.onclick = () => {
+    state.adsTab = button.dataset.adsTab;
+    $$('[data-ads-tab]', app).forEach(tab => {
+      const selected = tab === button;
+      tab.classList.toggle('active', selected);
+      tab.setAttribute('aria-selected', String(selected));
+      $(`#ads-panel-${tab.dataset.adsTab}`, app).hidden = !selected;
+    });
+  });
   $$('[data-ads-scroll]', app).forEach(button => button.onclick = () => {
+    const panel = button.dataset.adsScroll === 'ads-connections' ? 'connections' : 'campaigns';
+    if (state.adsTab !== panel) {
+      state.adsTab = panel;
+      $$('[data-ads-tab]', app).find(tab => tab.dataset.adsTab === panel)?.click();
+    }
     document.getElementById(button.dataset.adsScroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
   const mediaSelect = $('#camp-media', app);
@@ -6100,6 +6257,15 @@ pages.ads = async app => {
     $('#camp-headline', app).maxLength = search ? 30 : demandGen ? 40 : 255;
     $('#camp-body', app).maxLength = search || demandGen ? 90 : 5000;
   };
+  const setMetaObjectiveFields = () => {
+    const meta = $('#camp-platform', app).value === 'meta';
+    const objective = $('#camp-objective', app).value;
+    const fields = $('#camp-meta-objective-fields', app);
+    fields.hidden = !meta;
+    $$('[data-meta-objective]', fields).forEach(group => {
+      group.hidden = !group.dataset.metaObjective.split(' ').includes(objective);
+    });
+  };
   const setCampaignPlatform = (platform, preserveInterests = false) => {
     state.campaignPlatform = platform;
     if (!preserveInterests) state.campaignInterests = [];
@@ -6132,14 +6298,20 @@ pages.ads = async app => {
     $('#camp-pixel-wrap', app).hidden = !['meta', 'tiktok'].includes(platform);
     $('#camp-linkedin-fields', app).hidden = platform !== 'linkedin';
     $('#camp-google-type-wrap', app).hidden = platform !== 'google';
-    $('#camp-objective option[value="conversions"]', app).hidden = !['meta'].includes(platform);
-    $('#camp-objective option[value="engagement"]', app).hidden = !['meta', 'google', 'linkedin'].includes(platform);
-    $('#camp-objective option[value="video_views"]', app).hidden = platform === 'google';
-    if (platform === 'google' && !['traffic', 'awareness', 'engagement'].includes($('#camp-objective', app).value)) {
-      $('#camp-objective', app).value = 'traffic';
-    } else if (platform === 'linkedin' && $('#camp-objective', app).value === 'conversions') {
+    const supportedObjectives = {
+      meta: ['traffic', 'awareness', 'engagement', 'video_views', 'conversions', 'lead_generation',
+        'lead_conversion', 'app_promotion', 'catalog_sales', 'page_likes', 'page_visits'],
+      tiktok: ['traffic', 'awareness', 'engagement', 'video_views', 'conversions'],
+      google: ['traffic', 'awareness', 'engagement'],
+      linkedin: ['traffic', 'awareness', 'engagement', 'video_views'],
+    }[platform];
+    $$('option', $('#camp-objective', app)).forEach(option => {
+      option.hidden = !supportedObjectives.includes(option.value);
+    });
+    if (!supportedObjectives.includes($('#camp-objective', app).value)) {
       $('#camp-objective', app).value = 'traffic';
     }
+    setMetaObjectiveFields();
     if (platform === 'tiktok') $('#camp-url-tags', app).value = '';
     $('#camp-pixel-label', app).textContent = `${platform === 'tiktok' ? 'TikTok' : 'Meta'} pixel`;
     $('#camp-pixel', app).innerHTML = '<option value="">No pixel</option>';
@@ -6184,6 +6356,7 @@ pages.ads = async app => {
   };
   $('#camp-platform', app).onchange = () => setCampaignPlatform($('#camp-platform', app).value);
   $('#camp-google-type', app).onchange = setGoogleCampaignType;
+  $('#camp-objective', app).onchange = setMetaObjectiveFields;
   setCampaignPlatform(builderPlatform, Boolean(state.campaignDraftId));
   if ($('#camp-end-date', app)) {
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
@@ -6329,6 +6502,15 @@ pages.ads = async app => {
         special_ad_categories: $$('input[name="camp-category"]:checked', app).map(input => input.value),
         pixel_id: $('#camp-pixel', app).value,
         conversion_event: $('#camp-event', app).value,
+        meta_page_id: googleText('camp-meta-page'),
+        meta_lead_gen_form_id: googleText('camp-meta-form'),
+        meta_application_id: googleText('camp-meta-app'),
+        meta_object_store_url: googleText('camp-meta-store-url'),
+        meta_product_catalog_id: googleText('camp-meta-catalog'),
+        meta_product_set_id: googleText('camp-meta-product-set'),
+        meta_custom_conversion_id: googleText('camp-meta-custom-conversion'),
+        meta_custom_event_str: googleText('camp-meta-custom-event'),
+        meta_offline_dataset_id: googleText('camp-meta-offline-dataset'),
         url_tags: $('#camp-url-tags', app).value.trim(),
       };
       const minimumBudget = { meta: 1, tiktok: 20, google: 1, linkedin: 10 }[platform];
@@ -6370,6 +6552,7 @@ pages.ads = async app => {
     if ($('#camp-account', app)) $('#camp-account', app).value = values.ad_account_id;
     if ($('#camp-name', app)) $('#camp-name', app).value = values.campaign_name || '';
     if ($('#camp-objective', app)) $('#camp-objective', app).value = values.objective || 'traffic';
+    setMetaObjectiveFields();
     if ($('#camp-budget', app)) $('#camp-budget', app).value = values.daily_budget || '';
     if ($('#camp-end-date', app)) $('#camp-end-date', app).value = values.end_date || '';
     if (mediaSelect) mediaSelect.value = values.media_asset_id ? `asset:${values.media_asset_id}` : `post:${values.post_id}`;
@@ -6394,6 +6577,15 @@ pages.ads = async app => {
       $('#camp-pixel', app).innerHTML = `<option value="${esc(values.pixel_id)}" selected>${esc(values.pixel_id)}</option>`;
     }
     if ($('#camp-event', app)) $('#camp-event', app).value = values.conversion_event || 'PURCHASE';
+    if ($('#camp-meta-page', app)) $('#camp-meta-page', app).value = values.meta_page_id || '';
+    if ($('#camp-meta-form', app)) $('#camp-meta-form', app).value = values.meta_lead_gen_form_id || '';
+    if ($('#camp-meta-app', app)) $('#camp-meta-app', app).value = values.meta_application_id || '';
+    if ($('#camp-meta-store-url', app)) $('#camp-meta-store-url', app).value = values.meta_object_store_url || '';
+    if ($('#camp-meta-catalog', app)) $('#camp-meta-catalog', app).value = values.meta_product_catalog_id || '';
+    if ($('#camp-meta-product-set', app)) $('#camp-meta-product-set', app).value = values.meta_product_set_id || '';
+    if ($('#camp-meta-custom-conversion', app)) $('#camp-meta-custom-conversion', app).value = values.meta_custom_conversion_id || '';
+    if ($('#camp-meta-custom-event', app)) $('#camp-meta-custom-event', app).value = values.meta_custom_event_str || '';
+    if ($('#camp-meta-offline-dataset', app)) $('#camp-meta-offline-dataset', app).value = values.meta_offline_dataset_id || '';
     $$('input[name="camp-placement"]', app).forEach(input => { input.checked = (values.placement_platforms || []).includes(input.value); });
     $$('input[name="camp-category"]', app).forEach(input => { input.checked = (values.special_ad_categories || []).includes(input.value); });
     renderSelectedInterests();
@@ -6448,10 +6640,14 @@ pages.ads = async app => {
   if ($('#camp-report-refresh', app)) $('#camp-report-refresh', app).onclick = () => pages.ads(app);
   $$('[data-ads-connect]', app).forEach(button => button.onclick = guard(async () => {
     const platform = button.dataset.adsConnect;
-    const postingAccountId = platform === 'google' ? '' : $(`#ads-parent-${platform}`, app).value;
+    const loginMode = platform === 'meta' ? $('#ads-meta-login-mode', app).value : 'classic';
+    const postingAccountId = platform === 'google' || loginMode === 'business'
+      ? '' : $(`#ads-parent-${platform}`, app)?.value || '';
     busy(button, true, 'Opening…');
     try {
-      const result = await api('POST', '/api/ads/connect', { platform, posting_account_id: postingAccountId });
+      const result = await api('POST', '/api/ads/connect', {
+        platform, posting_account_id: postingAccountId, login_mode: loginMode,
+      });
       if (result.already_connected) { toast('Ads account already connected'); route(); return; }
       location.href = result.auth_url;
     } finally { busy(button, false); }

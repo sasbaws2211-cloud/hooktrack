@@ -164,10 +164,14 @@ def ad_accounts(connection_id: str) -> list[dict]:
     return out
 
 
-def connect_ads_url(ws: int, platform: str, redirect_url: str, posting_account_id: str) -> dict:
+def connect_ads_url(
+    ws: int, platform: str, redirect_url: str, posting_account_id: str, *, login_mode: str = "classic",
+) -> dict:
     """Start a workspace-scoped Ads authorization."""
     if platform not in ("meta", "tiktok", "google", "linkedin"):
         raise LateHubError("Choose Meta, TikTok, Google or LinkedIn Ads.")
+    if login_mode not in ("classic", "business") or (platform != "meta" and login_mode != "classic"):
+        raise LateHubError("Business Login is available only for Meta Ads.", 400)
     if platform == "google":
         data = _call("GET", "/connect/googleads/ads", params={
             "profileId": ensure_profile(ws),
@@ -176,6 +180,16 @@ def connect_ads_url(ws: int, platform: str, redirect_url: str, posting_account_i
         auth_url = data.get("authUrl") or ""
         if not data.get("alreadyConnected") and (not isinstance(auth_url, str) or not auth_url.startswith("https://")):
             raise LateHubError("Zernio did not return a valid Ads authorization link.")
+        return {"auth_url": auth_url, "already_connected": bool(data.get("alreadyConnected"))}
+    if platform == "meta" and login_mode == "business":
+        data = _call("GET", "/connect/facebook/ads", params={
+            "profileId": ensure_profile(ws),
+            "loginMode": "business",
+            "redirect_url": redirect_url,
+        })
+        auth_url = data.get("authUrl") or ""
+        if not data.get("alreadyConnected") and (not isinstance(auth_url, str) or not auth_url.startswith("https://")):
+            raise LateHubError("Zernio did not return a valid Meta Ads authorization link.")
         return {"auth_url": auth_url, "already_connected": bool(data.get("alreadyConnected"))}
     posting = {a["id"]: a for a in accounts(ws)}
     selected = posting.get(posting_account_id)
@@ -230,6 +244,15 @@ def ad_campaign_tree(params: dict) -> dict:
 
 def ad_targeting_search(params: dict) -> dict:
     return _call("GET", "/ads/targeting/search", params=params, timeout=30.0)
+
+
+def meta_ads_request(method: str, path: str, *, params: dict | None = None, body: dict | None = None) -> dict:
+    """Make an explicitly scoped request to a Zernio Meta Ads endpoint."""
+    return _call(
+        method, path, params=params,
+        **({"json": body} if method != "GET" and body is not None else {}),
+        timeout=750.0 if method == "POST" and path in ("/ads/create", "/ads/messaging", "/ads/call") else 90.0,
+    )
 
 
 def ad_tracking_tags(account_id: str, ad_account_id: str) -> list[dict]:
