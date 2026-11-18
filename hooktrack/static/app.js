@@ -1328,6 +1328,20 @@ const canUpload = ct => isVideoFormat(ct) || isImageFormat(ct);
 function postModal(post, defaults, onDone) {
   const p = post || { account_id: '', post_date: iso(nowLocal()), status: 'scripted', ai_prompt: '', hook: '', body: '', caption: '', views: 0, comments: 0, intent: false, v: null, s: null, c: null, content_type: 'short_video', ...defaults };
   const initialFormat = p.content_type || 'short_video';
+  const reviewStatus = p.team_review_status || 'not_requested';
+  const reviewText = (status, note, reviewer) => ({
+    not_requested: 'No team review requested. Publishing is not gated.',
+    pending: 'Waiting for an owner or admin to review this post.',
+    changes_requested: note || 'Changes are needed before this post can be approved.',
+    approved: `Approved${reviewer ? ` by ${reviewer}` : ''}. Editing the content will require review again.`,
+  }[status] || 'No team review requested. Publishing is not gated.');
+  const reviewActions = status => {
+    if (!post || !post.id) return '';
+    if (status === 'pending') return isAdmin()
+      ? '<button class="btn sm primary" data-team-review="approve" type="button">Approve</button><button class="btn sm" data-team-review="changes" type="button">Request changes</button>' : '';
+    if (status === 'approved') return '';
+    return `<button class="btn sm" data-team-review="request" type="button">${status === 'changes_requested' ? 'Resubmit for review' : 'Request team review'}</button>`;
+  };
   // ---- the editor shows what this stage needs and tucks the rest away ----
   const STEPS = [['idea', 'Idea'], ['scripted', 'Scripted'], ['filmed', 'Filmed'], ['posted', 'Posted']];
   const stepOf = st => (st === 'analysed' ? 3 : Math.max(0, STEPS.findIndex(x => x[0] === st)));
@@ -1351,14 +1365,16 @@ function postModal(post, defaults, onDone) {
     const on = !!(state.publish && state.publish.enabled);
     const media = !!(p.has_video_file || p.video_url || (p.image_count > 0) || (state.publish && state.publish.config && state.publish.config.default_media_url));
     const held = !!(state.publish && state.publish.held);
-    const why = held ? state.publish.held_message
+    const teamBlocked = ['pending', 'changes_requested'].includes(post.team_review_status);
+    const why = teamBlocked ? 'Waiting for team approval before publishing'
+      : held ? state.publish.held_message
       : !on ? 'Publishing is not set up on this server yet'
       : !canUpload(initialFormat) ? 'Only video, photo and carousel posts can be published from here today: post this directly on the platform, then paste its link'
       : !media ? (isVideoFormat(initialFormat) ? 'Attach a video first: move the card back to Scripted, upload it, then move it to Filmed'
           : 'Add at least one image first: move the card back to Scripted, upload it, then move it to Filmed')
       : 'Publish to social platforms';
-    return `<button class="btn primary" id="dopub" ${normStatus(p.status) === 'filmed' ? '' : 'hidden'} ${on && media && !held ? '' : 'disabled'} title="${esc(why)}">📤 Publish</button>
-      <button class="btn primary" id="filmsched" hidden ${on && !held ? '' : 'disabled'} title="The video is attached: mark this card Filmed and choose when it goes out">🎬 Mark filmed &amp; schedule</button>`;
+    return `<button class="btn primary" id="dopub" ${normStatus(p.status) === 'filmed' ? '' : 'hidden'} ${on && media && !held && !teamBlocked ? '' : 'disabled'} title="${esc(why)}">📤 Publish</button>
+      <button class="btn primary" id="filmsched" hidden ${on && !held && !teamBlocked ? '' : 'disabled'} title="${esc(teamBlocked ? why : 'The video is attached: mark this card Filmed and choose when it goes out')}">🎬 Mark filmed &amp; schedule</button>`;
   })();
   const st0 = normStatus(p.status);
   const steps = p.external_id ? '' : `<ol class="pm-steps" id="steps" aria-label="Where this post is">${STEPS.map(([k, l], i) =>
@@ -1372,6 +1388,13 @@ function postModal(post, defaults, onDone) {
       ${p.external_id ? '' : `<div class="full"><label class="f">Format</label><select id="format">${FORMAT_OPTIONS.map(([v, l]) => `<option value="${v}" ${initialFormat === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`}
       <div class="full"><label class="f">Caption + hashtags</label><textarea id="caption">${esc(p.caption)}</textarea></div>
     </div>
+    ${p.external_id ? '' : `<section class="team-workflow">
+      <h3>Team ownership &amp; review</h3>
+      <label class="f" for="assigned-to">Assigned to</label>
+      <select id="assigned-to"><option value="">Unassigned</option></select>
+      <div id="team-review-state" class="small muted" aria-live="polite">${esc(reviewText(reviewStatus, p.team_review_note, p.team_reviewer_name))}</div>
+      <div id="team-review-actions" class="row team-review-actions" style="gap:8px;flex-wrap:wrap">${post && post.id ? reviewActions(reviewStatus) : '<span class="small muted">Save the post before requesting a review.</span>'}</div>
+    </section>`}
     <div class="stage-panel" id="stage-panel">
       ${p.external_id ? '' : `<p class="stage-help" id="stage-help">${esc(stageHelp(st0, initialFormat))}</p>`}
       ${p.external_id ? '' : '<div class="row" style="gap:8px;margin:6px 0"><button class="btn primary" id="nextstage" type="button" hidden>Mark as scripted</button></div>'}
@@ -1411,6 +1434,16 @@ function postModal(post, defaults, onDone) {
       <span class="spacer"></span><span class="save-state" id="savestate" aria-live="polite"></span><button class="btn primary" id="save">${post ? 'Done' : 'Create post'}</button></div>`);
   m.querySelector('.modal').classList.add('post-editor');
   const curFormat = () => ($('#format', m) ? $('#format', m).value : initialFormat);
+  const assignee = $('#assigned-to', m);
+  if (assignee) {
+    assignee.disabled = true;
+    api('GET', '/api/workspace/members').then(members => {
+      assignee.innerHTML = '<option value="">Unassigned</option>' + members.map(member =>
+        `<option value="${member.id}">${esc(member.name || member.email)}</option>`).join('');
+      assignee.value = p.assigned_to == null ? '' : String(p.assigned_to);
+      assignee.disabled = false;
+    }).catch(error => toast(error.message || 'Could not load workspace members', true));
+  }
 
   // what the platform and the audience have shown so far: early velocity + what people asked for
   const signals = async (fresh) => {
@@ -1922,6 +1955,7 @@ function postModal(post, defaults, onDone) {
     return { account_id: $('#account', m).value ? +$('#account', m).value : null, post_date: $('#date', m).value, status: $('#status', m).value,
       ai_prompt: $('#prompt', m).value, hook: $('#hook', m).value, body: $('#body', m).value, caption: $('#caption', m).value,
       views: num('views'), comments: num('comments'), intent: $('#intent', m).checked,
+      ...($('#assigned-to', m) ? { assigned_to: $('#assigned-to', m).value ? +$('#assigned-to', m).value : null } : {}),
       ...($('#format', m) ? { content_type: $('#format', m).value } : {}),
       ...($('#posturl', m) ? { url: $('#posturl', m).value.trim() } : {}) };
   };
@@ -1929,20 +1963,74 @@ function postModal(post, defaults, onDone) {
   const save = async () => {
     const b = body();
     if (!b.post_date) throw new Error('Pick a date');
-    if (post) { Object.assign(post, await api('PATCH', `/api/posts/${post.id}`, b)); }
+    if (post) { Object.assign(post, await api('PATCH', `/api/posts/${post.id}`, b)); syncTeamReview(); }
     else {
       post = await api('POST', '/api/posts', b);
       if (b.url) post = await api('PATCH', `/api/posts/${post.id}`, { url: b.url });
+      syncTeamReview();
     }
     lastSaved = JSON.stringify(body());
     return post;
   };
+  const syncTeamReview = () => {
+    if (!post) return;
+    const status = post.team_review_status || 'not_requested';
+    const state = $('#team-review-state', m);
+    if (state) state.textContent = reviewText(status, post.team_review_note, post.team_reviewer_name);
+    const actions = $('#team-review-actions', m);
+    if (actions) {
+      if (post.id) actions.innerHTML = reviewActions(status);
+      wireTeamReviewActions();
+    }
+    if (['pending', 'changes_requested'].includes(status)) {
+      ['#dopub', '#filmsched'].forEach(selector => {
+        const button = $(selector, m);
+        if (button) {
+          button.disabled = true;
+          button.title = 'Waiting for team approval before publishing';
+        }
+      });
+    }
+  };
+  const wireTeamReviewActions = () => {
+    const request = $('[data-team-review="request"]', m);
+    if (request) request.onclick = guard(async () => {
+      await save();
+      await api('POST', `/api/posts/${post.id}/team-review/request`);
+      toast('Sent to the workspace admins for review');
+      m.close(); onDone && onDone();
+    });
+    const approve = $('[data-team-review="approve"]', m);
+    if (approve) approve.onclick = guard(async () => {
+      await save();
+      await api('POST', `/api/posts/${post.id}/team-review/decision`, { action: 'approve' });
+      toast('Post approved');
+      m.close(); onDone && onDone();
+    });
+    const changes = $('[data-team-review="changes"]', m);
+    if (changes) changes.onclick = () => {
+      const reviewModal = openModal(`<h2>Request changes</h2>
+        <p class="muted small">Explain what needs updating. The post cannot be published until it is revised and approved.</p>
+        <textarea id="team-review-note" maxlength="2000" rows="4" placeholder="Describe the changes needed"></textarea>
+        <div class="actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="team-review-note-save">Send feedback</button></div>`, true);
+      $('#team-review-note-save', reviewModal).onclick = guard(async () => {
+        const note = $('#team-review-note', reviewModal).value.trim();
+        if (!note) throw new Error('Add a note describing the changes needed');
+        await save();
+        await api('POST', `/api/posts/${post.id}/team-review/decision`, { action: 'request_changes', note });
+        reviewModal.close();
+        toast('Changes requested');
+        m.close(); onDone && onDone();
+      });
+    };
+  };
+  wireTeamReviewActions();
 
   // ---- autosave: an existing post saves itself a moment after you stop typing, sending only what changed ----
   const stateEl = $('#savestate', m);
   let saveTimer = null, inflight = false, again = false, touched = false;
   const setState = (t, bad) => { if (stateEl) { stateEl.textContent = t; stateEl.className = 'save-state' + (bad ? ' bad' : ''); } };
-  const AUTOSAVE_FIELDS = new Set(['hook', 'account', 'caption', 'status', 'date', 'prompt', 'body', 'views', 'comments', 'intent', 'posturl', 'format']);
+  const AUTOSAVE_FIELDS = new Set(['hook', 'account', 'assigned-to', 'caption', 'status', 'date', 'prompt', 'body', 'views', 'comments', 'intent', 'posturl', 'format']);
   const flush = async () => {
     if (!post || !post.id) return;
     if (inflight) { again = true; return; }
@@ -1953,6 +2041,7 @@ function postModal(post, defaults, onDone) {
     inflight = true; setState('Saving…');
     try {
       Object.assign(post, await api('PATCH', `/api/posts/${post.id}`, changed));
+      syncTeamReview();
       lastSaved = JSON.stringify(now); touched = true; setState('Saved ✓');
     } catch (e) { setState('Not saved: ' + (e.message || 'try again'), true); }
     finally { inflight = false; if (again) { again = false; flush(); } }
@@ -2385,6 +2474,9 @@ pages.pipeline = async app => {
                   const vid = !!(p.video_url || p.has_video_file);
                   const chips = [];
                   if (p.publish_failed) chips.push(`<span class="tag warn" title="${esc(p.publish_failed)}">didn't post</span>`);
+                  if (p.team_review_status === 'pending') chips.push('<span class="tag">⏳ team review</span>');
+                  else if (p.team_review_status === 'changes_requested') chips.push(`<span class="tag warn" title="${esc(p.team_review_note || '')}">✎ team changes</span>`);
+                  else if (p.team_review_status === 'approved') chips.push('<span class="tag good">✓ team approved</span>');
                   if (p.approval && p.approval.status === 'pending') chips.push(`<span class="tag" title="Sent ${esc(fmtWhen(p.approval.created_at))}">⏳ pending approval</span>`);
                   else if (p.approval && p.approval.status === 'rejected') chips.push(`<span class="tag warn" title="${esc(p.approval.client_note || '')}">✎ changes requested</span>`);
                   else if (p.approval && p.approval.status === 'approved' && p.approval.publish_error) chips.push(`<span class="tag warn" title="${esc(p.approval.publish_error)}">approved, didn't post</span>`);
@@ -2401,6 +2493,7 @@ pages.pipeline = async app => {
                   return chips.join('');
                 })()}
               </div>
+              ${p.assignee_name ? `<div class="small muted pipe-assignee">Assigned to ${esc(p.assignee_name)}</div>` : ''}
               ${p.result ? `<div class="pipe-result" title="Real results from the synced post">📊 ${fmt(p.result.views)} views${p.result.multiple != null ? ` · ${p.result.multiple}× normal` : ''}${p.result.original_multiple != null ? ` <span class="muted">(original ${p.result.original_multiple}×)</span>` : ''}
                   ${(() => {
                     const v = p.verdict || p.result.verdict;
@@ -2613,8 +2706,8 @@ async function renderPostsCalendar(app, { accountFilter, toggle }) {
       title="${esc(`${account} · ${statusLabel}: ${p.hook || p.caption || 'Untitled post'}${when ? ` · publishes ${fmtWhen(p.scheduled_for)} (${wsTz()})` : ''}${movable ? ' · drag to another day to move it' : ''}`)}">
       <span class="chip-copy">${when ? `<span class="chip-time">${esc(when)}</span>` : ''}
         <span class="chip-title">${esc(title)}</span>
-        <span class="chip-account">${esc(account)}</span></span>
-      <span class="chip-status">${esc(statusLabel)}</span></button>`;
+        <span class="chip-account">${esc(account)}${p.assignee_name ? ` · ${esc(p.assignee_name)}` : ''}</span></span>
+      <span class="chip-status" title="${esc(p.team_review_status === 'pending' ? 'Waiting for team review' : p.team_review_status === 'changes_requested' ? 'Team changes requested' : p.team_review_status === 'approved' ? 'Team approved' : '')}">${esc(p.team_review_status === 'pending' ? 'Review' : p.team_review_status === 'changes_requested' ? 'Changes' : statusLabel)}</span></button>`;
   };
   for (let i = 0; i < 42; i++) {
     const d = addDays(gridStart, i), k = iso(d), list = (by[k] || []).slice().reverse();

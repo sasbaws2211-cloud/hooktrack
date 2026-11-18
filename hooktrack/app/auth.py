@@ -811,6 +811,8 @@ def member_remove(user_id: int, ctx: Ctx = Depends(current)):
             raise HTTPException(403, "Only an owner can remove an owner")
         if _owner_count(ctx.workspace_id) <= 1:
             raise HTTPException(400, "A workspace needs at least one owner")
+    db.execute("UPDATE posts SET assigned_to=NULL WHERE workspace_id=%s AND assigned_to=%s",
+               (ctx.workspace_id, user_id))
     db.execute("DELETE FROM memberships WHERE workspace_id=%s AND user_id=%s", (ctx.workspace_id, user_id))
     db.execute("UPDATE sessions SET workspace_id=NULL WHERE user_id=%s AND workspace_id=%s", (user_id, ctx.workspace_id))
     return {"ok": True}

@@ -515,6 +515,12 @@ input.sv, td.sv input { border-color: var(--accent); }
 .pm-steps li.done { background: color-mix(in srgb, var(--good, #10b981) 18%, var(--surface-2)); color: var(--text); }
 .pm-steps li.now { background: var(--accent); color: var(--accent-text, #fff); }
 .pm-core { margin-bottom: 4px; }
+.team-workflow { margin: 12px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.team-workflow h3 { margin: 0 0 8px; font-size: 15px; }
+.team-workflow select { width: 100%; }
+.team-workflow .small { display: block; margin-top: 8px; }
+.team-review-actions { margin-top: 8px; }
+.pipe-assignee { margin: -2px 0 8px 26px; }
 .stage-panel { margin: 14px 0 6px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
 .stage-help { margin: 0 0 4px; font-size: 14px; color: var(--muted); }
 details.pm-more { margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; padding: 0 14px; background: var(--surface); }

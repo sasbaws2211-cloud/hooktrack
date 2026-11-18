@@ -134,6 +134,9 @@ def remove_file(ws: int, pid: int) -> None:
                 pass
     db.execute("UPDATE posts SET video_file='', video_file_name='', video_file_size=0, video_file_type='', "
                "video_file_at=NULL WHERE id=%s AND workspace_id=%s", (pid, ws))
+    if row and row.get("video_file"):
+        from . import team_review
+        team_review.invalidate_after_content_edit(ws, pid)
 
 
 def purge_post_files(ws: int, pid: int) -> None:
@@ -175,15 +178,21 @@ def remove_image(ws: int, pid: int, media_id: int) -> None:
         except OSError:
             pass
     db.execute("DELETE FROM post_media WHERE id=%s AND workspace_id=%s", (media_id, ws))
+    from . import team_review
+    team_review.invalidate_after_content_edit(ws, pid)
 
 
 def reorder_images(ws: int, pid: int, ordered_ids: list[int]) -> None:
     """ordered_ids must be exactly this post's image ids, in the order they should post in."""
-    have = {r["id"] for r in list_images(ws, pid)}
+    current = list_images(ws, pid)
+    have = {r["id"] for r in current}
     if set(ordered_ids) != have:
         raise HTTPException(400, "The list must contain exactly this post's images, each once.")
     for i, mid in enumerate(ordered_ids):
         db.execute("UPDATE post_media SET position=%s WHERE id=%s AND workspace_id=%s", (i, mid, ws))
+    if ordered_ids != [r["id"] for r in current]:
+        from . import team_review
+        team_review.invalidate_after_content_edit(ws, pid)
 
 
 async def _store_image_upload(ws: int, pid: int, file: UploadFile, request: Request) -> dict:
@@ -229,6 +238,8 @@ async def _store_image_upload(ws: int, pid: int, file: UploadFile, request: Requ
         """INSERT INTO post_media (workspace_id, post_id, position, file_path, file_name, file_size, content_type)
            VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (ws, pid, next_pos, f"{ws}/images/{pid}/{final.name}", name, size, IMAGE_TYPES[kind]))
+    from . import team_review
+    team_review.invalidate_after_content_edit(ws, pid)
     return {"id": row["id"], "name": name, "size": size, "type": IMAGE_TYPES[kind], "position": next_pos}
 
 
@@ -345,6 +356,8 @@ async def _store_upload(ws: int, pid: int, file: UploadFile, request: Request) -
              video_file_at=now(), video_url=''
            WHERE id=%s AND workspace_id=%s""",
         (f"{ws}/videos/{pid}/{final.name}", name, size, TYPES[kind], pid, ws))
+    from . import team_review
+    team_review.invalidate_after_content_edit(ws, pid)
     if old:
         f = _abs(old)
         if f and f != final:

@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from . import auth, db, mailer, publish
+from . import auth, db, mailer, publish, team_review
 from .auth import Ctx, current
 
 router = APIRouter(prefix="/api")
@@ -55,9 +55,12 @@ class ApprovalIn(BaseModel):
 
 def create(ws: int, post_id: int, user_id: int, *, platforms: list[str],
            schedule_at: Optional[str] = None, schedule_local: Optional[str] = None) -> dict:
-    post = db.one("SELECT id, account_id FROM posts WHERE id=%s AND workspace_id=%s", (post_id, ws))
+    post = db.one("SELECT id, account_id, team_review_status FROM posts WHERE id=%s AND workspace_id=%s",
+                  (post_id, ws))
     if not post:
         raise HTTPException(404, "Post not found")
+    if team_review.is_publish_blocked(post):
+        raise HTTPException(409, "This post needs team approval before it can be sent to a client")
     if not post.get("account_id"):
         raise HTTPException(400, "This post has no account yet")
     account = db.one("SELECT * FROM accounts WHERE id=%s AND workspace_id=%s", (post["account_id"], ws))

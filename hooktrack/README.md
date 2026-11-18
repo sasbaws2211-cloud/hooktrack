@@ -19,6 +19,8 @@ signed-in session's workspace. Roles: owner / admin / member; admins manage memb
 Invites are one-time links (7 days). A user can belong to several workspaces and switch from the header.
 Data that existed before multi-tenancy is adopted by the first account that signs up.
 
+Posts can be assigned to a workspace member in the Posts editor. Any member can request or resubmit an optional team review; only owners and admins can approve or request changes. Once a review is requested, publishing and client-approval requests are held until approval. Editing the post text, account, format, link, or attached media after submission or approval invalidates that review and requires resubmission. Client approval remains a separate external workflow.
+
 ## AI provider notes
 - `HOOKTRACK_AI_TIMEOUT` (seconds, default 150): a 550B reasoning model took up to ~65 s for a week plan.
 - Transient provider errors (429/500/502/503/504) are retried twice with a short backoff (`Retry-After` honoured, capped at 10 s); client errors (400/401/404) are not.

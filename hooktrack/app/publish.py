@@ -281,12 +281,14 @@ def publish_post(
     cfg = get_config(workspace_id)
     if not cfg["enabled"] and not dry_run:
         raise PublishError("Social publish add-on is not enabled")
-    from . import billing
+    from . import billing, team_review
     if not dry_run and billing.publishing_held(workspace_id):
         raise PublishError(billing.TRIAL_PUBLISH_MSG)
     post = db.one("SELECT * FROM posts WHERE id=%s AND workspace_id=%s", (post_id, workspace_id))
     if not post:
         raise PublishError("Post not found")
+    if not dry_run and team_review.is_publish_blocked(post):
+        raise PublishError("This post needs team approval before it can be published or scheduled.", 409)
 
     account = None
     if post.get("account_id"):
@@ -1058,6 +1060,10 @@ def process_due_schedules(limit: int = 20) -> int:
             )
             if not post:
                 _fail_job(r["id"], r["workspace_id"], "Post deleted")
+                continue
+            from . import team_review
+            if team_review.is_publish_blocked(post):
+                _fail_job(r["id"], r["workspace_id"], "Team approval is required before this post can be published")
                 continue
             account = None
             if post.get("account_id"):

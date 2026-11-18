@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, discover, freeai, inquiry, legal, logic, media, pages, peer, publish, seo, sociavault, vaultwatch, youtube_api
-from . import backup, digest, reports, inbox, approvals, shotstack, wavespeed
+from . import backup, digest, reports, inbox, approvals, shotstack, wavespeed, team_review
 from .auth import Ctx, admin, current
 
 import mimetypes
@@ -227,6 +227,7 @@ app.include_router(reports.pages)
 app.include_router(inbox.router)
 app.include_router(approvals.router)
 app.include_router(approvals.pages)
+app.include_router(team_review.router)
 
 
 @app.middleware("http")
@@ -309,14 +310,23 @@ def _post_out(p: dict, st: dict) -> dict:
     p["vsc"] = logic.vsc_total(p.get("v"), p.get("s"), p.get("c"))
     p["decision"] = logic.post_decision(p["vsc"], st)
     # live decision always uses current thresholds; snapshot has historical
-    if p.get("created_at") and hasattr(p["created_at"], "isoformat"):
-        p["created_at"] = p["created_at"].isoformat()
+    for key in ("created_at", "team_review_requested_at", "team_reviewed_at"):
+        if p.get(key) and hasattr(p[key], "isoformat"):
+            p[key] = p[key].isoformat()
     return p
 
 
 POST_SELECT = (
-    "SELECT p.*, a.handle, ph.color AS phone_color FROM posts p "
-    "LEFT JOIN accounts a ON a.id = p.account_id LEFT JOIN phones ph ON ph.id = a.phone_id "
+    "SELECT p.*, a.handle, ph.color AS phone_color, "
+    "COALESCE(NULLIF(assigned_user.name,''), assigned_user.email) AS assignee_name, "
+    "COALESCE(NULLIF(requester.name,''), requester.email) AS team_review_requester_name, "
+    "COALESCE(NULLIF(reviewer.name,''), reviewer.email) AS team_reviewer_name "
+    "FROM posts p LEFT JOIN accounts a ON a.id = p.account_id LEFT JOIN phones ph ON ph.id = a.phone_id "
+    "LEFT JOIN memberships assigned_membership ON assigned_membership.workspace_id=p.workspace_id "
+    "AND assigned_membership.user_id=p.assigned_to "
+    "LEFT JOIN users assigned_user ON assigned_user.id=assigned_membership.user_id "
+    "LEFT JOIN users requester ON requester.id=p.team_review_requested_by "
+    "LEFT JOIN users reviewer ON reviewer.id=p.team_reviewed_by "
 )
 
 
@@ -574,7 +584,7 @@ STATUS_ALIASES = {"planned": "scripted"}  # normalize on write
 POST_FIELDS = {"account_id", "post_date", "status", "ai_prompt", "hook", "body", "caption",
                "views", "comments", "intent", "v", "s", "c", "score_notes",
                "score_confidence", "score_reasoning", "parent_id", "variant_label", "experiment_id", "video_url", "url",
-               "content_type"}
+               "content_type", "assigned_to"}
 # What a card can be planned as. 'mixed' is logic.py's own placeholder for a synced item the sync hasn't told
 # apart yet - never something a person planning a post would pick.
 PLANNED_CONTENT_TYPES = tuple(t for t in logic.CONTENT_TYPES if t != "mixed")
@@ -588,6 +598,7 @@ def _check_content_type(ct: Optional[str]) -> Optional[str]:
 
 class PostIn(BaseModel):
     account_id: Optional[int] = None
+    assigned_to: Optional[int] = None
     post_date: date
     status: str = "scripted"
     ai_prompt: str = Field("", max_length=500)
@@ -605,6 +616,7 @@ class PostIn(BaseModel):
 
 class PostPatch(BaseModel):
     account_id: Optional[int] = None
+    assigned_to: Optional[int] = None
     post_date: Optional[date] = None
     status: Optional[str] = None
     ai_prompt: Optional[str] = Field(None, max_length=500)
@@ -637,13 +649,16 @@ def _normalize_status(s: str) -> str:
 def _insert_post(ws: int, b: PostIn) -> int:
     b.status = _normalize_status(b.status)
     _own_account(ws, b.account_id)
+    _own_member(ws, b.assigned_to)
     _check_content_type(b.content_type)
     scored = None not in (b.v, b.s, b.c)
     row = db.one(
         "INSERT INTO posts(workspace_id, account_id, post_date, status, ai_prompt, hook, body, caption, views, "
-        "comments, intent, v, s, c, score_by, content_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        "comments, intent, v, s, c, score_by, content_type, assigned_to) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
         (ws, b.account_id, b.post_date, b.status, b.ai_prompt, b.hook, b.body, b.caption, b.views,
-         b.comments, b.intent, b.v, b.s, b.c, "manual" if scored else "", b.content_type or "short_video"))
+         b.comments, b.intent, b.v, b.s, b.c, "manual" if scored else "", b.content_type or "short_video",
+         b.assigned_to))
     return row["id"]
 
 
@@ -1179,6 +1194,7 @@ def posts_bulk(b: BulkPosts, ctx: Ctx = Depends(current)):
     for p in b.posts:   # validate first so a bad row doesn't leave a half-saved batch
         p.status = _normalize_status(p.status)
         _own_account(ctx.workspace_id, p.account_id)
+        _own_member(ctx.workspace_id, p.assigned_to)
     return {"created": [_insert_post(ctx.workspace_id, p) for p in b.posts]}
 
 
@@ -1202,6 +1218,8 @@ def post_update(pid: int, b: PostPatch, ctx: Ctx = Depends(current)):
         d["status"] = _normalize_status(d["status"])
     if d.get("account_id") is not None:
         _own_account(ws, d["account_id"])
+    if "assigned_to" in d:
+        _own_member(ws, d["assigned_to"])
     if "content_type" in d:
         _check_content_type(d["content_type"])
     if {"v", "s", "c"} & d.keys():
@@ -1209,7 +1227,18 @@ def post_update(pid: int, b: PostPatch, ctx: Ctx = Depends(current)):
     if isinstance(d.get("url"), str):
         d["url"] = d["url"].strip()
         d["result_post_id"] = None                 # a new address means a new match
-    _update("posts", pid, ws, d, POST_FIELDS | {"score_by", "result_post_id"})
+    before = db.one(
+        """SELECT account_id, ai_prompt, hook, body, caption, content_type, url,
+                  team_review_status
+           FROM posts WHERE id=%s AND workspace_id=%s""", (pid, ws))
+    if not before:
+        raise HTTPException(404, "Not found")
+    review_content_fields = {"account_id", "ai_prompt", "hook", "body", "caption", "content_type", "url"}
+    content_changed = any(key in d and d[key] != before.get(key) for key in review_content_fields)
+    if content_changed:
+        _update_post(pid, ws, d, invalidate_review=True)
+    else:
+        _update("posts", pid, ws, d, POST_FIELDS | {"score_by", "result_post_id"})
     if d.get("status") and d["status"] != "idea":
         _promote_tweak(ws, pid)
     if d.get("url"):
@@ -1223,6 +1252,35 @@ def post_update(pid: int, b: PostPatch, ctx: Ctx = Depends(current)):
                 row.get("score_confidence"), row.get("score_reasoning") or "",
                 row.get("score_notes") or "", "manual", blind=True)
     return _get_post(ws, pid)
+
+
+def _own_member(ws: int, user_id: Optional[int]) -> None:
+    if user_id is not None and not db.one(
+            "SELECT 1 FROM memberships WHERE workspace_id=%s AND user_id=%s", (ws, user_id)):
+        raise HTTPException(400, "Assignee must be a member of this workspace")
+
+
+def _update_post(pid: int, ws: int, fields: dict, *, invalidate_review: bool = False):
+    data = {k: v for k, v in fields.items() if k in POST_FIELDS | {"score_by", "result_post_id"}}
+    if not data:
+        raise HTTPException(400, "Nothing to update")
+    sets = [f"{key}=%s" for key in data]
+    values = list(data.values())
+    if invalidate_review:
+        sets.extend([
+            "team_review_status=CASE WHEN team_review_status IN ('pending','approved') THEN 'changes_requested' ELSE team_review_status END",
+            "team_review_note=CASE WHEN team_review_status IN ('pending','approved') THEN %s ELSE team_review_note END",
+            "team_reviewed_by=CASE WHEN team_review_status IN ('pending','approved') THEN NULL ELSE team_reviewed_by END",
+            "team_reviewed_at=CASE WHEN team_review_status IN ('pending','approved') THEN NULL ELSE team_reviewed_at END",
+        ])
+        values.append("Post content changed after review. Submit it for review again.")
+    row = db.one(
+        f"UPDATE posts SET {', '.join(sets)} WHERE id=%s AND workspace_id=%s RETURNING id",
+        (*values, pid, ws),
+    )
+    if not row:
+        raise HTTPException(404, "Not found")
+    db.execute("UPDATE post_approvals SET status='cancelled' WHERE post_id=%s AND status='pending'", (pid,))
 
 
 @app.delete("/api/posts/{pid}")
