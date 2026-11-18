@@ -3562,11 +3562,11 @@ pages.studio = async app => {
         const vtt = `WEBVTT\n\n${captionWords.map((word, index) =>
           `${index + 1}\n${timecode(word.start)} --> ${timecode(word.end)}\n${word.text.replace(/-->/g, '—>')}\n`,
         ).join('\n')}`;
-        const position = $('#studio-caption-position', modal).value;
-        const horizontal = position === 'left' || position.endsWith('Left') ? 'left'
-          : position === 'right' || position.endsWith('Right') ? 'right' : 'center';
-        const vertical = position.startsWith('top') ? 'top'
-          : position.startsWith('bottom') ? 'bottom' : 'middle';
+        const captionPosition = $('#studio-caption-position', modal).value;
+        const horizontal = captionPosition === 'left' || captionPosition.endsWith('Left') ? 'left'
+          : captionPosition === 'right' || captionPosition.endsWith('Right') ? 'right' : 'center';
+        const vertical = captionPosition.startsWith('top') ? 'top'
+          : captionPosition.startsWith('bottom') ? 'bottom' : 'middle';
         const preset = presets[presetInput.value] || presets.classic;
         const caption = {
           asset: {
@@ -3592,7 +3592,8 @@ pages.studio = async app => {
           },
           start: clip.start,
           length: clip.length === 'auto' || clip.length == null ? Math.max(0.1, words[words.length - 1].end / 1000) : clip.length,
-          position,
+          // Rich-caption sprites fill the output canvas; align controls text placement within it.
+          position: 'center',
           alias: localCaptionMarker(clip),
         };
         const result = await edit.addTrack(0, { clips: [caption] });
