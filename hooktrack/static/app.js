@@ -76,7 +76,7 @@ async function api(method, path, body) {
   else if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
   const r = await fetch(path, opt);
   const data = await r.json().catch(() => ({}));
-  if (r.status === 401 && !path.startsWith('/api/auth/')) { state.me = null; renderAuth(); throw new Error('Please sign in'); }
+  if (r.status === 401 && !path.startsWith('/api/auth/') && data.detail === 'Not signed in') { state.me = null; renderAuth(); throw new Error('Please sign in'); }
   if (r.status === 402 && data.code === 'trial_ended') {
     refreshTrialBar(true);
     if (!location.hash.startsWith('#/billing')) setTimeout(() => { openPlanPicker().catch(() => (location.hash = '#/billing')); }, 600);
@@ -2800,6 +2800,33 @@ pages.studio = async app => {
     toast(message, true);
   }
   const locked = normStatus(post.status) === 'filmed';
+  const transitionPresets = [
+    ['fade', 'Fade'], ['reveal', 'Reveal'], ['wipeLeft', 'Wipe left'], ['wipeRight', 'Wipe right'],
+    ['slideLeft', 'Slide left'], ['slideRight', 'Slide right'], ['slideUp', 'Slide up'], ['slideDown', 'Slide down'],
+    ['carouselLeft', 'Carousel left'], ['carouselRight', 'Carousel right'], ['carouselUp', 'Carousel up'],
+    ['carouselDown', 'Carousel down'], ['shuffleTopRight', 'Shuffle top right'], ['shuffleRightTop', 'Shuffle right top'],
+    ['shuffleRightBottom', 'Shuffle right bottom'], ['shuffleBottomRight', 'Shuffle bottom right'],
+    ['shuffleBottomLeft', 'Shuffle bottom left'], ['shuffleLeftBottom', 'Shuffle left bottom'],
+    ['shuffleLeftTop', 'Shuffle left top'], ['shuffleTopLeft', 'Shuffle top left'], ['zoom', 'Zoom'],
+  ];
+  const transitionOptions = ['<option value="none">None</option>'].concat(
+    transitionPresets.flatMap(([value, label]) => [
+      `<option value="${value}">${label}</option>`,
+      ...(value === 'zoom' ? [] : [
+        `<option value="${value}Fast">${label} (fast)</option>`,
+        `<option value="${value}Slow">${label} (slow)</option>`,
+      ]),
+    ]),
+  ).join('');
+  const motionPresets = [['zoomIn', 'Zoom in'], ['zoomOut', 'Zoom out'], ['slideLeft', 'Pan left'],
+    ['slideRight', 'Pan right'], ['slideUp', 'Pan up'], ['slideDown', 'Pan down']];
+  const motionOptions = ['<option value="">None</option>'].concat(
+    motionPresets.flatMap(([value, label]) => [
+      `<option value="${value}">${label}</option>`,
+      `<option value="${value}Fast">${label} (fast)</option>`,
+      `<option value="${value}Slow">${label} (slow)</option>`,
+    ]),
+  ).join('');
   app.innerHTML = `<div class="page-head"><div><h1>Edit in Studio</h1><div class="sub">${esc(short(post.hook || post.caption || 'Untitled', 90))}</div></div>
     <div class="row"><button class="btn" id="studio-back">← Back</button></div></div>
     ${locked ? '<div class="card" style="margin-bottom:10px"><p class="muted">This card is Filmed, so its finished video/images are locked for publishing. You can still draft here, but move it back to Scripted before using "Finish".</p></div>' : ''}
@@ -2843,7 +2870,85 @@ pages.studio = async app => {
               <button class="btn sm primary" id="studio-finish" disabled ${locked ? `title="Move this card back to Scripted first"` : ''}>${isImageFormat(post.content_type) ? 'Finish images' : 'Finish video'}</button>
             </div>
           </section>
+          <section class="studio-tool-group" aria-label="Clip properties">
+            <div class="studio-tool-label">Adjust</div>
+            <div class="studio-tool-buttons">
+              <button class="btn sm" id="studio-properties-toggle" type="button" aria-expanded="false" aria-controls="studio-properties" disabled>Properties</button>
+            </div>
+          </section>
         </div>
+        <section id="studio-properties" class="studio-properties" aria-label="Selected clip properties" hidden>
+          <div class="studio-properties-heading">
+            <b id="studio-properties-title">Clip properties</b>
+            <span class="small muted" id="studio-properties-hint">Select a clip to adjust it.</span>
+          </div>
+          <div class="studio-properties-grid">
+            <label id="studio-start-field">Start (seconds)
+              <input id="studio-prop-start" type="number" min="0" step="0.1">
+            </label>
+            <label id="studio-length-field">Duration (seconds)
+              <input id="studio-prop-length" type="number" min="0.05" step="0.1" placeholder="Auto">
+            </label>
+            <label id="studio-fit-field">Fit
+              <select id="studio-prop-fit">
+                <option value="crop">Crop to fill</option><option value="contain">Fit inside</option>
+                <option value="cover">Stretch to fill</option><option value="none">Original size</option>
+              </select>
+            </label>
+            <label id="studio-position-field">Position
+              <select id="studio-prop-position">
+                <option value="center">Center</option><option value="top">Top</option><option value="topRight">Top right</option>
+                <option value="right">Right</option><option value="bottomRight">Bottom right</option><option value="bottom">Bottom</option>
+                <option value="bottomLeft">Bottom left</option><option value="left">Left</option><option value="topLeft">Top left</option>
+              </select>
+            </label>
+            <label id="studio-scale-field">Scale <output id="studio-prop-scale-value">100%</output>
+              <input id="studio-prop-scale" type="range" min="10" max="200" step="5" value="100">
+            </label>
+            <label id="studio-opacity-field">Opacity <output id="studio-prop-opacity-value">100%</output>
+              <input id="studio-prop-opacity" type="range" min="0" max="100" step="5" value="100">
+            </label>
+            <label id="studio-volume-field">Volume <output id="studio-prop-volume-value">100%</output>
+              <input id="studio-prop-volume" type="range" min="0" max="100" step="5" value="100">
+            </label>
+            <label id="studio-fade-field">Audio fade
+              <select id="studio-prop-fade">
+                <option value="none">No fade</option><option value="fadeIn">Fade in</option>
+                <option value="fadeOut">Fade out</option><option value="fadeInFadeOut">Fade in and out</option>
+              </select>
+            </label>
+            <label id="studio-filter-field">Filter
+              <select id="studio-prop-filter">
+                <option value="none">None</option><option value="blur">Blur</option>
+                <option value="boost">Boost</option><option value="contrast">Contrast</option>
+                <option value="darken">Darken</option><option value="greyscale">Greyscale</option>
+                <option value="lighten">Lighten</option><option value="muted">Muted</option>
+                <option value="negative">Negative</option>
+              </select>
+            </label>
+            <label id="studio-transition-in-field">Transition in
+              <select id="studio-prop-transition-in">${transitionOptions}</select>
+            </label>
+            <label id="studio-transition-out-field">Transition out
+              <select id="studio-prop-transition-out">${transitionOptions}</select>
+            </label>
+            <label id="studio-motion-field">Motion
+              <select id="studio-prop-motion">${motionOptions}</select>
+            </label>
+            <label id="studio-rotation-field">Rotation (degrees)
+              <input id="studio-prop-rotation" type="number" min="-180" max="180" step="1" value="0">
+            </label>
+            <label id="studio-flip-horizontal-field">Flip horizontally
+              <input id="studio-prop-flip-horizontal" type="checkbox">
+            </label>
+            <label id="studio-flip-vertical-field">Flip vertically
+              <input id="studio-prop-flip-vertical" type="checkbox">
+            </label>
+          </div>
+          <p id="studio-export-effects-note" class="studio-effects-note" hidden>
+            Filters, transitions, and motion may not be supported by browser export. Use Cloud render when available.
+          </p>
+        </section>
         <div class="studio-toolbar-status">
           <span class="studio-start-hint">You can add media, audio, text, or AI clips before selecting anything.</span>
           <span class="small muted" id="studio-status" role="status" aria-live="polite">Loading editor…</span>
@@ -2901,7 +3006,7 @@ pages.studio = async app => {
   let edit, canvas, timeline, controls, ui, StudioSdk, draftDirty = !!sessionDraft, draftRevision = sessionDraft ? 1 : 0;
   let draftSaveTimer = null, draftSaveInFlight = null, scheduleDraftSave = () => {}, selectedClipLocation = null, selectedClipId = null;
   let localCacheFailureNotified = false;
-  let syncStudioClipActions = () => {}, syncStudioOutputButtons = () => {};
+  let syncStudioClipActions = () => {}, syncStudioOutputButtons = () => {}, syncStudioProperties = () => {};
   const cacheStudioDraft = () => {
     try {
       sessionStorage.setItem(sessionDraftKey, JSON.stringify({ edit: edit.getEdit(), updatedAt: Date.now() }));
@@ -2985,6 +3090,7 @@ pages.studio = async app => {
       }
       syncHistoryButtons();
       syncStudioOutputButtons();
+      syncStudioProperties();
       scheduleDraftSave();
     };
     edit.events.on('edit:changed', markEditChanged);
@@ -2996,6 +3102,7 @@ pages.studio = async app => {
     const splitButton = $('#studio-split-clip', app);
     const duplicateButton = $('#studio-duplicate-clip', app), deleteButton = $('#studio-delete-clip', app);
     const trimStartButton = $('#studio-trim-start', app), trimEndButton = $('#studio-trim-end', app);
+    const propertiesToggle = $('#studio-properties-toggle', app), propertiesPanel = $('#studio-properties', app);
     const getSelectedLocation = () => {
       if (selectedClipId) {
         const location = edit.getClipPositionById(selectedClipId);
@@ -3028,7 +3135,148 @@ pages.studio = async app => {
       splitButton.title = selected ? 'Split the selected video at the playhead' : 'Select a video clip to split it';
       trimStartButton.title = selected ? 'Remove the selected video from its start to the playhead' : 'Select a video clip to trim';
       trimEndButton.title = selected ? 'Remove the selected video from the playhead to its end' : 'Select a video clip to trim';
+      syncStudioProperties();
     };
+    const propertyField = id => $(`#studio-${id}-field`, app);
+    const propertySelect = (id, value) => {
+      const input = $(`#studio-prop-${id}`, app);
+      if (input) input.value = value;
+    };
+    const propertyRange = (id, value) => {
+      const input = $(`#studio-prop-${id}`, app), output = $(`#studio-prop-${id}-value`, app);
+      if (!input || !output) return;
+      const percent = Math.round(Math.max(0, Math.min(2, Number(value))) * 100);
+      input.value = String(percent);
+      output.value = `${percent}%`;
+      output.textContent = `${percent}%`;
+    };
+    syncStudioProperties = () => {
+      const clip = getSelectedClip();
+      const asset = clip && clip.asset;
+      const type = asset && asset.type;
+      const visual = ['image', 'video', 'text', 'rich-text', 'title', 'shape', 'svg'].includes(type);
+      const hasVideoAudio = type === 'video', hasAudio = type === 'audio' || hasVideoAudio;
+      propertiesToggle.disabled = !clip;
+      propertiesToggle.setAttribute('aria-expanded', String(!propertiesPanel.hidden));
+      propertiesToggle.title = clip ? `Adjust selected ${type} clip` : 'Select a clip to edit its properties';
+      if (!clip || !asset) {
+        propertiesPanel.hidden = true;
+        propertiesToggle.setAttribute('aria-expanded', 'false');
+        $('#studio-properties-title', app).textContent = 'Clip properties';
+        $('#studio-properties-hint', app).textContent = 'Select a clip to adjust it.';
+        return;
+      }
+      $('#studio-properties-title', app).textContent = `${type.charAt(0).toUpperCase()}${type.slice(1)} properties`;
+      $('#studio-properties-hint', app).textContent = 'Changes are saved with your Studio draft.';
+      const startInput = $('#studio-prop-start', app), lengthInput = $('#studio-prop-length', app);
+      startInput.value = Number.isFinite(Number(clip.start)) ? String(clip.start) : '';
+      startInput.disabled = !Number.isFinite(Number(clip.start));
+      lengthInput.value = Number.isFinite(Number(clip.length)) ? String(clip.length) : '';
+      lengthInput.placeholder = clip.length === 'auto' ? 'Auto' : '';
+      propertyField('fit').hidden = !(type === 'image' || type === 'video');
+      propertyField('position').hidden = !visual;
+      propertyField('scale').hidden = !visual;
+      propertyField('opacity').hidden = !visual;
+      propertyField('volume').hidden = !hasAudio;
+      propertyField('fade').hidden = !hasAudio;
+      propertyField('filter').hidden = !visual;
+      propertyField('transition-in').hidden = !visual;
+      propertyField('transition-out').hidden = !visual;
+      propertyField('motion').hidden = !visual;
+      propertyField('rotation').hidden = !visual;
+      propertyField('flip-horizontal').hidden = !visual;
+      propertyField('flip-vertical').hidden = !visual;
+      $('#studio-export-effects-note', app).hidden = !visual;
+      propertySelect('fit', clip.fit || 'crop');
+      propertySelect('position', clip.position || 'center');
+      propertySelect('filter', clip.filter || 'none');
+      propertySelect('transition-in', clip.transition && clip.transition.in || 'none');
+      propertySelect('transition-out', clip.transition && clip.transition.out || 'none');
+      propertySelect('motion', clip.effect || '');
+      propertyRange('scale', Array.isArray(clip.scale) ? 1 : (clip.scale == null ? 1 : clip.scale));
+      propertyRange('opacity', Array.isArray(clip.opacity) ? 1 : (clip.opacity == null ? 1 : clip.opacity));
+      propertyRange('volume', Array.isArray(asset.volume) ? 1 : (asset.volume == null ? 1 : asset.volume));
+      propertySelect('fade', hasVideoAudio ? (asset.volumeEffect || 'none') : (asset.effect || 'none'));
+      const rotation = clip.transform && clip.transform.rotate && clip.transform.rotate.angle;
+      $('#studio-prop-rotation', app).value = Number.isFinite(Number(rotation)) ? String(rotation || 0) : '0';
+      $('#studio-prop-flip-horizontal', app).checked = !!(clip.transform && clip.transform.flip && clip.transform.flip.horizontal);
+      $('#studio-prop-flip-vertical', app).checked = !!(clip.transform && clip.transform.flip && clip.transform.flip.vertical);
+    };
+    propertiesToggle.onclick = () => {
+      if (propertiesToggle.disabled) return;
+      propertiesPanel.hidden = !propertiesPanel.hidden;
+      propertiesToggle.setAttribute('aria-expanded', String(!propertiesPanel.hidden));
+    };
+    const updateSelectedClip = async updates => {
+      const location = getSelectedLocation(), clip = getSelectedClip();
+      if (!location || !clip) throw new Error('Select a clip before changing its properties.');
+      const result = clip.id
+        ? await edit.updateClipById(clip.id, updates)
+        : await edit.updateClip(location.trackIndex, location.clipIndex, updates);
+      if (result.status !== 'success') throw new Error(result.message || 'The selected clip could not be updated.');
+      syncStudioProperties();
+    };
+    const propertyUpdate = (id, buildUpdates) => {
+      const input = $(`#studio-prop-${id}`, app);
+      input.onchange = guard(async () => {
+        const clip = getSelectedClip();
+        if (!clip) return;
+        if (!input.checkValidity()) {
+          input.reportValidity();
+          syncStudioProperties();
+          return;
+        }
+        const updates = buildUpdates(input, clip);
+        if (!updates) {
+          syncStudioProperties();
+          return;
+        }
+        await updateSelectedClip(updates);
+        setStatus('Clip properties updated', true);
+      });
+    };
+    propertyUpdate('fit', input => ({ fit: input.value }));
+    propertyUpdate('position', input => ({ position: input.value }));
+    propertyUpdate('start', input => ({ start: Number(input.value) }));
+    propertyUpdate('length', (input, clip) => input.value === '' && clip.length !== 'auto'
+      ? null
+      : { length: input.value === '' ? 'auto' : Number(input.value) });
+    propertyUpdate('scale', input => ({ scale: Number(input.value) / 100 }));
+    propertyUpdate('opacity', input => ({ opacity: Number(input.value) / 100 }));
+    propertyUpdate('volume', (input, clip) => ({
+      asset: { ...clip.asset, volume: Number(input.value) / 100 },
+    }));
+    propertyUpdate('fade', (input, clip) => ({
+      asset: clip.asset.type === 'video'
+        ? { ...clip.asset, volumeEffect: input.value }
+        : { ...clip.asset, effect: input.value },
+    }));
+    propertyUpdate('filter', input => ({ filter: input.value }));
+    propertyUpdate('transition-in', (input, clip) => ({
+      transition: { ...(clip.transition || {}), in: input.value },
+    }));
+    propertyUpdate('transition-out', (input, clip) => ({
+      transition: { ...(clip.transition || {}), out: input.value },
+    }));
+    propertyUpdate('motion', input => ({ effect: input.value || undefined }));
+    propertyUpdate('rotation', (input, clip) => ({
+      transform: {
+        ...(clip.transform || {}),
+        rotate: { ...((clip.transform && clip.transform.rotate) || {}), angle: Number(input.value) },
+      },
+    }));
+    propertyUpdate('flip-horizontal', (input, clip) => ({
+      transform: {
+        ...(clip.transform || {}),
+        flip: { ...((clip.transform && clip.transform.flip) || {}), horizontal: input.checked },
+      },
+    }));
+    propertyUpdate('flip-vertical', (input, clip) => ({
+      transform: {
+        ...(clip.transform || {}),
+        flip: { ...((clip.transform && clip.transform.flip) || {}), vertical: input.checked },
+      },
+    }));
     edit.events.on('clip:selected', selection => {
       selectedClipLocation = { trackIndex: selection.trackIndex, clipIndex: selection.clipIndex };
       selectedClipId = selection.clip && selection.clip.id || null;
@@ -3038,6 +3286,7 @@ pages.studio = async app => {
       selectedClipLocation = null;
       selectedClipId = null;
       syncStudioClipActions();
+      syncStudioProperties();
     });
     duplicateButton.onclick = guard(async () => {
       const clip = getSelectedClip();
