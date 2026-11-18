@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import re
+from datetime import date
 from urllib.parse import urlparse
 from typing import Optional
 
@@ -12,7 +13,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from . import db, media
+from . import billing, db, media
 from .auth import Ctx, current
 
 log = logging.getLogger("hooktrack.wavespeed")
@@ -41,8 +42,8 @@ def api_key() -> str:
     return (os.environ.get("WAVESPEED_API_KEY") or os.environ.get("HOOKTRACK_WAVESPEED_API_KEY") or "").strip()
 
 
-def status() -> dict:
-    return {"configured": bool(api_key())}
+def status(workspace_id: int) -> dict:
+    return {"configured": bool(api_key()), "ai_quota": billing.ai_quota(workspace_id)}
 
 
 def _headers() -> dict:
@@ -82,7 +83,8 @@ def _output_urls(outputs: object) -> list[str]:
     return urls
 
 
-def submit_generation(workspace_id: int, post_id: Optional[int], asset: dict) -> dict:
+def submit_generation(workspace_id: int, post_id: Optional[int], asset: dict,
+                      reserved_month: Optional[date] = None) -> dict:
     asset_type = asset.get("type")
     if asset_type not in ("image", "video"):
         raise WaveSpeedError("WaveSpeedAI Studio generation supports images and videos.")
@@ -121,13 +123,19 @@ def submit_generation(workspace_id: int, post_id: Optional[int], asset: dict) ->
                 raise WaveSpeedError("Upload a source image before generating an image-to-video clip.", 400)
             body["image"] = image_url
 
+    if reserved_month is None:
+        reserved_month = billing.reserve_ai(workspace_id)
     try:
         response = httpx.post(f"{BASE_URL}/{model}", json=body, headers=_headers(), timeout=TIMEOUT)
     except WaveSpeedError:
+        if reserved_month is not None:
+            billing.release_ai(workspace_id, reserved_month)
         raise
     except httpx.HTTPError as error:
         raise WaveSpeedError(f"Could not reach WaveSpeedAI: {error}")
     if response.status_code >= 400:
+        if reserved_month is not None:
+            billing.release_ai(workspace_id, reserved_month)
         raise _provider_error(response)
     task = _unwrap(response.json() or {})
     prediction_id = task.get("id")
@@ -145,6 +153,8 @@ def submit_generation(workspace_id: int, post_id: Optional[int], asset: dict) ->
            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
         (workspace_id, post_id, prediction_id, model, asset_type, prompt.strip(), provider_status,
          output_url, str(task.get("error") or task.get("message") or "")[:500]))
+    if reserved_month is None:
+        billing.record_ai(workspace_id)
     return {**row, "output_urls": output_urls}
 
 
@@ -230,8 +240,8 @@ class GenerateIn(BaseModel):
 
 
 @router.get("/status")
-def wavespeed_status(_ctx: Ctx = Depends(current)):
-    return status()
+def wavespeed_status(ctx: Ctx = Depends(current)):
+    return status(ctx.workspace_id)
 
 
 @router.post("/generate")
@@ -259,22 +269,34 @@ async def generate_image_to_video(
         ctx: Ctx = Depends(current)):
     if not db.one("SELECT 1 FROM posts WHERE id=%s AND workspace_id=%s", (post_id, ctx.workspace_id)):
         raise HTTPException(404, "Post not found")
+    if not prompt.strip():
+        raise HTTPException(400, "Enter a prompt of 1–4,000 characters.")
+    if duration not in (5, 10):
+        raise HTTPException(400, "Video duration must be 5 or 10 seconds.")
+    if size not in ("832*480", "480*832"):
+        raise HTTPException(400, "Choose landscape (16:9) or portrait (9:16) video.")
+    reserved_month = billing.reserve_ai(ctx.workspace_id)
     limit = media.max_image_bytes()
-    content = await file.read(limit + 1)
-    if len(content) > limit:
-        raise HTTPException(413, f"That image is too large. The limit is {limit // (1024 * 1024)} MB.")
-    image_kind = media.sniff_image(content[:16])
-    if not image_kind:
-        raise HTTPException(415, "The source must be a JPEG, PNG, or WebP image.")
-    content_type = media.IMAGE_TYPES[image_kind]
-    filename = f"studio-source.{image_kind}"
     try:
+        content = await file.read(limit + 1)
+        if len(content) > limit:
+            raise HTTPException(413, f"That image is too large. The limit is {limit // (1024 * 1024)} MB.")
+        image_kind = media.sniff_image(content[:16])
+        if not image_kind:
+            raise HTTPException(415, "The source must be a JPEG, PNG, or WebP image.")
+        content_type = media.IMAGE_TYPES[image_kind]
+        filename = f"studio-source.{image_kind}"
         image_url = await _upload_image_to_wavespeed(filename, content_type, content)
+    except Exception:
+        if reserved_month is not None:
+            billing.release_ai(ctx.workspace_id, reserved_month)
+        raise
+    try:
         return await asyncio.to_thread(
             submit_generation, ctx.workspace_id, post_id,
             {"type": "video", "prompt": prompt, "model": "wavespeed-ai/wan-2.1/i2v-480p",
              "image_url": image_url, "negative_prompt": negative_prompt,
-             "duration": duration, "size": size})
+             "duration": duration, "size": size}, reserved_month)
     except WaveSpeedError as error:
         raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 422, 429, 503) else 502,
                             str(error))

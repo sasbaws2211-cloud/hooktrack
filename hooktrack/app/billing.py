@@ -642,6 +642,45 @@ def check_ai(ws: int) -> None:
                                  f"workspace has used them. Upgrade under Billing, or wait for next month.")
 
 
+def ai_quota(ws: int) -> dict:
+    used = usage(ws)["ai_calls"]
+    limit = effective_plan(ws)["max_ai_calls"] if enabled() else -1
+    return {"used": used, "limit": limit, "remaining": None if limit == -1 else max(0, limit - used)}
+
+
+def reserve_ai(ws: int) -> Optional[date]:
+    """Atomically reserve one monthly AI request when a finite subscription cap applies."""
+    if not enabled():
+        return None
+    require_active(ws)
+    plan = effective_plan(ws)
+    limit = plan["max_ai_calls"]
+    if limit == -1:
+        return None
+    month = _month()
+    row = db.one(
+        """INSERT INTO ai_usage(workspace_id, month, calls)
+           SELECT %s, %s, 1 WHERE %s > 0
+           ON CONFLICT (workspace_id, month) DO UPDATE SET calls=ai_usage.calls + 1
+             WHERE ai_usage.calls < %s
+           RETURNING calls""",
+        (ws, month, limit, limit),
+    )
+    if not row:
+        raise HTTPException(402, f"Your {plan['name']} plan includes {limit} AI requests a month and this "
+                                 f"workspace has used them. Upgrade under Billing, or wait for next month.")
+    return month
+
+
+def release_ai(ws: int, month: date) -> None:
+    """Release a reserved request when a provider rejects the generation before accepting it."""
+    db.execute(
+        """UPDATE ai_usage SET calls=calls - 1
+           WHERE workspace_id=%s AND month=%s AND calls > 0""",
+        (ws, month),
+    )
+
+
 def check_credits(ws: int, need: int = 1) -> None:
     """Raise 402 when spending `need` more data credits would pass the month's allowance. No-op while billing is off."""
     if not enabled():

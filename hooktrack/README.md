@@ -277,7 +277,7 @@ There is **no free plan**. A new workspace gets a **free trial** (7 days by defa
   - **Controls:** customers can turn it off or remove the card on Billing; the operator can remove a card from the workspace page in the admin and run renewals on demand in Settings. An operator changing a workspace's plan manually also switches auto-renew off.
   - A renewal charges the plan's **current** price. Without a saved card each payment buys one interval and, when it ends, the workspace is expired (view-only) until it pays again.
 - **Comp / manual grants:** set any plan on a workspace from the admin console, with an optional end date.
-- **Metering:** AI requests are counted per workspace per month, only when the provider call succeeds.
+- **Metering:** AI requests are counted per workspace per month, including Studio image and video generation. Each accepted generation submission counts once (image variations count as one request); concurrent requests reserve quota atomically, and provider rejections release the reservation. A network failure after submission may still count if provider acceptance is unknown.
 - Set `HOOKTRACK_PUBLIC_URL` to your public address so Paystack's return link points at it. Paystack key: admin Settings (stored encrypted) or `PAYSTACK_SECRET_KEY`.
 
 ## The workflow: Hooks sync, decisions create the next work, Posts moves it to posted

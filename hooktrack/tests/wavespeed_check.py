@@ -1,12 +1,21 @@
 import asyncio
 import os
 import sys
+from datetime import date
 
 import httpx
 import pytest
+from fastapi import HTTPException
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import wavespeed
+
+
+@pytest.fixture(autouse=True)
+def billing_disabled_for_provider_tests(monkeypatch):
+    monkeypatch.setattr(wavespeed.billing, "reserve_ai", lambda _workspace_id: None)
+    monkeypatch.setattr(wavespeed.billing, "release_ai", lambda _workspace_id, _month: None)
+    monkeypatch.setattr(wavespeed.billing, "record_ai", lambda _workspace_id: None)
 
 
 @pytest.mark.parametrize(
@@ -99,6 +108,73 @@ def test_image_generation_requests_and_returns_variations(monkeypatch, num_image
     assert calls[0][1]["json"]["num_images"] == num_images
     assert row["output_url"] == urls[0]
     assert row["output_urls"] == urls
+
+
+def test_image_variation_submission_uses_one_reserved_ai_request(monkeypatch):
+    monkeypatch.setenv("WAVESPEED_API_KEY", "test-token")
+    month = date(2026, 6, 1)
+    reservations = []
+    records = []
+    monkeypatch.setattr(wavespeed.billing, "reserve_ai", lambda workspace_id: reservations.append(workspace_id) or month)
+    monkeypatch.setattr(wavespeed.billing, "record_ai", lambda workspace_id: records.append(workspace_id))
+    monkeypatch.setattr(wavespeed.httpx, "post", lambda *args, **kwargs:
+                        httpx.Response(200, json={"data": {"id": "pred_images", "status": "created"}}))
+    monkeypatch.setattr(wavespeed.db, "one", lambda *args, **kwargs: {"prediction_id": "pred_images"})
+
+    wavespeed.submit_generation(7, 9, {
+        "type": "image", "prompt": "A test image", "num_images": 4,
+    })
+
+    assert reservations == [7]
+    assert records == []
+
+
+def test_provider_rejection_releases_studio_ai_request(monkeypatch):
+    monkeypatch.setenv("WAVESPEED_API_KEY", "test-token")
+    month = date(2026, 6, 1)
+    released = []
+    monkeypatch.setattr(wavespeed.billing, "reserve_ai", lambda _workspace_id: month)
+    monkeypatch.setattr(wavespeed.billing, "release_ai", lambda workspace_id, value: released.append((workspace_id, value)))
+    monkeypatch.setattr(wavespeed.httpx, "post", lambda *args, **kwargs:
+                        httpx.Response(402, json={"message": "Provider rejected request"}))
+
+    with pytest.raises(wavespeed.WaveSpeedError):
+        wavespeed.submit_generation(7, 9, {"type": "image", "prompt": "A test image"})
+
+    assert released == [(7, month)]
+
+
+def test_exhausted_studio_ai_quota_blocks_provider_submission(monkeypatch):
+    def reject_quota(_workspace_id):
+        raise HTTPException(402, "AI quota exhausted")
+
+    monkeypatch.setattr(wavespeed.billing, "reserve_ai", reject_quota)
+    monkeypatch.setattr(wavespeed.httpx, "post", lambda *args, **kwargs:
+                        pytest.fail("Quota exhaustion must block provider submission"))
+
+    with pytest.raises(HTTPException) as error:
+        wavespeed.submit_generation(7, 9, {"type": "image", "prompt": "A test image"})
+
+    assert error.value.status_code == 402
+
+
+def test_image_to_video_quota_is_reserved_before_upload(monkeypatch):
+    def reject_quota(_workspace_id):
+        raise HTTPException(402, "AI quota exhausted")
+
+    monkeypatch.setattr(wavespeed.billing, "reserve_ai", reject_quota)
+    monkeypatch.setattr(wavespeed.db, "one", lambda *_args, **_kwargs: {"id": 9})
+    monkeypatch.setattr(wavespeed, "_upload_image_to_wavespeed", lambda *_args, **_kwargs:
+                        pytest.fail("Quota exhaustion must block source-image upload"))
+    ctx = wavespeed.Ctx(user_id=1, email="test@example.com", name="Test",
+                        workspace_id=7, role="member")
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(wavespeed.generate_image_to_video(
+            prompt="Animate this image", negative_prompt="", duration=5, size="832*480",
+            post_id=9, file=None, ctx=ctx))
+
+    assert error.value.status_code == 402
 
 
 @pytest.mark.parametrize("num_images", [0, 5, "2", True])

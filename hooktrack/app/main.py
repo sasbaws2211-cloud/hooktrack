@@ -294,9 +294,15 @@ def _ai_guard(fn, *a, **kw):
 def _ai_metered(ws: int, fn, *a, **kw):
     """_ai_guard plus the workspace's monthly AI allowance (no-op while billing is off). Only calls that
     succeed are counted, so a provider outage does not eat a customer's allowance."""
-    billing.check_ai(ws)
-    out = _ai_guard(fn, *a, **kw)
-    billing.record_ai(ws)
+    reserved_month = billing.reserve_ai(ws)
+    try:
+        out = _ai_guard(fn, *a, **kw)
+    except Exception:
+        if reserved_month is not None:
+            billing.release_ai(ws, reserved_month)
+        raise
+    if reserved_month is None:
+        billing.record_ai(ws)
     return out
 
 
