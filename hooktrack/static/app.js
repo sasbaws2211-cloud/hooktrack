@@ -4035,10 +4035,12 @@ pages.studio = async app => {
           type: 'video',
           prompt: choice.prompt,
           model: 'wavespeed-ai/wan-2.1/i2v-480p',
-          image_src: startingFrame,
-          duration: choice.duration,
-          size: choice.size,
-          negative_prompt: choice.negativePrompt,
+          options: {
+            inputSrc: startingFrame,
+            duration: choice.duration,
+            size: choice.size,
+            negativePrompt: choice.negativePrompt,
+          },
         },
         start: start + length,
         length: choice.duration,
@@ -4105,19 +4107,23 @@ pages.studio = async app => {
     // generation is billed to the WaveSpeedAI account configured on the server.
     edit.registerAssetGenerator(async request => {
       let row;
+      const options = request.asset.options && typeof request.asset.options === 'object'
+        ? request.asset.options : {};
       if (request.asset.model === 'wavespeed-ai/wan-2.1/i2v-480p') {
-        if (!request.asset.image_src) throw new Error('Choose a source image from the timeline first.');
+        if (typeof options.inputSrc !== 'string' || !options.inputSrc) {
+          throw new Error('Choose a source image from the timeline first.');
+        }
         let imageResponse;
-        try { imageResponse = await fetch(request.asset.image_src); }
+        try { imageResponse = await fetch(options.inputSrc); }
         catch (_) { throw new Error('Could not access the selected image. Try an image uploaded to this post.'); }
         if (!imageResponse.ok) throw new Error('Could not load the selected source image.');
         const imageBlob = await imageResponse.blob();
         setStatus('Uploading source image to WaveSpeedAI…');
         const form = new FormData();
         form.append('prompt', request.asset.prompt);
-        form.append('negative_prompt', request.asset.negative_prompt || '');
-        form.append('duration', String(request.asset.duration || 5));
-        form.append('size', request.asset.size || '832*480');
+        form.append('negative_prompt', typeof options.negativePrompt === 'string' ? options.negativePrompt : '');
+        form.append('duration', String(options.duration || 5));
+        form.append('size', options.size || '832*480');
         form.append('post_id', String(post.id));
         form.append('file', imageBlob, 'studio-source-image');
         row = await api('POST', '/api/wavespeed/generate-image-to-video', form);
@@ -4125,8 +4131,8 @@ pages.studio = async app => {
         row = await api('POST', '/api/wavespeed/generate',
           { asset: {
             type: request.asset.type, prompt: request.asset.prompt, model: request.asset.model,
-            duration: request.asset.duration, size: request.asset.size, negative_prompt: request.asset.negative_prompt,
-            num_images: request.asset.num_images,
+            duration: options.duration, size: options.size, negative_prompt: options.negativePrompt,
+            num_images: options.numImages,
           },
             post_id: post.id });
       }
@@ -4337,10 +4343,12 @@ pages.studio = async app => {
       $('#ai-prompt', m).focus();
     });
     if (!picked) return;
-    const clip = { asset: { type: picked.type, prompt: picked.prompt, model: picked.model, image_src: picked.image_src,
-      num_images: picked.num_images },
+    const options = picked.type === 'image'
+      ? { numImages: picked.num_images }
+      : { inputSrc: picked.image_src, duration: picked.duration, size: picked.size,
+        negativePrompt: picked.negative_prompt };
+    const clip = { asset: { type: picked.type, prompt: picked.prompt, model: picked.model, options },
       start: 0, length: picked.type === 'image' ? 3 : picked.duration };
-    Object.assign(clip.asset, { duration: picked.duration, size: picked.size, negative_prompt: picked.negative_prompt });
     await edit.addClip(baseTrackIndex(), clip);
   });
   $('#studio-add-text').onclick = guard(async () => {
