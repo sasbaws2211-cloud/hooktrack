@@ -50,6 +50,41 @@ class InterestIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class GeoTargetIn(BaseModel):
+    key: str = Field(min_length=1, max_length=100)
+    radius: int | None = Field(default=None, ge=17, le=100)
+    distance_unit: Literal["kilometer", "mile"] | None = None
+
+
+class MetaCarouselCardIn(BaseModel):
+    media_asset_id: int = Field(gt=0)
+    headline: str = Field(default="", max_length=255)
+    description: str = Field(default="", max_length=255)
+    link_url: str = Field(default="", max_length=2048)
+
+
+class MetaPlacementRuleIn(BaseModel):
+    media_asset_id: int = Field(gt=0)
+    publisher_platforms: list[Literal[
+        "facebook", "instagram", "threads", "messenger", "audience_network", "whatsapp",
+    ]] = Field(default_factory=list, max_length=6)
+    facebook_positions: list[Literal[
+        "feed", "right_hand_column", "marketplace", "story", "search", "instream_video",
+        "facebook_reels", "facebook_reels_overlay", "profile_feed", "notification",
+    ]] = Field(default_factory=list, max_length=10)
+    instagram_positions: list[Literal[
+        "stream", "story", "explore", "explore_home", "reels", "profile_feed", "ig_search", "profile_reels",
+    ]] = Field(default_factory=list, max_length=8)
+    messenger_positions: list[Literal["messenger_home", "sponsored_messages", "story"]] = Field(
+        default_factory=list, max_length=3)
+    audience_network_positions: list[Literal["classic", "rewarded_video"]] = Field(default_factory=list, max_length=2)
+    threads_positions: list[Literal["threads_stream"]] = Field(default_factory=list, max_length=1)
+    whatsapp_positions: list[Literal["status"]] = Field(default_factory=list, max_length=1)
+    headline: str = Field(default="", max_length=255)
+    body: str = Field(default="", max_length=5000)
+    description: str = Field(default="", max_length=255)
+
+
 class CampaignDraftIn(BaseModel):
     platform: Literal["meta", "tiktok", "google", "linkedin"] = "meta"
     ad_connection_id: str = Field(min_length=1, max_length=200)
@@ -62,6 +97,11 @@ class CampaignDraftIn(BaseModel):
     daily_budget: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     end_date: date
     creative_type: Literal["image", "video", "text"] = "image"
+    meta_creative_format: Literal["single", "carousel", "placement_assets"] = "single"
+    meta_carousel_cards: list[MetaCarouselCardIn] = Field(default_factory=list, max_length=10)
+    meta_placement_asset_type: Literal["image", "video"] = "image"
+    meta_default_media_asset_id: int | None = Field(default=None, gt=0)
+    meta_placement_rules: list[MetaPlacementRuleIn] = Field(default_factory=list, max_length=10)
     media_asset_id: int | None = Field(default=None, gt=0)
     post_id: int | None = Field(default=None, gt=0)
     brand_logo_asset_id: int | None = Field(default=None, gt=0)
@@ -83,10 +123,20 @@ class CampaignDraftIn(BaseModel):
         "SEE_MENU", "START_ORDER", "INSTALL_MOBILE_APP", "USE_APP", "BUY_NOW",
     ] = "LEARN_MORE"
     countries: list[str] = Field(default_factory=lambda: ["US"], max_length=25)
-    age_min: int = Field(default=18, ge=18, le=65)
+    age_min: int = Field(default=18, ge=13, le=65)
     age_max: int = Field(default=65, ge=18, le=65)
     gender: Literal["all", "male", "female"] = "all"
     interests: list[InterestIn] = Field(default_factory=list, max_length=25)
+    behaviors: list[InterestIn] = Field(default_factory=list, max_length=25)
+    work_positions: list[InterestIn] = Field(default_factory=list, max_length=25)
+    work_employers: list[InterestIn] = Field(default_factory=list, max_length=25)
+    work_industries: list[InterestIn] = Field(default_factory=list, max_length=25)
+    cities: list[GeoTargetIn] = Field(default_factory=list, max_length=20)
+    regions: list[GeoTargetIn] = Field(default_factory=list, max_length=20)
+    zips: list[GeoTargetIn] = Field(default_factory=list, max_length=20)
+    metros: list[GeoTargetIn] = Field(default_factory=list, max_length=20)
+    audience_include: list[str] = Field(default_factory=list, max_length=25)
+    audience_exclude: list[str] = Field(default_factory=list, max_length=25)
     placement_platforms: list[Literal["facebook", "instagram", "threads", "messenger"]] = Field(
         default_factory=list, max_length=4)
     special_ad_categories: list[Literal[
@@ -333,7 +383,22 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         "google_long_headline": "",
         "youtube_video_id": "",
         "brand_logo_asset_id": None,
+        "meta_creative_format": "single",
+        "meta_carousel_cards": [],
+        "meta_placement_asset_type": "image",
+        "meta_default_media_asset_id": None,
+        "meta_placement_rules": [],
         "linkedin_organization_id": "",
+        "behaviors": [],
+        "work_positions": [],
+        "work_employers": [],
+        "work_industries": [],
+        "cities": [],
+        "regions": [],
+        "zips": [],
+        "metros": [],
+        "audience_include": [],
+        "audience_exclude": [],
         **values,
     }
     connection = _selected_ad_account(
@@ -344,11 +409,33 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
     is_google_search = platform == "google" and values["google_campaign_type"] == "search"
     is_google_demand_gen = platform == "google" and values["google_campaign_type"] == "demand_gen"
     needs_media = platform in ("meta", "tiktok", "linkedin")
-    _validate_campaign_media_choice(platform, values["media_asset_id"], values["post_id"])
+    if platform != "meta" and (
+        values["meta_creative_format"] != "single" or values["meta_carousel_cards"]
+        or values["meta_default_media_asset_id"] is not None or values["meta_placement_rules"]
+    ):
+        raise HTTPException(400, "Meta creative-format settings are available only for Meta campaigns.")
+    if platform == "meta" and values["meta_creative_format"] != "carousel" and values["meta_carousel_cards"]:
+        raise HTTPException(400, "Remove carousel cards or select the Meta carousel format.")
+    if platform == "meta" and values["meta_creative_format"] != "placement_assets" and (
+        values["meta_default_media_asset_id"] is not None or values["meta_placement_rules"]
+    ):
+        raise HTTPException(400, "Remove placement assets or select the Meta per-placement format.")
+    is_meta_carousel = platform == "meta" and values["meta_creative_format"] == "carousel"
+    is_meta_placement_assets = platform == "meta" and values["meta_creative_format"] == "placement_assets"
+    if is_meta_carousel and values["creative_type"] != "image":
+        raise HTTPException(400, "Meta carousel cards require the image creative type.")
+    if is_meta_placement_assets and values["creative_type"] != values["meta_placement_asset_type"]:
+        raise HTTPException(400, "Meta placement creative type must match its image or video assets.")
+    if not is_meta_carousel and not is_meta_placement_assets:
+        _validate_campaign_media_choice(platform, values["media_asset_id"], values["post_id"])
+    elif values["media_asset_id"] is not None or values["post_id"] is not None:
+        raise HTTPException(400, "Choose the selected Meta creative format instead of single media.")
     if is_google_demand_gen and not values["brand_logo_asset_id"]:
         raise HTTPException(400, "Google Demand Gen requires a square logo image.")
     if values["age_max"] < values["age_min"]:
         raise HTTPException(400, "Maximum age must be equal to or above minimum age.")
+    if platform != "meta" and values["age_min"] < 18:
+        raise HTTPException(400, "This ad platform requires a minimum target age of 18.")
     if not values["campaign_name"].strip():
         raise HTTPException(400, "Enter a campaign name.")
     if not values["body"].strip():
@@ -362,7 +449,8 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
     if platform == "google" and Decimal(str(values["daily_budget"])) % 1:
         raise HTTPException(400, "Google Ads daily budgets must be whole units of the ad account's currency.")
     countries = [str(code).strip().upper() for code in values["countries"]]
-    if not countries:
+    has_meta_locations = platform == "meta" and any(values.get(field) for field in ("cities", "regions", "zips", "metros"))
+    if not countries and not has_meta_locations:
         raise HTTPException(400, "Choose at least one target country.")
     if any(len(code) != 2 or not code.isalpha() for code in countries):
         raise HTTPException(400, "Countries must be ISO two-letter country codes.")
@@ -446,6 +534,40 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
     if platform == "meta":
         goal = values["objective"]
         event = values["conversion_event"]
+        if values["meta_creative_format"] == "carousel":
+            cards = values["meta_carousel_cards"]
+            if not 2 <= len(cards) <= 10:
+                raise HTTPException(400, "Meta carousel ads require between 2 and 10 image cards.")
+            if goal == "catalog_sales":
+                raise HTTPException(400, "Meta carousel cards cannot be used with the catalog sales objective.")
+            if goal == "lead_generation" and values["meta_lead_gen_form_id"].strip():
+                raise HTTPException(400, "Meta carousel cards cannot be used with an instant lead form.")
+            card_asset_ids = [card["media_asset_id"] for card in cards]
+            if len(set(card_asset_ids)) != len(card_asset_ids):
+                raise HTTPException(400, "Choose a different image asset for each carousel card.")
+        elif values["meta_creative_format"] == "placement_assets":
+            rules = values["meta_placement_rules"]
+            if not values["meta_default_media_asset_id"]:
+                raise HTTPException(400, "Choose a default image or video for Meta placements.")
+            if not 1 <= len(rules) <= 10:
+                raise HTTPException(400, "Meta per-placement creative needs between 1 and 10 placement rules.")
+            for rule in rules:
+                platforms = set(rule["publisher_platforms"])
+                position_fields = {
+                    "facebook_positions": ("facebook", rule["facebook_positions"]),
+                    "instagram_positions": ("instagram", rule["instagram_positions"]),
+                    "messenger_positions": ("messenger", rule["messenger_positions"]),
+                    "audience_network_positions": ("audience_network", rule["audience_network_positions"]),
+                    "threads_positions": ("threads", rule["threads_positions"]),
+                    "whatsapp_positions": ("whatsapp", rule["whatsapp_positions"]),
+                }
+                if not platforms and not any(items for _field, items in position_fields.values()):
+                    raise HTTPException(400, "Each Meta placement rule must choose at least one publisher platform or position.")
+                for field, (platform_name, positions) in position_fields.items():
+                    if positions and platform_name not in platforms:
+                        raise HTTPException(400, f"Add {platform_name} to publisher platforms for its selected positions.")
+        elif values["meta_carousel_cards"]:
+            raise HTTPException(400, "Remove carousel cards or select the Meta carousel format.")
         if goal in ("conversions", "lead_conversion", "catalog_sales"):
             if goal == "catalog_sales" and values["meta_custom_conversion_id"]:
                 raise HTTPException(400, "Catalog sales uses a pixel event, not a custom conversion ID.")
@@ -498,6 +620,11 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         values["age_min"] != 18 or values["age_max"] != 65 or values["gender"] != "all"
     ):
         raise HTTPException(400, "Meta restricts age and gender targeting for special ad categories. Use all ages and genders.")
+    if platform != "meta" and any(values.get(field) for field in (
+        "behaviors", "work_positions", "work_employers", "work_industries",
+        "cities", "regions", "zips", "metros", "audience_include", "audience_exclude",
+    )):
+        raise HTTPException(400, "Behaviors, Meta locations and custom audiences are available only for Meta campaigns.")
     if platform == "tiktok" and any(category not in ("HOUSING", "EMPLOYMENT", "CREDIT")
                                     for category in values["special_ad_categories"]):
         raise HTTPException(400, "TikTok supports Housing, Employment, and Credit special ad categories.")
@@ -514,7 +641,9 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
     }:
         raise HTTPException(400, "Choose supported Meta placement platforms.")
 
-    if needs_media and values["media_asset_id"] is not None:
+    if is_meta_carousel or is_meta_placement_assets:
+        media_url = ""
+    elif needs_media and values["media_asset_id"] is not None:
         asset = db.one(
             """SELECT content_type, file_size FROM ad_campaign_assets
                 WHERE id=%s AND workspace_id=%s""",
@@ -545,7 +674,7 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         "budgetType": "daily",
         "endDate": f"{end_date.isoformat()}T23:59:59Z",
         "status": "PAUSED",
-        "countries": countries,
+        **({"countries": countries} if not has_meta_locations else {}),
     }
     if not is_google_demand_gen:
         request_body["goal"] = values["objective"]
@@ -558,12 +687,120 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         if not values["special_ad_categories"]:
             request_body["ageMin"] = values["age_min"]
             request_body["ageMax"] = values["age_max"]
-        if values["creative_type"] == "video":
+        if values["meta_creative_format"] == "placement_assets":
+            asset_type = values["meta_placement_asset_type"]
+            allowed_content_types = ("image/jpeg", "image/png") if asset_type == "image" else (
+                "video/mp4", "video/quicktime",
+            )
+            default_asset = db.one(
+                """SELECT content_type FROM ad_campaign_assets
+                    WHERE id=%s AND workspace_id=%s""",
+                (values["meta_default_media_asset_id"], workspace_id),
+            )
+            if not default_asset:
+                raise HTTPException(404, "The default Meta placement asset was not found in this workspace.")
+            if default_asset["content_type"] not in allowed_content_types:
+                raise HTTPException(400, f"Meta {asset_type} placement creatives require supported uploaded {asset_type} assets.")
+            default_url = _asset_url(workspace_id, values["meta_default_media_asset_id"])
+            placement_assets = {
+                "defaultImageUrl" if asset_type == "image" else "defaultVideoUrl": default_url,
+                "rules": [],
+            }
+            rule_fields = (
+                ("publisher_platforms", "publisherPlatforms"),
+                ("facebook_positions", "facebookPositions"),
+                ("instagram_positions", "instagramPositions"),
+                ("messenger_positions", "messengerPositions"),
+                ("audience_network_positions", "audienceNetworkPositions"),
+                ("threads_positions", "threadsPositions"),
+                ("whatsapp_positions", "whatsappPositions"),
+            )
+            for rule in values["meta_placement_rules"]:
+                asset = db.one(
+                    """SELECT content_type FROM ad_campaign_assets
+                        WHERE id=%s AND workspace_id=%s""",
+                    (rule["media_asset_id"], workspace_id),
+                )
+                if not asset:
+                    raise HTTPException(404, "A Meta placement rule asset was not found in this workspace.")
+                if asset["content_type"] not in allowed_content_types:
+                    raise HTTPException(400, f"All Meta placement assets must be supported {asset_type} files.")
+                placements = {
+                    provider_field: rule[field]
+                    for field, provider_field in rule_fields if rule[field]
+                }
+                rule_payload = {
+                    "videoUrl" if asset_type == "video" else "imageUrl": _asset_url(
+                        workspace_id, rule["media_asset_id"]),
+                    "placements": placements,
+                }
+                for field in ("headline", "body", "description"):
+                    if rule[field].strip():
+                        rule_payload[field] = rule[field].strip()
+                placement_assets["rules"].append(rule_payload)
+            request_body["placementAssets"] = placement_assets
+        elif values["meta_creative_format"] == "carousel":
+            carousel_cards = []
+            for card in values["meta_carousel_cards"]:
+                asset = db.one(
+                    """SELECT content_type FROM ad_campaign_assets
+                        WHERE id=%s AND workspace_id=%s""",
+                    (card["media_asset_id"], workspace_id),
+                )
+                if not asset:
+                    raise HTTPException(404, "A Meta carousel image was not found in this workspace.")
+                if asset["content_type"] not in ("image/jpeg", "image/png"):
+                    raise HTTPException(400, "Meta carousel cards require uploaded JPEG or PNG images.")
+                card_payload = {"imageUrl": _asset_url(workspace_id, card["media_asset_id"])}
+                for field, provider_field in (("headline", "headline"), ("description", "description")):
+                    if card[field].strip():
+                        card_payload[provider_field] = card[field].strip()
+                card_link = card["link_url"].strip()
+                if card_link:
+                    parsed_card_link = urlparse(card_link)
+                    if (parsed_card_link.scheme != "https" or not parsed_card_link.hostname
+                            or parsed_card_link.username or parsed_card_link.password):
+                        raise HTTPException(400, "Each Meta carousel card link must be a complete HTTPS URL.")
+                    card_payload["linkUrl"] = card_link
+                carousel_cards.append(card_payload)
+            request_body["carouselCards"] = carousel_cards
+        elif values["creative_type"] == "video":
             request_body["video"] = {"url": media_url}
         else:
             request_body["imageUrl"] = media_url
         if values["gender"] != "all" and not values["special_ad_categories"]:
             request_body["gender"] = values["gender"]
+        if values["behaviors"]:
+            request_body["behaviors"] = [
+                {"id": item["id"], "name": item["name"]} for item in values["behaviors"]
+            ]
+        for field, provider_field in (
+            ("work_positions", "workPositions"),
+            ("work_employers", "workEmployers"),
+            ("work_industries", "workIndustries"),
+        ):
+            if values[field]:
+                request_body[provider_field] = [
+                    {"id": item["id"], "name": item["name"]} for item in values[field]
+                ]
+        if values["cities"]:
+            request_body["cities"] = [
+                {key: value for key, value in {
+                    "key": item["key"], "radius": item["radius"],
+                    "distance_unit": item["distance_unit"],
+                }.items() if value is not None}
+                for item in values["cities"]
+            ]
+        if values["regions"]:
+            request_body["regions"] = [{"key": item["key"]} for item in values["regions"]]
+        if values["zips"]:
+            request_body["zips"] = [{"key": item["key"]} for item in values["zips"]]
+        if values["metros"]:
+            request_body["metros"] = [{"key": item["key"]} for item in values["metros"]]
+        if values["audience_include"]:
+            request_body["audienceInclude"] = values["audience_include"]
+        if values["audience_exclude"]:
+            request_body["audienceExclude"] = values["audience_exclude"]
     elif platform == "tiktok":
         request_body["body"] = values["body"].strip()
         request_body["linkUrl"] = values["link_url"].strip()
@@ -1183,27 +1420,52 @@ def meta_ads_request(body: MetaAdsRequestIn, ctx: Ctx = Depends(admin)):
         for field, expected in (("accountId", connection["id"]), ("adAccountId", body.ad_account_id)):
             if field in data and str(data[field]) != expected:
                 raise HTTPException(400, f"{field} must match the selected workspace Ads account.")
-    params["accountId"] = connection["id"]
     if path != "/events":
+        params["accountId"] = connection["id"]
         params["adAccountId"] = body.ad_account_id
+    if path == "/ads/tree":
+        profile_id = latehub.ensure_profile(ctx.workspace_id)
+        if "profileId" in params and str(params["profileId"]) != profile_id:
+            raise HTTPException(400, "profileId must match the selected workspace.")
+        params["profileId"] = profile_id
     account_scoped_create_paths = {
         "/ads/create", "/ads/campaigns", "/ads/boost", "/ads/messaging", "/ads/call",
         "/ads/creatives", "/ads/audiences", "/ads/lead-forms", "/ads/rf-predictions",
-        "/ads/images", "/ads/videos",
+        "/ads/images", "/ads/videos", "/ads/preview",
     }
     if path in account_scoped_create_paths and body.method == "POST":
         request_body.setdefault("accountId", connection["id"])
         request_body.setdefault("adAccountId", body.ad_account_id)
+        if path == "/ads/lead-forms":
+            request_body.pop("adAccountId", None)
+    if valid_tracking_path and body.method == "POST":
+        request_body.setdefault("adAccountId", body.ad_account_id)
     if path == "/events":
-        destination_id = str(request_body.get("destinationId") or "")
-        if not destination_id:
-            raise HTTPException(400, "Choose a Meta pixel destination before sending conversion events.")
+        profile_id = latehub.ensure_profile(ctx.workspace_id)
+        if "profileId" in request_body and str(request_body["profileId"]) != profile_id:
+            raise HTTPException(400, "profileId must match the selected workspace.")
+        request_body["profileId"] = profile_id
+        events = request_body.get("events")
+        if not isinstance(events, list) or not events:
+            raise HTTPException(400, "Provide at least one conversion event.")
+        if len(events) > 1000:
+            raise HTTPException(400, "Meta accepts at most 1,000 conversion events per request.")
+        destinations = request_body.get("destinations")
+        if not destinations and request_body.get("destinationId"):
+            destinations = [{"accountId": connection["id"], "destinationId": request_body.pop("destinationId")}]
+        if not isinstance(destinations, list) or not destinations:
+            raise HTTPException(400, "Choose at least one Meta pixel destination before sending conversion events.")
         try:
             pixels = latehub.ad_tracking_tags(connection["id"], body.ad_account_id)
         except latehub.LateHubError as error:
             raise HTTPException(502, str(error)) from error
-        if destination_id not in {str(pixel.get("id") or "") for pixel in pixels}:
-            raise HTTPException(400, "The conversion destination must be a pixel available to the selected ad account.")
+        pixel_ids = {str(pixel.get("id") or "") for pixel in pixels}
+        for destination in destinations:
+            if not isinstance(destination, dict) or str(destination.get("accountId") or "") != connection["id"]:
+                raise HTTPException(400, "Each conversion destination must use the selected workspace Meta connection.")
+            if str(destination.get("destinationId") or "") not in pixel_ids:
+                raise HTTPException(400, "Each conversion destination must be a pixel available to the selected ad account.")
+        request_body["destinations"] = destinations
     try:
         return latehub.meta_ads_request(
             body.method, path, params=params,

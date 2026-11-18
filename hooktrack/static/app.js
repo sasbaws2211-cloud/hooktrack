@@ -5862,6 +5862,22 @@ pages.ads = async app => {
     metaConnection ? 'meta' : tiktokConnection ? 'tiktok' : googleConnection ? 'google' : linkedinConnection ? 'linkedin' : 'meta');
   const builderConnection = campaignConnections[builderPlatform];
   const builderAdAccounts = campaignAccountLists[builderPlatform];
+  const campaignCarouselAssets = (d.campaign_assets || []).filter(item =>
+    ['image/jpeg', 'image/png'].includes(String(item.content_type).toLowerCase()));
+  const campaignPlacementAssets = {
+    image: (d.campaign_assets || []).filter(item =>
+      ['image/jpeg', 'image/png'].includes(String(item.content_type).toLowerCase())),
+    video: (d.campaign_assets || []).filter(item =>
+      ['video/mp4', 'video/quicktime'].includes(String(item.content_type).toLowerCase())),
+  };
+  const metaPlacementGroups = [
+    { key: 'facebook', label: 'Facebook', parent: 'publisher_platforms', values: [['feed','Feed'],['right_hand_column','Right column'],['marketplace','Marketplace'],['story','Stories'],['search','Search'],['instream_video','In-stream video'],['facebook_reels','Reels'],['facebook_reels_overlay','Reels overlay'],['profile_feed','Profile feed'],['notification','Notifications']], field: 'facebook_positions', api: 'facebookPositions' },
+    { key: 'instagram', label: 'Instagram', parent: 'publisher_platforms', values: [['stream','Feed'],['story','Stories'],['explore','Explore'],['explore_home','Explore home'],['reels','Reels'],['profile_feed','Profile feed'],['ig_search','Search'],['profile_reels','Profile Reels']], field: 'instagram_positions', api: 'instagramPositions' },
+    { key: 'messenger', label: 'Messenger', parent: 'publisher_platforms', values: [['messenger_home','Inbox'],['sponsored_messages','Sponsored messages'],['story','Stories']], field: 'messenger_positions', api: 'messengerPositions' },
+    { key: 'audience_network', label: 'Audience Network', parent: 'publisher_platforms', values: [['classic','Native/banner'],['rewarded_video','Rewarded video']], field: 'audience_network_positions', api: 'audienceNetworkPositions' },
+    { key: 'threads', label: 'Threads', parent: 'publisher_platforms', values: [['threads_stream','Feed']], field: 'threads_positions', api: 'threadsPositions' },
+    { key: 'whatsapp', label: 'WhatsApp', parent: 'publisher_platforms', values: [['status','Status']], field: 'whatsapp_positions', api: 'whatsappPositions' },
+  ];
   const campaignMediaOptions = [
     ...(d.existing_media || []).map(item => ({
       value: `post:${item.post_id}`, label: `${item.creative_type} · ${item.label} · ${item.handle || item.platform}`,
@@ -5901,6 +5917,51 @@ pages.ads = async app => {
       <div class="actions">${action}</div>
     </article>`;
   }).join('');
+  const metaCarouselCardMarkup = (card, index) => `
+    <article class="card" data-meta-carousel-card="${index}" style="padding:10px;margin:8px 0">
+      <div class="row" style="justify-content:space-between"><b>Card ${index + 1}</b>
+        <button type="button" class="btn sm" data-meta-carousel-remove="${index}" ${index < 2 ? 'disabled title="A carousel needs at least two cards"' : ''}>Remove</button></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:8px">
+        <div><label class="small muted" for="camp-meta-carousel-asset-${index}">JPEG or PNG image</label>
+          <select id="camp-meta-carousel-asset-${index}" data-meta-carousel-asset="${index}" required style="width:100%">
+            <option value="">Choose uploaded image</option>${campaignCarouselAssets.map(asset =>
+              `<option value="${asset.id}" ${String(card.media_asset_id || '') === String(asset.id) ? 'selected' : ''}>${esc(asset.file_name)}</option>`).join('')}
+          </select></div>
+        <div><label class="small muted" for="camp-meta-carousel-headline-${index}">Card headline (optional)</label>
+          <input id="camp-meta-carousel-headline-${index}" data-meta-carousel-headline="${index}" maxlength="255" value="${esc(card.headline || '')}" style="width:100%"></div>
+        <div><label class="small muted" for="camp-meta-carousel-description-${index}">Card description (optional)</label>
+          <input id="camp-meta-carousel-description-${index}" data-meta-carousel-description="${index}" maxlength="255" value="${esc(card.description || '')}" style="width:100%"></div>
+        <div><label class="small muted" for="camp-meta-carousel-link-${index}">Card destination (optional, HTTPS)</label>
+          <input id="camp-meta-carousel-link-${index}" data-meta-carousel-link="${index}" type="url" maxlength="2048" value="${esc(card.link_url || '')}" style="width:100%"></div>
+      </div>
+    </article>`;
+  const metaPlacementRuleMarkup = (rule, index, mediaType) => `
+    <article class="card" data-meta-placement-rule="${index}" style="padding:10px;margin:8px 0">
+      <div class="row" style="justify-content:space-between"><b>Placement rule ${index + 1}</b>
+        <button type="button" class="btn sm" data-meta-placement-remove="${index}">Remove</button></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin-top:8px">
+        <div><label class="small muted" for="camp-meta-placement-asset-${index}">${mediaType === 'image' ? 'JPEG or PNG image' : 'MP4 or MOV video'}</label>
+          <select id="camp-meta-placement-asset-${index}" data-meta-placement-asset required style="width:100%">
+            <option value="">Choose uploaded asset</option>${campaignPlacementAssets[mediaType].map(asset =>
+              `<option value="${asset.id}" ${String(rule.media_asset_id || '') === String(asset.id) ? 'selected' : ''}>${esc(asset.file_name)}</option>`).join('')}
+          </select></div>
+        <div><label class="small muted" for="camp-meta-placement-platforms-${index}">Publisher platforms</label>
+          <select id="camp-meta-placement-platforms-${index}" data-meta-placement-platforms multiple size="4" style="width:100%">
+            ${[['facebook','Facebook'],['instagram','Instagram'],['messenger','Messenger'],['audience_network','Audience Network'],['threads','Threads'],['whatsapp','WhatsApp']]
+              .map(([value,label]) => `<option value="${value}" ${(rule.publisher_platforms || []).includes(value) ? 'selected' : ''}>${label}</option>`).join('')}
+          </select></div>
+        ${metaPlacementGroups.map(group => `<div><label class="small muted" for="camp-meta-placement-${group.field}-${index}">${group.label} placements</label>
+          <select id="camp-meta-placement-${group.field}-${index}" data-meta-placement-positions="${group.field}" multiple size="${Math.min(4, group.values.length)}" style="width:100%">
+            ${group.values.map(([value,label]) => `<option value="${value}" ${(rule[group.field] || []).includes(value) ? 'selected' : ''}>${label}</option>`).join('')}
+          </select></div>`).join('')}
+        <div><label class="small muted" for="camp-meta-placement-headline-${index}">Headline override (optional)</label>
+          <input id="camp-meta-placement-headline-${index}" data-meta-placement-copy="headline" maxlength="255" value="${esc(rule.headline || '')}" style="width:100%"></div>
+        <div><label class="small muted" for="camp-meta-placement-body-${index}">Primary text override (optional)</label>
+          <textarea id="camp-meta-placement-body-${index}" data-meta-placement-copy="body" maxlength="5000" style="width:100%;min-height:60px">${esc(rule.body || '')}</textarea></div>
+        <div><label class="small muted" for="camp-meta-placement-description-${index}">Description override (optional)</label>
+          <input id="camp-meta-placement-description-${index}" data-meta-placement-copy="description" maxlength="255" value="${esc(rule.description || '')}" style="width:100%"></div>
+      </div>
+    </article>`;
   const campaignBuilder = `<section class="card ads-builder" id="campaign-builder">
     <div class="ads-section-heading"><div><span class="ads-kicker">CAMPAIGN WORKSPACE</span><h2>Build a campaign</h2>
       <p class="small muted">Set up your audience and creative, save a draft, then review before launch.</p></div>
@@ -5955,16 +6016,54 @@ pages.ads = async app => {
         <div><label class="small muted" for="camp-end-date">Campaign end date</label>
           <input id="camp-end-date" type="date" required style="width:100%"></div>
         <div class="ads-form-divider"><span>Creative and destination</span></div>
-        <div id="camp-media-wrap" ${['google'].includes(builderPlatform) ? 'hidden' : ''}><label class="small muted" for="camp-media">Creative media</label>
+        <div id="camp-media-wrap" ${['google'].includes(builderPlatform) ? 'hidden' : ''}>        <div id="camp-single-media-select-wrap"><label class="small muted" for="camp-media">Creative media</label>
           <select id="camp-media" required style="width:100%">${campaignMediaOptions.filter(item =>
             (item.platform === 'both' || item.platform === builderPlatform) &&
             (builderPlatform !== 'tiktok' || item.type === 'video')).map(item =>
-            `<option value="${esc(item.value)}" data-kind="${item.type}" ${state.campaignAssetId && item.value === `asset:${state.campaignAssetId}` ? 'selected' : ''}>${esc(item.label)}</option>`).join('')}</select>
+            `<option value="${esc(item.value)}" data-kind="${item.type}" ${state.campaignAssetId && item.value === `asset:${state.campaignAssetId}` ? 'selected' : ''}>${esc(item.label)}</option>`).join('')}</select></div>
           <label class="small muted" for="camp-upload">Or upload creative</label>
           <input id="camp-upload" type="file" accept="image/jpeg,image/png,image/gif,video/mp4,video/quicktime" style="width:100%">
           <span id="camp-media-note" class="small muted">${!campaignMediaOptions.some(item =>
             (item.platform === 'both' || item.platform === builderPlatform) && (builderPlatform !== 'tiktok' || item.type === 'video'))
             ? 'Upload a creative to begin. Existing published post media appears here when available.' : ''}</span></div>
+        <div id="camp-meta-creative-format-wrap" ${builderPlatform === 'meta' ? '' : 'hidden'}>
+          <label class="small muted" for="camp-meta-creative-format">Meta creative format</label>
+          <select id="camp-meta-creative-format" style="width:100%">
+            <option value="single">Single image or video</option><option value="carousel">Carousel (2–10 image cards)</option>
+            <option value="placement_assets">Different asset by placement</option>
+          </select>
+          <span class="small muted">Carousel cards use JPEG or PNG assets. Per-placement ads use an image-only or video-only set of uploaded assets.</span>
+        </div>
+        <div id="camp-meta-carousel-wrap" hidden style="grid-column:1/-1">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <div><b>Carousel cards</b><p class="small muted" style="margin:3px 0">Choose 2–10 distinct workspace images. Card copy and destination are optional; blank values inherit the campaign defaults.</p></div>
+            <button type="button" class="btn sm" id="camp-meta-carousel-add">Add card</button>
+          </div>
+          <div id="camp-meta-carousel-cards">${(state.metaCarouselCards || [{}, {}]).map(metaCarouselCardMarkup).join('')}</div>
+          ${campaignCarouselAssets.length ? '' : '<p class="notice">Upload at least two JPEG or PNG images to use carousel format.</p>'}
+        </div>
+        <div id="camp-meta-placement-wrap" hidden style="grid-column:1/-1">
+          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px">
+            <div><label class="small muted" for="camp-meta-placement-type">Placement asset type</label>
+              <select id="camp-meta-placement-type" style="width:100%">
+                <option value="image" ${state.metaPlacementAssetType !== 'video' ? 'selected' : ''}>Images</option>
+                <option value="video" ${state.metaPlacementAssetType === 'video' ? 'selected' : ''}>Videos</option>
+              </select></div>
+            <div><label class="small muted" for="camp-meta-placement-default">Default asset</label>
+              <select id="camp-meta-placement-default" required style="width:100%">
+                <option value="">Choose uploaded asset</option>${campaignPlacementAssets[state.metaPlacementAssetType || 'image'].map(asset =>
+                  `<option value="${asset.id}" ${String(state.metaDefaultMediaAssetId || '') === String(asset.id) ? 'selected' : ''}>${esc(asset.file_name)}</option>`).join('')}
+              </select></div>
+            <div><label class="small muted">Rule behavior</label><p class="small muted" style="margin:5px 0">Rules pin an asset and optional copy to selected placements. Unmatched placements use the default asset and campaign copy. Select a publisher platform for each chosen position.</p></div>
+          </div>
+          <div class="row" style="justify-content:space-between;align-items:center;margin-top:10px">
+            <b>Placement-specific rules (1–10)</b><button type="button" class="btn sm" id="camp-meta-placement-add">Add rule</button>
+          </div>
+          <div id="camp-meta-placement-rules">${(state.metaPlacementRules || [{}]).map((rule, index) =>
+            metaPlacementRuleMarkup(rule, index, state.metaPlacementAssetType || 'image')).join('')}</div>
+          ${campaignPlacementAssets.image.length ? '' : '<p class="notice">Upload JPEG or PNG images for image placement assets.</p>'}
+          ${campaignPlacementAssets.video.length ? '' : '<p class="notice">Upload MP4 or MOV videos for video placement assets.</p>'}
+        </div>
         <div id="camp-headline-wrap" ${builderPlatform === 'tiktok' ? 'hidden' : ''}><label class="small muted" for="camp-headline">Headline</label><input id="camp-headline" maxlength="255" ${builderPlatform === 'tiktok' ? '' : 'required'} style="width:100%"></div>
         <div><label class="small muted" for="camp-body"><span id="camp-body-label">${builderPlatform === 'tiktok' ? 'Video caption' : 'Primary text'}</span></label><textarea id="camp-body" maxlength="5000" required style="width:100%;min-height:84px"></textarea></div>
         <div><label class="small muted" for="camp-link">Landing page URL (HTTPS)</label><input id="camp-link" type="url" required placeholder="https://example.com" style="width:100%"></div>
@@ -5995,7 +6094,7 @@ pages.ads = async app => {
             ['REQUEST_TIME', 'Request time'], ['SEE_MENU', 'See menu'], ['START_ORDER', 'Start order'], ['BUY_NOW', 'Buy now'],
           ].map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></div>
         <div><label class="small muted" for="camp-countries">Countries (ISO codes, comma-separated)</label><input id="camp-countries" value="US" placeholder="US, CA" style="width:100%"></div>
-        <div class="row" style="gap:8px"><div><label class="small muted" for="camp-age-min">Minimum age</label><input id="camp-age-min" type="number" min="18" max="65" value="18" style="width:100%"></div>
+        <div class="row" style="gap:8px"><div><label class="small muted" for="camp-age-min">Minimum age</label><input id="camp-age-min" type="number" min="${builderPlatform === 'meta' ? 13 : 18}" max="65" value="18" style="width:100%"></div>
           <div><label class="small muted" for="camp-age-max">Maximum age</label><input id="camp-age-max" type="number" min="18" max="65" value="65" style="width:100%"></div>
           <div><label class="small muted" for="camp-gender">Gender</label><select id="camp-gender"><option value="all">All</option><option value="female">Women</option><option value="male">Men</option></select></div></div>
       </div>
@@ -6005,6 +6104,14 @@ pages.ads = async app => {
             <label class="small muted" for="camp-interest-search">Interest targeting (search ${builderPlatform === 'tiktok' ? 'TikTok' : 'Meta'})</label>
             <div class="row"><input id="camp-interest-search" placeholder="Search interests" style="flex:1"><button class="btn sm" type="button" id="camp-interest-button">Search</button></div>
             <div id="camp-interest-results" class="small" style="margin:6px 0"></div><div id="camp-interests" class="small muted">No interests selected.</div>
+          </div>
+          <div id="camp-meta-audience-wrap" style="margin-top:12px" ${builderPlatform === 'meta' ? '' : 'hidden'}>
+            <div class="row" style="gap:8px;align-items:end">
+              <button type="button" class="btn sm" id="camp-load-audiences">Load custom audiences</button>
+              <div><label class="small muted" for="camp-audience-include">Include audiences</label><select id="camp-audience-include" multiple size="3" style="min-width:210px"></select></div>
+              <div><label class="small muted" for="camp-audience-exclude">Exclude audiences</label><select id="camp-audience-exclude" multiple size="3" style="min-width:210px"></select></div>
+            </div>
+            <div id="camp-advanced-targeting" class="small muted" style="margin-top:8px"></div>
           </div>
           <div id="camp-placement-wrap" ${builderPlatform === 'tiktok' ? 'hidden' : ''}>
             <p class="small muted">Leave placements unchecked for Meta automatic placements; choose one or more platforms for manual placement control.</p>
@@ -6080,6 +6187,16 @@ pages.ads = async app => {
     {label:'List conversion destinations',method:'GET',path:'/ads/conversions/destinations',query:{},body:{}},
   ];
   const activeAdsTab = state.adsTab || 'campaigns';
+  state.campaignBehaviors = state.campaignBehaviors || [];
+  state.campaignWorkPositions = state.campaignWorkPositions || [];
+  state.campaignWorkEmployers = state.campaignWorkEmployers || [];
+  state.campaignWorkIndustries = state.campaignWorkIndustries || [];
+  state.campaignCities = state.campaignCities || [];
+  state.campaignRegions = state.campaignRegions || [];
+  state.campaignZips = state.campaignZips || [];
+  state.campaignMetros = state.campaignMetros || [];
+  state.campaignAudienceInclude = state.campaignAudienceInclude || [];
+  state.campaignAudienceExclude = state.campaignAudienceExclude || [];
   app.innerHTML = `<div class="ads-page">
     <div class="page-head ads-hero"><div><div class="eyebrow">PAID PROMOTION</div><h1>Advertising</h1>
     <div class="sub">Create and manage campaigns across Meta, TikTok, Google and LinkedIn.</div></div>
@@ -6109,14 +6226,170 @@ pages.ads = async app => {
         <div class="ads-section-heading"><div><span class="ads-kicker">ZERNIO META ADS API</span><h2>Meta Ads tools</h2>
           <p class="small muted">Run Zernio’s documented Meta Ads operations for this workspace. See the <a href="https://docs.zernio.com/platforms/meta-ads" target="_blank" rel="noopener noreferrer">Zernio Meta Ads docs</a> for request fields and limits.</p></div></div>
         ${metaConnection && metaAdAccounts.length && d.can_manage ? `<form id="meta-tools-form" class="card">
-          <p class="small muted">This advanced workspace covers campaign hierarchy, audience and pixel operations, creative tools, previews, lead forms, messaging/call ads, insights, conversion events and Reach &amp; Frequency. Write requests can create or change ads; verify the selected ad account and request before submitting.</p>
+          <div style="max-width:420px;margin-bottom:18px"><label class="small muted" for="meta-tools-account">Meta ad account</label>
+            <select id="meta-tools-account" required style="width:100%">${metaAdAccounts.map(item =>
+              `<option value="${esc(item.id)}">${esc(item.name)}${item.currency ? ` · ${esc(item.currency)}` : ''}</option>`).join('')}</select></div>
+          <section aria-labelledby="meta-hierarchy-heading" style="margin-bottom:20px">
+            <h3 id="meta-hierarchy-heading">Campaign and ad management</h3>
+            <p class="small muted">Read the selected account's campaign → ad set → ad hierarchy and performance, then pause or activate an individual item.</p>
+            <div class="row" style="gap:8px;align-items:end">
+              <div><label class="small muted" for="meta-tree-from">From</label><input id="meta-tree-from" type="date" value="${metaMonthAgo}"></div>
+              <div><label class="small muted" for="meta-tree-to">To</label><input id="meta-tree-to" type="date" value="${metaToday}"></div>
+              <button class="btn sm" type="button" id="meta-tree-load">Load hierarchy</button>
+            </div>
+            <div id="meta-tree-result" aria-live="polite" style="margin-top:10px"></div>
+          </section>
+          <section aria-labelledby="meta-creatives-heading" style="margin-bottom:20px">
+            <h3 id="meta-creatives-heading">Creative library and previews</h3>
+            <p class="small muted">Browse creatives in the selected ad account, preview one in Meta placements, or render a draft before creating an ad.</p>
+            <div class="row" style="gap:8px;margin:10px 0">
+              <button class="btn sm" type="button" id="meta-creatives-load">Load creative library</button>
+              <div><label class="small muted" for="meta-preview-formats">Preview placements</label>
+                <select id="meta-preview-formats" multiple size="4" style="min-width:220px">
+                  ${[['DESKTOP_FEED_STANDARD','Facebook desktop feed'],['MOBILE_FEED_STANDARD','Facebook mobile feed'],['INSTAGRAM_STANDARD','Instagram feed'],['INSTAGRAM_STORY','Instagram Stories'],['INSTAGRAM_REELS','Instagram Reels'],['FACEBOOK_STORY_MOBILE','Facebook Stories'],['MOBILE_BANNER','Audience Network banner']].map(([value,label]) =>
+                    `<option value="${value}" ${value === 'MOBILE_FEED_STANDARD' || value === 'INSTAGRAM_STANDARD' ? 'selected' : ''}>${label}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div id="meta-creatives-list" aria-live="polite"></div>
+            <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
+              <h4>Preview a draft creative</h4>
+              <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px">
+                <div><label class="small muted" for="meta-preview-page">Facebook Page ID</label><input id="meta-preview-page" required maxlength="100" style="width:100%"></div>
+                <div><label class="small muted" for="meta-preview-headline">Headline</label><input id="meta-preview-headline" maxlength="255" style="width:100%"></div>
+                <div><label class="small muted" for="meta-preview-link">Destination URL</label><input id="meta-preview-link" type="url" required placeholder="https://example.com" style="width:100%"></div>
+                <div><label class="small muted" for="meta-preview-image">Public image URL</label><input id="meta-preview-image" type="url" required placeholder="https://cdn.example.com/image.jpg" style="width:100%"></div>
+                <div><label class="small muted" for="meta-preview-cta">Call to action</label><select id="meta-preview-cta" style="width:100%">
+                  ${[['LEARN_MORE','Learn more'],['SHOP_NOW','Shop now'],['SIGN_UP','Sign up'],['CONTACT_US','Contact us'],['DOWNLOAD','Download'],['GET_OFFER','Get offer']].map(([value,label]) =>
+                    `<option value="${value}">${label}</option>`).join('')}
+                </select></div>
+                <div style="grid-column:1/-1"><label class="small muted" for="meta-preview-body">Primary text</label><textarea id="meta-preview-body" maxlength="5000" style="width:100%;min-height:72px"></textarea></div>
+              </div>
+              <button class="btn primary sm" type="button" id="meta-preview-draft" style="margin-top:10px">Preview draft creative</button>
+            </div>
+            <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
+              <label class="small muted" for="meta-preview-ad-id">Preview an existing ad</label>
+              <div class="row" style="gap:8px"><input id="meta-preview-ad-id" maxlength="100" placeholder="Zernio ad ID" style="max-width:320px">
+                <button class="btn sm" type="button" id="meta-preview-existing">Load ad preview</button></div>
+            </div>
+            <div id="meta-preview-result" aria-live="polite" style="margin-top:12px"></div>
+          </section>
+          <section aria-labelledby="meta-audiences-heading" style="margin-bottom:20px">
+            <h3 id="meta-audiences-heading">Targeting and custom audiences</h3>
+            <p class="small muted">Search Meta interests, behaviors, and locations; create and manage custom audiences; select audiences to include or exclude in the campaign builder.</p>
+            <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px">
+              <div><label class="small muted" for="meta-targeting-dimension">Targeting dimension</label><select id="meta-targeting-dimension" style="width:100%">
+                <option value="interest">Interest</option><option value="behavior">Behavior</option>
+                <option value="workPosition">Work position</option><option value="workEmployer">Work employer</option><option value="workIndustry">Work industry</option>
+                <option value="geo">Location</option>
+              </select></div>
+              <div id="meta-targeting-geo-type-wrap" hidden><label class="small muted" for="meta-targeting-geo-type">Location type</label><select id="meta-targeting-geo-type" style="width:100%">
+                <option value="city">City</option><option value="region">Region</option><option value="zip">ZIP/postal code</option><option value="metro_area">Metro area</option>
+              </select></div>
+              <div><label class="small muted" for="meta-targeting-query">Search Meta targeting</label><input id="meta-targeting-query" minlength="2" maxlength="100" placeholder="Interest, behavior, or location" style="width:100%"></div>
+              <div id="meta-targeting-country-wrap" hidden><label class="small muted" for="meta-targeting-country">Country code (optional)</label><input id="meta-targeting-country" maxlength="2" placeholder="US" style="width:100%"></div>
+            </div>
+            <button type="button" class="btn sm" id="meta-targeting-search" style="margin-top:8px">Search targeting</button>
+            <div id="meta-targeting-results" aria-live="polite" style="margin:8px 0"></div>
+            <div id="meta-targeting-selected" class="small muted"></div>
+            <div class="row" style="gap:8px;margin:12px 0">
+              <button type="button" class="btn sm" id="meta-audiences-load">Load custom audiences</button>
+            </div>
+            <div id="meta-audiences-list" aria-live="polite"></div>
+            <details style="margin-top:12px">
+              <summary>Create a custom audience</summary>
+              <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-top:10px">
+                <div><label class="small muted" for="meta-audience-name">Audience name</label><input id="meta-audience-name" maxlength="100" style="width:100%"></div>
+                <div><label class="small muted" for="meta-audience-type">Audience type</label><select id="meta-audience-type" style="width:100%">
+                  <option value="customer_list">Customer list</option><option value="website">Website visitors</option>
+                  <option value="lookalike">Lookalike</option><option value="meta_engagement">Page, Instagram, or video engagement</option>
+                </select></div>
+                <div id="meta-audience-pixel-wrap" hidden><label class="small muted" for="meta-audience-pixel">Pixel</label>
+                  <select id="meta-audience-pixel" style="width:100%"><option value="">Load pixels to choose</option></select>
+                  <button type="button" class="btn sm" id="meta-audience-pixels-load" style="margin-top:5px">Load pixels</button></div>
+                <div id="meta-audience-retention-wrap" hidden><label class="small muted" for="meta-audience-retention">Retention (days)</label><input id="meta-audience-retention" type="number" min="1" max="180" value="30" style="width:100%"></div>
+                <div id="meta-audience-url-wrap" hidden><label class="small muted" for="meta-audience-url">URL contains (optional)</label><input id="meta-audience-url" maxlength="500" style="width:100%"></div>
+                <div id="meta-audience-source-wrap" hidden><label class="small muted" for="meta-audience-source">Seed audience</label><select id="meta-audience-source" style="width:100%"><option value="">Load audiences to choose</option></select></div>
+                <div id="meta-audience-country-wrap" hidden><label class="small muted" for="meta-audience-lookalike-country">Lookalike country</label><input id="meta-audience-lookalike-country" maxlength="2" value="US" style="width:100%"></div>
+                <div id="meta-audience-ratio-wrap" hidden><label class="small muted" for="meta-audience-ratio">Lookalike ratio (0.01–0.20)</label><input id="meta-audience-ratio" type="number" min="0.01" max="0.2" step="0.01" value="0.01" style="width:100%"></div>
+                <div id="meta-audience-engagement-wrap" hidden><label class="small muted" for="meta-audience-engagement">Engagement source</label><select id="meta-audience-engagement" style="width:100%">
+                  <option value="page">Facebook Page</option><option value="instagram">Instagram account</option><option value="video">Video</option>
+                </select></div>
+                <div id="meta-audience-source-id-wrap" hidden><label class="small muted" for="meta-audience-source-id">Page, Instagram account, or video ID</label><input id="meta-audience-source-id" maxlength="100" style="width:100%"></div>
+              </div>
+              <p class="small muted">Customer list rows are provided only for this request. Zernio normalizes and hashes identifiers before sending them to Meta. Only upload data you are authorized to use.</p>
+              <button type="button" class="btn primary sm" id="meta-audience-create" style="margin-top:8px">Create audience</button>
+            </details>
+          </section>
+          <section aria-labelledby="meta-pixels-heading" style="margin-bottom:20px">
+            <h3 id="meta-pixels-heading">Meta pixels and Conversions API</h3>
+            <p class="small muted">Pixels are owned by Meta Business and the selected ad account. Server events go to the selected pixel; Zernio handles provider-side event processing. Submit customer data only with appropriate notice and consent.</p>
+            <div class="row" style="gap:8px;align-items:end">
+              <button type="button" class="btn sm" id="meta-pixels-load">Load pixels</button>
+              <div><label class="small muted" for="meta-pixel-name">Create a pixel</label><input id="meta-pixel-name" maxlength="100" style="width:100%"></div>
+              <button type="button" class="btn sm" id="meta-pixel-create">Create pixel</button>
+            </div>
+            <div id="meta-pixels-list" aria-live="polite" class="small" style="margin:8px 0"></div>
+            <details style="margin-top:12px">
+              <summary>Send a server-side conversion event</summary>
+              <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-top:10px">
+                <div><label class="small muted" for="meta-capi-pixel">Pixel destination</label><select id="meta-capi-pixel" style="width:100%"><option value="">Load pixels first</option></select></div>
+                <div><label class="small muted" for="meta-capi-event-name">Event name</label><input id="meta-capi-event-name" maxlength="100" value="Purchase" style="width:100%"></div>
+                <div><label class="small muted" for="meta-capi-event-id">Unique event ID (browser/server deduplication)</label><input id="meta-capi-event-id" maxlength="200" style="width:100%"></div>
+                <div><label class="small muted" for="meta-capi-event-time">Event time (Unix seconds)</label><input id="meta-capi-event-time" type="number" min="1" max="253402300799" style="width:100%"></div>
+                <div><label class="small muted" for="meta-capi-action-source">Action source</label><select id="meta-capi-action-source" style="width:100%">
+                  ${[['web','Web'],['app','App'],['offline','Offline'],['crm','CRM'],['phone_call','Phone call'],['system_generated','System generated']].map(([value,label]) =>
+                    `<option value="${value}">${label}</option>`).join('')}
+                </select></div>
+                <div><label class="small muted" for="meta-capi-source-url">Source URL (optional)</label><input id="meta-capi-source-url" type="url" style="width:100%"></div>
+                <div><label class="small muted" for="meta-capi-value">Value (optional)</label><input id="meta-capi-value" type="number" min="0" step="0.01" style="width:100%"></div>
+                <div><label class="small muted" for="meta-capi-currency">Currency (ISO 4217, optional)</label><input id="meta-capi-currency" maxlength="3" placeholder="USD" style="width:100%"></div>
+                <div><label class="small muted" for="meta-capi-email">Customer email (optional)</label><input id="meta-capi-email" type="email" autocomplete="off" style="width:100%"></div>
+                <div><label class="small muted" for="meta-capi-phone">Customer phone (international format)</label><input id="meta-capi-phone" type="tel" autocomplete="off" placeholder="+14155551234" style="width:100%"></div>
+                <div><label class="small muted" for="meta-capi-consent">Data processing</label><select id="meta-capi-consent" style="width:100%">
+                  <option value="default">Standard processing (consent handled by your integration)</option><option value="denied">Ad user data denied</option>
+                </select></div>
+                <div><label class="small muted" for="meta-capi-test-code">Meta Test Events code (optional)</label><input id="meta-capi-test-code" maxlength="100" placeholder="TEST12345" style="width:100%"></div>
+              </div>
+              <button type="button" class="btn primary sm" id="meta-capi-send" style="margin-top:10px">Send conversion event</button>
+              <pre id="meta-capi-result" class="card small" style="display:none;white-space:pre-wrap;overflow:auto;max-height:300px"></pre>
+            </details>
+          </section>
+          <section aria-labelledby="meta-leads-heading" style="margin-bottom:20px">
+            <h3 id="meta-leads-heading">Lead forms and leads</h3>
+            <p class="small muted">Create an instant form, send a synthetic test lead, or retrieve leads. Lead answers may contain personal data; view or export them only when authorized. The Page must accept Meta's Lead Generation Terms before lead ads can deliver.</p>
+            <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px">
+              <div><label class="small muted" for="meta-lead-form-name">Form name</label><input id="meta-lead-form-name" maxlength="100" style="width:100%"></div>
+              <div><label class="small muted" for="meta-lead-privacy-url">Privacy policy URL (HTTPS)</label><input id="meta-lead-privacy-url" type="url" placeholder="https://example.com/privacy" style="width:100%"></div>
+            </div>
+            <fieldset style="margin:10px 0"><legend class="small muted">Prefilled questions</legend>
+              ${[['EMAIL','Email'],['PHONE','Phone'],['FULL_NAME','Full name'],['FIRST_NAME','First name'],['LAST_NAME','Last name']].map(([value,label]) =>
+                `<label class="check" style="margin-right:10px"><input type="checkbox" name="meta-lead-question" value="${value}" ${value === 'EMAIL' || value === 'FULL_NAME' ? 'checked' : ''}> ${label}</label>`).join('')}
+            </fieldset>
+            <details><summary>Add one custom question</summary>
+              <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:8px">
+                <div><label class="small muted" for="meta-lead-custom-key">Question key</label><input id="meta-lead-custom-key" maxlength="64" style="width:100%"></div>
+                <div><label class="small muted" for="meta-lead-custom-label">Question label</label><input id="meta-lead-custom-label" maxlength="255" style="width:100%"></div>
+                <div><label class="small muted" for="meta-lead-custom-options">Choice options (optional, one key|label per line)</label><textarea id="meta-lead-custom-options" style="width:100%;min-height:64px"></textarea></div>
+              </div>
+            </details>
+            <div class="row" style="gap:8px;margin:10px 0">
+              <button type="button" class="btn primary sm" id="meta-lead-form-create">Create lead form</button>
+              <div><label class="small muted" for="meta-lead-form-id">Form ID</label><input id="meta-lead-form-id" maxlength="100" style="width:260px"></div>
+              <button type="button" class="btn sm" id="meta-lead-test">Create test lead</button>
+              <button type="button" class="btn sm" id="meta-lead-load-form">Load form leads</button>
+              <button type="button" class="btn sm" id="meta-lead-load-all">Load all leads</button>
+              <button type="button" class="btn sm" id="meta-lead-form-delete">Archive form</button>
+            </div>
+            <pre id="meta-leads-result" class="card small" style="display:none;white-space:pre-wrap;overflow:auto;max-height:360px"></pre>
+          </section>
+          <details>
+          <summary class="small muted">Advanced Zernio API request (for operations without a guided workflow)</summary>
+          <p class="small muted">Use Zernio's documentation for the required request fields. Writes may create or change ads; verify the selected ad account before submitting.</p>
           <label class="small muted" for="meta-tools-preset">Start from an operation template</label>
           <select id="meta-tools-preset" style="width:100%;margin-bottom:10px"><option value="">Choose a template…</option>
             ${metaToolsPresets.map((preset, index) => `<option value="${index}">${esc(preset.label)}</option>`).join('')}</select>
-          <div class="row"><div style="flex:1"><label class="small muted" for="meta-tools-account">Meta ad account</label>
-            <select id="meta-tools-account" required style="width:100%">${metaAdAccounts.map(item =>
-              `<option value="${esc(item.id)}">${esc(item.name)}${item.currency ? ` · ${esc(item.currency)}` : ''}</option>`).join('')}</select></div>
-            <div style="flex:1"><label class="small muted" for="meta-tools-method">Method</label>
+          <div class="row"><div style="flex:1"><label class="small muted" for="meta-tools-method">Method</label>
               <select id="meta-tools-method"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select></div></div>
           <label class="small muted" for="meta-tools-path">Zernio Ads API path</label>
           <input id="meta-tools-path" required maxlength="512" placeholder="/ads/audiences" style="width:100%">
@@ -6126,6 +6399,7 @@ pages.ads = async app => {
           <textarea id="meta-tools-body" spellcheck="false" style="width:100%;min-height:150px;font-family:monospace">{}</textarea>
           <div class="actions"><button id="meta-tools-run" class="btn primary" type="submit">Run Meta Ads request</button></div>
           <pre id="meta-tools-result" class="card small" style="display:none;white-space:pre-wrap;overflow:auto;max-height:420px"></pre>
+          </details>
         </form>` : `<div class="empty card"><p>${!d.can_manage ? 'Ask a workspace admin to manage Meta Ads.' : !metaConnection ? 'Connect Meta Ads to this workspace first.' : 'Select a Meta ad account in the provider before using Meta Ads tools.'}</p></div>`}
       </section>
     </div>
@@ -6147,6 +6421,842 @@ pages.ads = async app => {
   </div>`;
 
   $('#ads-refresh', app).onclick = () => route();
+  const selectedMetaFormats = () => {
+    const formats = $$('option:checked', $('#meta-preview-formats', app)).map(option => option.value);
+    return formats.length ? formats : ['MOBILE_FEED_STANDARD'];
+  };
+  const renderMetaPreviews = (target, response) => {
+    target.replaceChildren();
+    const heading = document.createElement('h4');
+    heading.textContent = 'Meta ad preview';
+    target.append(heading);
+    const previews = Array.isArray(response?.previews) ? response.previews : [];
+    if (!previews.length) {
+      const empty = document.createElement('p');
+      empty.className = 'small muted';
+      empty.textContent = 'Meta returned no previews for these placements.';
+      target.append(empty);
+      return;
+    }
+    previews.forEach(preview => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style.cssText = 'margin:10px 0;padding:12px;overflow:auto';
+      const label = document.createElement('p');
+      label.className = 'small muted';
+      label.textContent = preview.format || 'Preview';
+      card.append(label);
+      if (typeof preview.html !== 'string' || !preview.html) {
+        const unavailable = document.createElement('p');
+        unavailable.className = 'small muted';
+        unavailable.textContent = 'No preview is available for this placement.';
+        card.append(unavailable);
+      } else {
+        const parsed = new DOMParser().parseFromString(preview.html, 'text/html');
+        const source = parsed.querySelector('iframe')?.getAttribute('src');
+        let safeSource = '';
+        try {
+          const parsedSource = new URL(source || '');
+          if (parsedSource.protocol === 'https:' &&
+              (parsedSource.hostname === 'facebook.com' || parsedSource.hostname.endsWith('.facebook.com'))) {
+            safeSource = parsedSource.href;
+          }
+        } catch (error) {
+          safeSource = '';
+        }
+        if (safeSource) {
+          const externalFrame = parsed.querySelector('iframe');
+          const frame = document.createElement('iframe');
+          frame.src = safeSource;
+          frame.title = `Meta ${preview.format || ''} ad preview`;
+          frame.loading = 'lazy';
+          frame.referrerPolicy = 'no-referrer';
+          frame.setAttribute('scrolling', externalFrame.getAttribute('scrolling') || 'yes');
+          frame.width = externalFrame.getAttribute('width') || '540';
+          frame.height = externalFrame.getAttribute('height') || '690';
+          frame.style.border = '0';
+          card.append(frame);
+        } else {
+          const invalid = document.createElement('p');
+          invalid.className = 'small';
+          invalid.style.color = 'var(--bad)';
+          invalid.textContent = 'The provider returned an invalid preview frame.';
+          card.append(invalid);
+        }
+      }
+      target.append(card);
+    });
+  };
+  const loadMetaCreativePreview = async (button, request) => {
+    const target = $('#meta-preview-result', app);
+    busy(button, true, 'Loading…');
+    target.textContent = 'Requesting live Meta placement previews…';
+    try {
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        ...request,
+      });
+      renderMetaPreviews(target, response);
+    } finally { if (button.isConnected) busy(button, false); }
+  };
+  if ($('#meta-tools-account', app)) $('#meta-tools-account', app).onchange = () => {
+    ['#meta-audience-pixel', '#meta-capi-pixel'].forEach(selector => {
+      const select = $(selector, app);
+      if (select) select.innerHTML = '<option value="">Load pixels to choose</option>';
+    });
+    $('#meta-pixels-list', app).textContent = '';
+    $('#meta-lead-form-id', app).value = '';
+    $('#meta-leads-result', app).style.display = 'none';
+    $('#meta-capi-result', app).style.display = 'none';
+  };
+  const renderCampaignAdvancedTargets = () => {
+    const target = $('#camp-advanced-targeting', app);
+    if (!target) return;
+    const groups = [
+      ['Behaviors', state.campaignBehaviors, 'campaignBehaviors'],
+      ['Work positions', state.campaignWorkPositions, 'campaignWorkPositions'],
+      ['Work employers', state.campaignWorkEmployers, 'campaignWorkEmployers'],
+      ['Work industries', state.campaignWorkIndustries, 'campaignWorkIndustries'],
+      ['Cities', state.campaignCities, 'campaignCities'],
+      ['Regions', state.campaignRegions, 'campaignRegions'],
+      ['ZIP/postal codes', state.campaignZips, 'campaignZips'],
+      ['Metro areas', state.campaignMetros, 'campaignMetros'],
+    ];
+    target.innerHTML = groups.filter(([, items]) => items.length).map(([label, items, key]) =>
+      `<div style="margin:5px 0"><b>${label}:</b> ${items.map(item =>
+        `<span class="pill">${esc(item.name || item.label || item.key)}
+          ${key === 'campaignCities' ? `<label class="small" style="margin-left:5px">radius <input type="number" min="17" max="100" value="${esc(item.radius || 17)}" data-city-radius="${esc(item.key)}" style="width:64px"></label>
+            <select data-city-unit="${esc(item.key)}" aria-label="City radius unit"><option value="kilometer" ${item.distance_unit === 'mile' ? '' : 'selected'}>km</option><option value="mile" ${item.distance_unit === 'mile' ? 'selected' : ''}>mi</option></select>` : ''}
+          <button type="button" class="btn sm" data-meta-target-remove="${key}" data-target-id="${esc(item.id || item.key)}" aria-label="Remove ${esc(item.name || item.label || item.key)}">×</button></span>`).join(' ')}</div>`
+    ).join('') || 'No behaviors or specific locations selected.';
+    $$('[data-meta-target-remove]', target).forEach(button => button.onclick = () => {
+      state[button.dataset.metaTargetRemove] = state[button.dataset.metaTargetRemove].filter(item =>
+        String(item.id || item.key) !== button.dataset.targetId);
+      renderCampaignAdvancedTargets();
+    });
+    $$('[data-city-radius]', target).forEach(input => input.onchange = () => {
+      const city = state.campaignCities.find(item => item.key === input.dataset.cityRadius);
+      if (!city) return;
+      city.radius = Math.max(17, Math.min(100, Number(input.value) || 17));
+      input.value = String(city.radius);
+    });
+    $$('[data-city-unit]', target).forEach(select => select.onchange = () => {
+      const city = state.campaignCities.find(item => item.key === select.dataset.cityUnit);
+      if (city) city.distance_unit = select.value;
+    });
+  };
+  const populateMetaAudienceSelects = (audiences, populateCampaign = true) => {
+    state.metaAudiences = audiences;
+    const options = audiences.filter(item => item && (item.platformAudienceId || item.platform_audience_id))
+      .map(item => {
+        const id = String(item.platformAudienceId || item.platform_audience_id);
+        const label = `${item.name || 'Unnamed audience'} · ${item.type || 'audience'} · ${id}`;
+        return `<option value="${esc(id)}">${esc(label)}</option>`;
+      }).join('');
+    (populateCampaign ? ['#camp-audience-include', '#camp-audience-exclude'] : [])
+      .forEach(selector => {
+        const select = $(selector, app);
+        if (!select) return;
+        const selected = new Set($$('option:checked', select).map(option => option.value));
+        select.innerHTML = options;
+        $$('option', select).forEach(option => {
+          option.selected = selected.has(option.value)
+            || (selector.endsWith('include') && (state.campaignAudienceInclude || []).includes(option.value))
+            || (selector.endsWith('exclude') && (state.campaignAudienceExclude || []).includes(option.value));
+        });
+      });
+    const seedSelect = $('#meta-audience-source', app);
+    if (seedSelect) {
+      const current = seedSelect.value;
+      seedSelect.innerHTML = `<option value="">Choose a seed audience</option>${audiences
+        .filter(item => item && (item.platformAudienceId || item.platform_audience_id))
+        .map(item => `<option value="${esc(item.platformAudienceId || item.platform_audience_id)}">
+          ${esc(item.name || 'Unnamed audience')} · ${esc(item.type || 'audience')}</option>`).join('')}`;
+      seedSelect.value = current;
+    }
+    const list = $('#meta-audiences-list', app);
+    if (!list) return;
+    if (!audiences.length) {
+      list.innerHTML = '<p class="small muted">No custom audiences were returned for this account.</p>';
+      return;
+    }
+    list.innerHTML = `<div class="grid">${audiences.map(item => {
+      const id = String(item.id || '');
+      const safeId = /^[A-Za-z0-9_-]+$/.test(id) ? id : '';
+      return `<article class="card" style="padding:12px">
+        <b>${esc(item.name || 'Untitled audience')}</b>
+        <p class="small muted">${esc(item.type || 'audience')} · ${esc(item.status || 'unknown')} · ${esc(item.size ?? 'size unavailable')}</p>
+        <p class="small muted">Platform ID: ${esc(item.platformAudienceId || item.platform_audience_id || 'not available')}</p>
+        ${safeId && item.type === 'customer_list' ? `<label class="small muted" for="meta-audience-emails-${esc(safeId)}">Customer emails (one per line)</label>
+          <textarea id="meta-audience-emails-${esc(safeId)}" autocomplete="off" style="width:100%;min-height:52px"></textarea>
+          <label class="small muted" for="meta-audience-phones-${esc(safeId)}">Customer phone numbers (one per line, include country code)</label>
+          <textarea id="meta-audience-phones-${esc(safeId)}" autocomplete="off" style="width:100%;min-height:52px"></textarea>
+          <div class="row" style="gap:8px;margin-top:6px"><button type="button" class="btn sm" data-audience-users="add" data-audience-id="${esc(safeId)}">Add rows</button>
+            <button type="button" class="btn sm" data-audience-users="remove" data-audience-id="${esc(safeId)}">Remove rows</button></div>` : ''}
+      </article>`;
+    }).join('')}</div>`;
+    $$('[data-audience-users]', list).forEach(button => button.onclick = guard(async () => {
+      const emails = $(`#meta-audience-emails-${button.dataset.audienceId}`, list).value
+        .split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+      const phones = $(`#meta-audience-phones-${button.dataset.audienceId}`, list).value
+        .split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+      if (emails.some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        || phones.some(phone => !/^\+[1-9]\d{6,14}$/.test(phone))) {
+        toast('Check the email addresses and international phone numbers (for example +14155551234).', true);
+        return;
+      }
+      const users = [...emails.map(email => ({ email })), ...phones.map(phone => ({ phone }))];
+      if (users.length < 1 || users.length > 10000) {
+        toast('Provide between 1 and 10,000 email or phone rows.', true);
+        return;
+      }
+      const mode = button.dataset.audienceUsers;
+      if (!await askConfirm(
+        `${mode === 'add' ? 'Upload' : 'Remove'} ${users.length} customer identifiers ${mode === 'add' ? 'to' : 'from'} this Meta audience? HookTrack will not save the rows. Only continue if you have permission to use this data.`,
+        { title: `${mode === 'add' ? 'Upload' : 'Remove'} audience members`, ok: mode === 'add' ? 'Continue' : 'Remove', danger: mode === 'remove' },
+      )) return;
+      busy(button, true, 'Sending…');
+      try {
+        await api('POST', '/api/ads/meta/request', {
+          ad_connection_id: metaConnection.id,
+          ad_account_id: $('#meta-tools-account', app).value,
+          method: mode === 'add' ? 'POST' : 'DELETE',
+          path: `/ads/audiences/${encodeURIComponent(button.dataset.audienceId)}/users`,
+          query: {},
+          body: { users },
+        });
+        $(`#meta-audience-emails-${button.dataset.audienceId}`, list).value = '';
+        $(`#meta-audience-phones-${button.dataset.audienceId}`, list).value = '';
+        toast(`${users.length} customer row${users.length === 1 ? '' : 's'} ${mode === 'add' ? 'sent' : 'marked for removal'}.`);
+        $('#meta-audiences-load', app).click();
+      } finally { if (button.isConnected) busy(button, false); }
+    }));
+  };
+  const loadMetaAudiences = async (button, adAccountId = $('#meta-tools-account', app).value) => {
+    busy(button, true, 'Loading…');
+    try {
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: adAccountId,
+        method: 'GET',
+        path: '/ads/audiences',
+        query: {},
+        body: {},
+      });
+      const audiences = Array.isArray(response.audiences) ? response.audiences
+        : Array.isArray(response.data) ? response.data : [];
+      if (adAccountId === $('#camp-account', app).value) populateMetaAudienceSelects(audiences);
+      else {
+        state.metaAudiences = audiences;
+        const seedSelect = $('#meta-audience-source', app);
+        if (seedSelect) seedSelect.innerHTML = `<option value="">Choose a seed audience</option>${audiences
+          .filter(item => item && (item.platformAudienceId || item.platform_audience_id))
+          .map(item => `<option value="${esc(item.platformAudienceId || item.platform_audience_id)}">
+            ${esc(item.name || 'Unnamed audience')} · ${esc(item.type || 'audience')}</option>`).join('')}`;
+        const list = $('#meta-audiences-list', app);
+        if (list) populateMetaAudienceSelects(audiences, false);
+      }
+    } finally { if (button.isConnected) busy(button, false); }
+  };
+  if ($('#meta-targeting-dimension', app)) $('#meta-targeting-dimension', app).onchange = () => {
+    const isGeo = $('#meta-targeting-dimension', app).value === 'geo';
+    $('#meta-targeting-geo-type-wrap', app).hidden = !isGeo;
+    $('#meta-targeting-country-wrap', app).hidden = !isGeo;
+  };
+  if ($('#meta-targeting-search', app)) $('#meta-targeting-search', app).onclick = guard(async button => {
+    const dimension = $('#meta-targeting-dimension', app).value;
+    const q = $('#meta-targeting-query', app).value.trim();
+    if (q.length < 2) { toast('Enter at least two characters to search.', true); return; }
+    const query = { q, dimension };
+    if (dimension === 'geo') {
+      query.geoType = $('#meta-targeting-geo-type', app).value;
+      const countryCode = $('#meta-targeting-country', app).value.trim().toUpperCase();
+      if (countryCode) query.countryCode = countryCode;
+    }
+    busy(button, true, 'Searching…');
+    try {
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method: 'GET', path: '/ads/targeting/search', query, body: {},
+      });
+      const results = Array.isArray(response.results) ? response.results
+        : Array.isArray(response.data) ? response.data : [];
+      const target = $('#meta-targeting-results', app);
+      target.innerHTML = results.length ? results.map(item =>
+        `<button type="button" class="btn sm" data-meta-target-add="${dimension}" data-geo-type="${dimension === 'geo' ? query.geoType : ''}"
+          data-target-id="${esc(item.id || item.key || '')}" data-target-name="${esc(item.name || item.label || '')}">
+          ${esc(item.name || item.label || item.id || item.key || 'Target')}</button>`).join(' ')
+        : '<span class="small muted">No matching targets returned.</span>';
+      $$('[data-meta-target-add]', target).forEach(result => result.onclick = () => {
+        const id = result.dataset.targetId;
+        const name = result.dataset.targetName || id;
+        if (!id) { toast('The targeting result has no Meta ID.', true); return; }
+        if (result.dataset.metaTargetAdd === 'interest') {
+          if (!state.campaignInterests.some(item => item.id === id)) state.campaignInterests.push({ id, name });
+          renderSelectedInterests();
+        } else if (result.dataset.metaTargetAdd === 'behavior'
+          || ['workPosition', 'workEmployer', 'workIndustry'].includes(result.dataset.metaTargetAdd)) {
+          const group = {
+            behavior: 'campaignBehaviors',
+            workPosition: 'campaignWorkPositions',
+            workEmployer: 'campaignWorkEmployers',
+            workIndustry: 'campaignWorkIndustries',
+          }[result.dataset.metaTargetAdd];
+          if (!state[group].some(item => item.id === id)) state[group].push({ id, name });
+        } else {
+          const type = result.dataset.geoType;
+          const group = type === 'city' ? 'campaignCities'
+            : type === 'region' ? 'campaignRegions' : type === 'zip' ? 'campaignZips' : 'campaignMetros';
+          if (!state[group].some(item => item.key === id)) {
+            state[group].push(type === 'city'
+              ? { key: id, label: name, radius: 17, distance_unit: 'kilometer' }
+              : { key: id, label: name });
+          }
+        }
+        renderCampaignAdvancedTargets();
+      });
+    } finally { busy(button, false); }
+  });
+  if ($('#meta-audiences-load', app)) $('#meta-audiences-load', app).onclick = guard(loadMetaAudiences);
+  if ($('#camp-load-audiences', app)) $('#camp-load-audiences', app).onclick = guard(async button => {
+    await loadMetaAudiences(button, $('#camp-account', app).value);
+  });
+  if ($('#meta-audience-type', app)) $('#meta-audience-type', app).onchange = () => {
+    const type = $('#meta-audience-type', app).value;
+    $('#meta-audience-pixel-wrap', app).hidden = type !== 'website';
+    $('#meta-audience-retention-wrap', app).hidden = !['website', 'meta_engagement'].includes(type);
+    $('#meta-audience-retention', app).max = type === 'meta_engagement' ? '365' : '180';
+    $('#meta-audience-url-wrap', app).hidden = type !== 'website';
+    $('#meta-audience-source-wrap', app).hidden = type !== 'lookalike';
+    $('#meta-audience-country-wrap', app).hidden = type !== 'lookalike';
+    $('#meta-audience-ratio-wrap', app).hidden = type !== 'lookalike';
+    $('#meta-audience-engagement-wrap', app).hidden = type !== 'meta_engagement';
+    $('#meta-audience-source-id-wrap', app).hidden = type !== 'meta_engagement';
+  };
+  if ($('#meta-audience-create', app)) $('#meta-audience-create', app).onclick = guard(async button => {
+    const type = $('#meta-audience-type', app).value;
+    const name = $('#meta-audience-name', app).value.trim();
+    if (!name) { toast('Enter an audience name.', true); return; }
+    const body = { name, type };
+    if (type === 'website') {
+      body.pixelId = $('#meta-audience-pixel', app).value.trim();
+      body.retentionDays = Number($('#meta-audience-retention', app).value);
+      const urlContains = $('#meta-audience-url', app).value.trim();
+      if (urlContains) body.urlContains = urlContains;
+      if (!body.pixelId || body.retentionDays < 1 || body.retentionDays > 180) {
+        toast('Choose a pixel and retention from 1 to 180 days.', true); return;
+      }
+    } else if (type === 'lookalike') {
+      body.sourceAudienceId = $('#meta-audience-source', app).value.trim();
+      body.country = $('#meta-audience-lookalike-country', app).value.trim().toUpperCase();
+      body.ratio = Number($('#meta-audience-ratio', app).value);
+      if (!body.sourceAudienceId || !/^[A-Z]{2}$/.test(body.country) || body.ratio < 0.01 || body.ratio > 0.2) {
+        toast('Provide a source audience, two-letter country code, and ratio from 0.01 to 0.20.', true); return;
+      }
+    } else if (type === 'meta_engagement') {
+      body.engagementSource = $('#meta-audience-engagement', app).value;
+      body.sourceId = $('#meta-audience-source-id', app).value.trim();
+      body.retentionDays = Number($('#meta-audience-retention', app).value);
+      if (!body.sourceId || body.retentionDays < 1 || body.retentionDays > 365) {
+        toast('Provide a source ID and retention from 1 to 365 days.', true); return;
+      }
+    }
+    if (!await askConfirm(`Create a ${type.replaceAll('_', ' ')} audience in the selected Meta ad account?`, {
+      title: 'Create Meta audience', ok: 'Create', danger: false,
+    })) return;
+    busy(button, true, 'Creating…');
+    try {
+      await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method: 'POST', path: '/ads/audiences', query: {}, body,
+      });
+      $('#meta-audience-name', app).value = '';
+      toast('Meta audience created.');
+      await loadMetaAudiences($('#meta-audiences-load', app));
+    } finally { if (button.isConnected) busy(button, false); }
+  });
+  const loadMetaPixels = async button => {
+    const accountId = $('#meta-tools-account', app).value;
+    if (!accountId) { toast('Select a Meta ad account first.', true); return; }
+    busy(button, true, 'Loading…');
+    try {
+      const response = await api('GET', `/api/ads/pixels?platform=meta&ad_connection_id=${encodeURIComponent(metaConnection.id)}&ad_account_id=${encodeURIComponent(accountId)}`);
+      const pixels = Array.isArray(response.pixels) ? response.pixels : [];
+      const options = `<option value="">Choose a Meta pixel</option>${pixels.map(pixel =>
+        `<option value="${esc(pixel.id)}">${esc(pixel.name || pixel.id)}</option>`).join('')}`;
+      ['#meta-audience-pixel', '#meta-capi-pixel'].forEach(selector => {
+        const select = $(selector, app);
+        if (select) select.innerHTML = options;
+      });
+      const list = $('#meta-pixels-list', app);
+      if (list) list.textContent = pixels.length
+        ? pixels.map(pixel => `${pixel.name || 'Meta pixel'} · ${pixel.id}`).join('\n')
+        : 'No Meta pixels were found for this ad account.';
+      return pixels;
+    } finally { if (button.isConnected) busy(button, false); }
+  };
+  if ($('#meta-pixels-load', app)) $('#meta-pixels-load', app).onclick = guard(loadMetaPixels);
+  if ($('#meta-audience-pixels-load', app)) $('#meta-audience-pixels-load', app).onclick = guard(loadMetaPixels);
+  if ($('#meta-pixel-create', app)) $('#meta-pixel-create', app).onclick = guard(async button => {
+    const name = $('#meta-pixel-name', app).value.trim();
+    const accountId = $('#meta-tools-account', app).value;
+    if (!name || name.length > 100) { toast('Enter a pixel name up to 100 characters.', true); return; }
+    if (!accountId) { toast('Select a Meta ad account first.', true); return; }
+    if (!await askConfirm(`Create the Meta pixel "${name}" for the selected ad account?`, {
+      title: 'Create Meta pixel', ok: 'Create', danger: false,
+    })) return;
+    busy(button, true, 'Creating…');
+    try {
+      await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: accountId,
+        method: 'POST',
+        path: `/accounts/${encodeURIComponent(metaConnection.id)}/tracking-tags`,
+        query: {},
+        body: { name, kind: 'pixel' },
+      });
+      $('#meta-pixel-name', app).value = '';
+      toast('Meta pixel created.');
+      await loadMetaPixels($('#meta-pixels-load', app));
+    } finally { if (button.isConnected) busy(button, false); }
+  });
+  const capiResult = $('#meta-capi-result', app);
+  const newMetaEventId = () => `hooktrack-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  if ($('#meta-capi-event-id', app) && !$('#meta-capi-event-id', app).value) {
+    $('#meta-capi-event-id', app).value = newMetaEventId();
+  }
+  const updateMetaCapiConsentFields = () => {
+    const denied = $('#meta-capi-consent', app).value === 'denied';
+    ['#meta-capi-email', '#meta-capi-phone'].forEach(selector => {
+      const input = $(selector, app);
+      input.disabled = denied;
+      if (denied) input.value = '';
+    });
+  };
+  if ($('#meta-capi-consent', app)) {
+    $('#meta-capi-consent', app).onchange = updateMetaCapiConsentFields;
+    updateMetaCapiConsentFields();
+  }
+  if ($('#meta-capi-event-time', app) && !$('#meta-capi-event-time', app).value) {
+    $('#meta-capi-event-time', app).value = String(Math.floor(Date.now() / 1000));
+  }
+  if ($('#meta-capi-send', app)) $('#meta-capi-send', app).onclick = guard(async button => {
+    const pixelId = $('#meta-capi-pixel', app).value;
+    const eventName = $('#meta-capi-event-name', app).value.trim();
+    const eventId = $('#meta-capi-event-id', app).value.trim();
+    const eventTime = Number($('#meta-capi-event-time', app).value);
+    const actionSource = $('#meta-capi-action-source', app).value;
+    const email = $('#meta-capi-email', app).value.trim();
+    const phone = $('#meta-capi-phone', app).value.trim();
+    const valueInput = $('#meta-capi-value', app).value.trim();
+    const currency = $('#meta-capi-currency', app).value.trim().toUpperCase();
+    const sourceUrl = $('#meta-capi-source-url', app).value.trim();
+    if (!pixelId || !/^[A-Za-z0-9 _-]{1,100}$/.test(eventName)
+      || !/^[A-Za-z0-9_.:-]{1,200}$/.test(eventId)
+      || !Number.isSafeInteger(eventTime) || eventTime < 1 || eventTime > 253402300799) {
+      toast('Choose a pixel and provide a valid event name, unique ID, and Unix event time.', true);
+      return;
+    }
+    const consentDenied = $('#meta-capi-consent', app).value === 'denied';
+    if ((!consentDenied && !email && !phone) || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      || (phone && !/^\+[1-9]\d{6,14}$/.test(phone))) {
+      toast(consentDenied
+        ? 'Check the international phone number format.'
+        : 'Provide a valid customer email or international phone number (or both).', true);
+      return;
+    }
+    if ((valueInput && (!Number.isFinite(Number(valueInput)) || Number(valueInput) < 0))
+      || (valueInput && !/^[A-Z]{3}$/.test(currency))
+      || (!valueInput && currency)) {
+      toast('Provide a non-negative event value and its three-letter currency together.', true);
+      return;
+    }
+    let sourceUrlValue;
+    if (sourceUrl) {
+      try { sourceUrlValue = new URL(sourceUrl); } catch { sourceUrlValue = null; }
+      if (!sourceUrlValue || sourceUrlValue.protocol !== 'https:') {
+        toast('The event source URL must use HTTPS.', true);
+        return;
+      }
+    }
+    if (actionSource === 'web' && !sourceUrlValue) {
+      toast('Provide the source URL for a web conversion event.', true);
+      return;
+    }
+    const event = {
+      eventName,
+      eventTime,
+      eventId,
+      actionSource,
+      ...(!consentDenied && email ? { email: email.toLowerCase() } : {}),
+      ...(!consentDenied && phone ? { phone } : {}),
+    };
+    if (sourceUrlValue) event.sourceUrl = sourceUrlValue.href;
+    if (valueInput) {
+      event.value = Number(valueInput);
+      event.currency = currency;
+    }
+    if ($('#meta-capi-consent', app).value === 'denied') event.consent = { adUserData: 'DENIED' };
+    const testCode = $('#meta-capi-test-code', app).value.trim();
+    if (testCode) event.testCode = testCode;
+    const body = {
+      destinations: [{ accountId: metaConnection.id, destinationId: pixelId }],
+      events: [event],
+    };
+    if (!await askConfirm(
+      consentDenied
+        ? `Send the "${eventName}" conversion event without customer identifiers to the selected Meta pixel?`
+        : `Send the "${eventName}" conversion event and its customer identifier to the selected Meta pixel?`,
+      { title: 'Send Conversions API event', ok: 'Send event', danger: true },
+    )) return;
+    busy(button, true, 'Sending…');
+    capiResult.style.display = 'block';
+    capiResult.textContent = 'Sending conversion event…';
+    try {
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method: 'POST',
+        path: '/events',
+        query: {},
+        body,
+      });
+      capiResult.textContent = `Conversion event submitted. ${Number.isFinite(response.events_received)
+        ? `${response.events_received} event${response.events_received === 1 ? '' : 's'} received.`
+        : 'Check Meta Events Manager for processing status.'}`;
+      $('#meta-capi-email', app).value = '';
+      $('#meta-capi-phone', app).value = '';
+      $('#meta-capi-event-id', app).value = newMetaEventId();
+      toast('Conversion event submitted.');
+    } finally { if (button.isConnected) busy(button, false); }
+  });
+  const renderMetaLeadResponse = response => {
+    const target = $('#meta-leads-result', app);
+    target.style.display = 'block';
+    target.textContent = JSON.stringify(response, null, 2);
+  };
+  const selectedLeadQuestions = () => $$('input[name="meta-lead-question"]:checked', app)
+    .map(input => ({ type: input.value }));
+  const metaFormId = () => {
+    const id = $('#meta-lead-form-id', app).value.trim();
+    return /^[A-Za-z0-9_-]{1,100}$/.test(id) ? id : '';
+  };
+  if ($('#meta-lead-form-create', app)) $('#meta-lead-form-create', app).onclick = guard(async button => {
+    const name = $('#meta-lead-form-name', app).value.trim();
+    const privacyPolicyUrl = $('#meta-lead-privacy-url', app).value.trim();
+    let privacyUrl;
+    try { privacyUrl = new URL(privacyPolicyUrl); } catch { privacyUrl = null; }
+    if (!name || name.length > 100 || !privacyUrl || privacyUrl.protocol !== 'https:') {
+      toast('Enter a form name and a valid HTTPS privacy policy URL.', true);
+      return;
+    }
+    const questions = selectedLeadQuestions();
+    const key = $('#meta-lead-custom-key', app).value.trim();
+    const label = $('#meta-lead-custom-label', app).value.trim();
+    const optionLines = $('#meta-lead-custom-options', app).value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (Boolean(key) !== Boolean(label)) {
+      toast('Provide both a custom question key and label, or leave both blank.', true);
+      return;
+    }
+    if (key) {
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(key) || label.length > 255 || questions.some(item => item.type === 'CUSTOM' && item.key === key)) {
+        toast('The custom question key must be unique and valid, and its label must be at most 255 characters.', true);
+        return;
+      }
+      const options = [];
+      for (const line of optionLines) {
+        const separator = line.indexOf('|');
+        if (separator <= 0 || !line.slice(0, separator).trim() || !line.slice(separator + 1).trim()) {
+          toast('Each custom choice must use key|label on a separate line.', true);
+          return;
+        }
+        options.push({ key: line.slice(0, separator).trim(), label: line.slice(separator + 1).trim() });
+      }
+      if (options.length && (options.length < 2 || options.length > 20
+        || options.some(option => option.key.length > 100 || option.label.length > 255)
+        || new Set(options.map(option => option.key)).size !== options.length)) {
+        toast('Choice questions need 2–20 unique options with keys up to 100 and labels up to 255 characters.', true);
+        return;
+      }
+      questions.push({ type: 'CUSTOM', key, label, ...(options.length ? { options } : {}) });
+    }
+    if (!questions.length) { toast('Choose at least one prefilled or custom question.', true); return; }
+    const body = { name, privacyPolicyUrl: privacyUrl.href, platformSpecificData: { questions } };
+    if (!await askConfirm(`Create the lead form "${name}" in the selected Meta ad account?`, {
+      title: 'Create Meta lead form', ok: 'Create form', danger: false,
+    })) return;
+    busy(button, true, 'Creating…');
+    try {
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method: 'POST', path: '/ads/lead-forms', query: {}, body,
+      });
+      const form = response.form || response.data?.form || response.data || response;
+      const formId = String(form.id || form.formId || form.form_id || '');
+      if (formId && /^[A-Za-z0-9_-]{1,100}$/.test(formId)) $('#meta-lead-form-id', app).value = formId;
+      $('#meta-lead-form-name', app).value = '';
+      toast(formId ? `Lead form created: ${formId}` : 'Lead form created.');
+      renderMetaLeadResponse(response);
+    } finally { if (button.isConnected) busy(button, false); }
+  });
+  if ($('#meta-lead-test', app)) $('#meta-lead-test', app).onclick = guard(async button => {
+    const formId = metaFormId();
+    if (!formId) { toast('Enter a valid Meta lead form ID.', true); return; }
+    if (!await askConfirm(`Create a synthetic test lead for form ${formId}?`, {
+      title: 'Create test lead', ok: 'Create test lead', danger: false,
+    })) return;
+    const fieldData = [];
+    $$('input[name="meta-lead-question"]:checked', app).forEach(input => {
+      const names = { EMAIL: 'email', PHONE: 'phone', FULL_NAME: 'full_name', FIRST_NAME: 'first_name', LAST_NAME: 'last_name' };
+      const values = { EMAIL: 'hooktrack-test@example.com', PHONE: '+14155550123', FULL_NAME: 'HookTrack Test', FIRST_NAME: 'HookTrack', LAST_NAME: 'Test' };
+      fieldData.push({ name: names[input.value], values: [values[input.value]] });
+    });
+    const customKey = $('#meta-lead-custom-key', app).value.trim();
+    if (customKey) {
+      const firstOption = $('#meta-lead-custom-options', app).value.split(/\r?\n/).map(line => line.trim()).find(Boolean);
+      const separator = firstOption ? firstOption.indexOf('|') : -1;
+      fieldData.push({ name: customKey, values: [separator > 0 ? firstOption.slice(separator + 1).trim() : 'HookTrack test answer'] });
+    }
+    busy(button, true, 'Creating…');
+    try {
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method: 'POST', path: `/ads/lead-forms/${formId}/test-leads`, query: {}, body: { fieldData },
+      });
+      renderMetaLeadResponse(response);
+      toast('Synthetic test lead created.');
+    } finally { if (button.isConnected) busy(button, false); }
+  });
+  const loadMetaLeads = async (button, formSpecific) => {
+    const formId = formSpecific ? metaFormId() : '';
+    if (formSpecific && !formId) { toast('Enter a valid Meta lead form ID.', true); return; }
+    busy(button, true, 'Loading…');
+    try {
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method: 'GET',
+        path: formSpecific ? `/ads/lead-forms/${formId}/leads` : '/ads/leads',
+        query: { limit: 100 },
+        body: {},
+      });
+      renderMetaLeadResponse(response);
+      toast('Lead data loaded. It is displayed in this page only and is not saved by HookTrack.');
+    } finally { if (button.isConnected) busy(button, false); }
+  };
+  if ($('#meta-lead-load-form', app)) $('#meta-lead-load-form', app).onclick = guard(async button => {
+    const formId = metaFormId();
+    if (!formId) { toast('Enter a valid Meta lead form ID.', true); return; }
+    if (!await askConfirm(`Load lead data for form ${formId}? The response may contain personal data.`, {
+      title: 'Load form leads', ok: 'Load leads', danger: true,
+    })) return;
+    await loadMetaLeads(button, true);
+  });
+  if ($('#meta-lead-load-all', app)) $('#meta-lead-load-all', app).onclick = guard(async button => {
+    if (!await askConfirm('Retrieve leads across forms for the selected Meta ad account? The response may contain personal data.', {
+      title: 'Load Meta leads', ok: 'Load leads', danger: true,
+    })) return;
+    await loadMetaLeads(button, false);
+  });
+  if ($('#meta-lead-form-delete', app)) $('#meta-lead-form-delete', app).onclick = guard(async button => {
+    const formId = metaFormId();
+    if (!formId) { toast('Enter a valid Meta lead form ID.', true); return; }
+    if (!await askConfirm(`Archive Meta lead form ${formId}? This cannot be undone here.`, {
+      title: 'Archive lead form', ok: 'Archive form', danger: true,
+    })) return;
+    busy(button, true, 'Archiving…');
+    try {
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method: 'DELETE', path: `/ads/lead-forms/${formId}`, query: {}, body: {},
+      });
+      renderMetaLeadResponse(response);
+      toast('Lead form archived.');
+    } finally { if (button.isConnected) busy(button, false); }
+  });
+  if ($('#meta-creatives-load', app)) $('#meta-creatives-load', app).onclick = guard(async button => {
+    const target = $('#meta-creatives-list', app);
+    busy(button, true, 'Loading…');
+    target.textContent = 'Loading creative library…';
+    try {
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method: 'GET',
+        path: '/ads/creatives',
+        query: { limit: 50 },
+        body: {},
+      });
+      const creatives = Array.isArray(response.data) ? response.data : [];
+      target.replaceChildren();
+      if (!creatives.length) {
+        target.textContent = 'No creatives were found for this ad account.';
+        return;
+      }
+      const list = document.createElement('div');
+      list.className = 'grid';
+      creatives.forEach(creative => {
+        const card = document.createElement('article');
+        card.className = 'card';
+        card.style.cssText = 'padding:12px';
+        const name = document.createElement('b');
+        name.textContent = creative.name || 'Untitled creative';
+        card.append(name);
+        const meta = document.createElement('p');
+        meta.className = 'small muted';
+        meta.textContent = `${creative.id || 'No creative ID'} · ${creative.status || 'unknown'} · ${creative.object_type || 'creative'}`;
+        card.append(meta);
+        if (typeof creative.thumbnail_url === 'string' && creative.thumbnail_url.startsWith('https://')) {
+          const image = document.createElement('img');
+          image.src = creative.thumbnail_url;
+          image.alt = '';
+          image.loading = 'lazy';
+          image.style.cssText = 'display:block;max-width:180px;max-height:120px;object-fit:contain;margin:8px 0';
+          card.append(image);
+        }
+        const preview = document.createElement('button');
+        preview.type = 'button';
+        preview.className = 'btn sm';
+        preview.textContent = 'Preview placements';
+        preview.disabled = !/^[A-Za-z0-9_-]+$/.test(String(creative.id || ''));
+        preview.onclick = guard(async () => loadMetaCreativePreview(preview, {
+          method: 'POST',
+          path: '/ads/preview',
+          query: {},
+          body: { existingCreativeId: String(creative.id), formats: selectedMetaFormats() },
+        }));
+        card.append(preview);
+        list.append(card);
+      });
+      target.append(list);
+    } finally { busy(button, false); }
+  });
+  if ($('#meta-preview-draft', app)) $('#meta-preview-draft', app).onclick = guard(async button => {
+    const pageId = $('#meta-preview-page', app).value.trim();
+    const headline = $('#meta-preview-headline', app).value.trim();
+    const body = $('#meta-preview-body', app).value.trim();
+    const link = $('#meta-preview-link', app).value.trim();
+    const imageUrl = $('#meta-preview-image', app).value.trim();
+    let destination, image;
+    try {
+      destination = new URL(link);
+      image = new URL(imageUrl);
+    } catch (error) {
+      toast('Enter valid destination and image URLs.', true);
+      return;
+    }
+    if (!pageId || destination.protocol !== 'https:' || image.protocol !== 'https:') {
+      toast('Enter a Facebook Page ID and HTTPS destination and image URLs.', true);
+      return;
+    }
+    const linkData = { link: destination.href, picture: image.href, call_to_action: {
+      type: $('#meta-preview-cta', app).value,
+      value: { link: destination.href },
+    } };
+    if (headline) linkData.name = headline;
+    if (body) linkData.message = body;
+    await loadMetaCreativePreview(button, {
+      method: 'POST',
+      path: '/ads/preview',
+      query: {},
+      body: {
+        formats: selectedMetaFormats(),
+        creativeSpec: { object_story_spec: { page_id: pageId, link_data: linkData } },
+      },
+    });
+  });
+  if ($('#meta-preview-existing', app)) $('#meta-preview-existing', app).onclick = guard(async button => {
+    const adId = $('#meta-preview-ad-id', app).value.trim();
+    if (!/^[A-Za-z0-9_-]+$/.test(adId)) {
+      toast('Enter a valid Zernio ad ID.', true);
+      return;
+    }
+    const formats = selectedMetaFormats();
+    await loadMetaCreativePreview(button, {
+      method: 'GET',
+      path: `/ads/${adId}/preview`,
+      query: { formats: formats.join(',') },
+      body: {},
+    });
+  });
+  if ($('#meta-tree-load', app)) $('#meta-tree-load', app).onclick = guard(async button => {
+    const fromDate = $('#meta-tree-from', app).value;
+    const toDate = $('#meta-tree-to', app).value;
+    const result = $('#meta-tree-result', app);
+    if (!fromDate || !toDate || fromDate > toDate) {
+      toast('Choose a valid campaign reporting date range.', true);
+      return;
+    }
+    busy(button, true, 'Loading…');
+    result.textContent = 'Loading Meta campaign hierarchy…';
+    try {
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method: 'GET',
+        path: '/ads/tree',
+        query: { fromDate, toDate },
+        body: {},
+      });
+      const campaigns = Array.isArray(response.campaigns) ? response.campaigns : [];
+      if (!campaigns.length) {
+        result.innerHTML = '<p class="small muted">No Meta campaigns were returned for this account and date range.</p>';
+        return;
+      }
+      const renderNodes = (items, level) => items.map(item => {
+        const id = String(level === 'Campaign' ? item.platformCampaignId || item.campaignId || item.id || item._id || ''
+          : level === 'Ad set' ? item.platformAdSetId || item.adSetId || item.id || item._id || ''
+            : item.platformAdId || item.adId || item.id || item._id || '');
+        const status = String(item.status || item.configuredStatus || 'unknown');
+        const metrics = item.metrics || {};
+        const keys = level === 'Campaign' ? ['adSets', 'adsets', 'ad_sets']
+          : level === 'Ad set' ? ['ads'] : [];
+        const children = keys.map(key => item[key]).find(Array.isArray) || [];
+        const action = id ? `<button class="btn sm" type="button" data-meta-tree-status
+            data-node-kind="${level}" data-node-id="${esc(id)}" data-next-status="${/active/i.test(status) ? 'paused' : 'active'}">
+            ${/active/i.test(status) ? 'Pause' : 'Activate'}</button>` : '';
+        return `<article class="card" style="margin:8px 0;padding:12px">
+          <div class="row" style="align-items:flex-start"><div style="flex:1;min-width:0">
+            <b>${esc(item.name || item.campaignName || item.adSetName || item.adName || `${level} ${id || ''}`)}</b>
+            <div class="small muted">${esc(level)} · ${esc(status)}${item.reviewStatus ? ` · review: ${esc(item.reviewStatus)}` : ''}${item.budgetLevel ? ` · ${esc(item.budgetLevel)} budget` : ''}</div>
+            <div class="small muted">Spend ${fmt(metrics.spend || 0)} · ${fmt(metrics.impressions || 0)} impressions · ${fmt(metrics.clicks || 0)} clicks${metrics.conversions != null ? ` · ${fmt(metrics.conversions)} conversions` : ''}</div>
+          </div>${action}</div>${children.length ? `<div style="margin-left:14px">${renderNodes(children, level === 'Campaign' ? 'Ad set' : 'Ad')}</div>` : ''}
+        </article>`;
+      }).join('');
+      result.innerHTML = renderNodes(campaigns, 'Campaign');
+      $$('[data-meta-tree-status]', result).forEach(action => action.onclick = guard(async () => {
+        const nextStatus = action.dataset.nextStatus;
+        if (!await askConfirm(
+          `${nextStatus === 'active' ? 'Activate' : 'Pause'} this Meta ${action.dataset.nodeKind.toLowerCase()}? This changes delivery in the selected ad account.`,
+          { title: `${nextStatus === 'active' ? 'Activate' : 'Pause'} Meta ${action.dataset.nodeKind.toLowerCase()}`, ok: nextStatus === 'active' ? 'Activate' : 'Pause', danger: nextStatus === 'active' },
+        )) return;
+        busy(action, true, 'Saving…');
+        try {
+          const suffix = action.dataset.nodeKind === 'Campaign' ? 'campaigns'
+            : action.dataset.nodeKind === 'Ad set' ? 'ad-sets' : '';
+          const path = suffix
+            ? `/ads/${suffix}/${encodeURIComponent(action.dataset.nodeId)}/status`
+            : `/ads/${encodeURIComponent(action.dataset.nodeId)}/status`;
+          await api('POST', '/api/ads/meta/request', {
+            ad_connection_id: metaConnection.id,
+            ad_account_id: $('#meta-tools-account', app).value,
+            method: 'PUT',
+            path,
+            query: {},
+            body: { status: nextStatus, platform: 'facebook' },
+          });
+          toast(`Meta ${action.dataset.nodeKind.toLowerCase()} ${nextStatus}.`);
+          $('#meta-tree-load', app).click();
+        } finally { if (action.isConnected) busy(action, false); }
+      }));
+    } finally { busy(button, false); }
+  });
   if ($('#ads-meta-login-mode', app)) $('#ads-meta-login-mode', app).onchange = () => {
     const postingWrap = $('#ads-parent-wrap-meta', app);
     if (postingWrap) postingWrap.hidden = $('#ads-meta-login-mode', app).value === 'business';
@@ -6221,6 +7331,135 @@ pages.ads = async app => {
   const logoUploadInput = $('#camp-logo-upload', app);
   const uploadNote = $('#camp-upload-note', app);
   const interestList = $('#camp-interests', app);
+  const carouselCards = $('#camp-meta-carousel-cards', app);
+  const placementRules = $('#camp-meta-placement-rules', app);
+  const readMetaPlacementRules = () => $$('[data-meta-placement-rule]', placementRules).map(rule => {
+    const selected = selector => $$('option:checked', $(selector, rule)).map(option => option.value);
+    const copy = field => $(`[data-meta-placement-copy="${field}"]`, rule).value.trim();
+    return {
+      media_asset_id: Number($('[data-meta-placement-asset]', rule).value) || null,
+      publisher_platforms: selected('[data-meta-placement-platforms]'),
+      facebook_positions: selected('[data-meta-placement-positions="facebook_positions"]'),
+      instagram_positions: selected('[data-meta-placement-positions="instagram_positions"]'),
+      messenger_positions: selected('[data-meta-placement-positions="messenger_positions"]'),
+      audience_network_positions: selected('[data-meta-placement-positions="audience_network_positions"]'),
+      threads_positions: selected('[data-meta-placement-positions="threads_positions"]'),
+      whatsapp_positions: selected('[data-meta-placement-positions="whatsapp_positions"]'),
+      headline: copy('headline'),
+      body: copy('body'),
+      description: copy('description'),
+    };
+  });
+  const renderMetaPlacementRules = () => {
+    state.metaPlacementRules = state.metaPlacementRules || [{}];
+    const mediaType = $('#camp-meta-placement-type', app).value;
+    placementRules.innerHTML = state.metaPlacementRules
+      .map((rule, index) => metaPlacementRuleMarkup(rule, index, mediaType)).join('');
+  };
+  const refreshMetaPlacementAssets = () => {
+    const mediaType = $('#camp-meta-placement-type', app).value;
+    state.metaPlacementAssetType = mediaType;
+    const assetSelect = $('#camp-meta-placement-default', app);
+    const selectedAsset = assetSelect.value || state.metaDefaultMediaAssetId || '';
+    assetSelect.innerHTML = `<option value="">Choose uploaded asset</option>${campaignPlacementAssets[mediaType].map(asset =>
+      `<option value="${asset.id}">${esc(asset.file_name)}</option>`).join('')}`;
+    if (campaignPlacementAssets[mediaType].some(asset => String(asset.id) === String(selectedAsset))) {
+      assetSelect.value = String(selectedAsset);
+    } else {
+      assetSelect.value = '';
+      state.metaDefaultMediaAssetId = null;
+    }
+    renderMetaPlacementRules();
+    updateMetaCreativeFields();
+  };
+  const readMetaCarouselCards = () => $$('[data-meta-carousel-card]', carouselCards).map(card => ({
+    media_asset_id: Number($('[data-meta-carousel-asset]', card).value) || null,
+    headline: $('[data-meta-carousel-headline]', card).value.trim(),
+    description: $('[data-meta-carousel-description]', card).value.trim(),
+    link_url: $('[data-meta-carousel-link]', card).value.trim(),
+  }));
+  const renderMetaCarouselCards = () => {
+    state.metaCarouselCards = state.metaCarouselCards || [{}, {}];
+    carouselCards.innerHTML = state.metaCarouselCards.map(metaCarouselCardMarkup).join('');
+  };
+  const updateMetaCreativeFields = () => {
+    const platform = $('#camp-platform', app).value;
+    const isMeta = platform === 'meta';
+    const format = isMeta ? $('#camp-meta-creative-format', app).value : 'single';
+    const isCarousel = isMeta && format === 'carousel';
+    const isPlacementAssets = isMeta && format === 'placement_assets';
+    $('#camp-meta-creative-format-wrap', app).hidden = !isMeta;
+    $('#camp-meta-carousel-wrap', app).hidden = !isCarousel;
+    $('#camp-meta-placement-wrap', app).hidden = !isPlacementAssets;
+    $('#camp-single-media-select-wrap', app).hidden = isCarousel || isPlacementAssets || platform === 'google';
+    mediaSelect.disabled = isCarousel || isPlacementAssets || platform === 'google';
+    mediaSelect.required = !isCarousel && !isPlacementAssets && platform !== 'google';
+    const defaultAsset = $('#camp-meta-placement-default', app);
+    if (defaultAsset) {
+      defaultAsset.disabled = !isPlacementAssets;
+      defaultAsset.required = isPlacementAssets;
+    }
+    $$('[data-meta-carousel-asset], [data-meta-carousel-headline], [data-meta-carousel-description], [data-meta-carousel-link]', carouselCards)
+      .forEach(input => {
+        input.disabled = !isCarousel;
+        input.required = isCarousel && input.hasAttribute('data-meta-carousel-asset');
+      });
+    $$('[data-meta-placement-asset], [data-meta-placement-platforms], [data-meta-placement-positions], [data-meta-placement-copy]', placementRules)
+      .forEach(input => {
+        input.disabled = !isPlacementAssets;
+        input.required = isPlacementAssets && input.hasAttribute('data-meta-placement-asset');
+      });
+    $('#camp-meta-carousel-add', app).disabled = (state.metaCarouselCards || []).length >= 10;
+    $$('[data-meta-carousel-remove]', carouselCards).forEach(button => {
+      button.disabled = Number(button.dataset.metaCarouselRemove) < 2;
+      button.title = button.disabled ? 'A carousel needs at least two cards' : 'Remove this card';
+    });
+    $('#camp-meta-placement-add', app).disabled = (state.metaPlacementRules || []).length >= 10;
+  };
+  placementRules.addEventListener('change', () => { state.metaPlacementRules = readMetaPlacementRules(); });
+  placementRules.addEventListener('input', () => { state.metaPlacementRules = readMetaPlacementRules(); });
+  if ($('#camp-meta-placement-default', app)) $('#camp-meta-placement-default', app).onchange = () => {
+    state.metaDefaultMediaAssetId = Number($('#camp-meta-placement-default', app).value) || null;
+  };
+  if ($('#camp-meta-placement-type', app)) $('#camp-meta-placement-type', app).onchange = refreshMetaPlacementAssets;
+  if ($('#camp-meta-placement-add', app)) $('#camp-meta-placement-add', app).onclick = () => {
+    state.metaPlacementRules = readMetaPlacementRules();
+    if (state.metaPlacementRules.length >= 10) return;
+    state.metaPlacementRules.push({});
+    renderMetaPlacementRules();
+    updateMetaCreativeFields();
+  };
+  if (placementRules) placementRules.onclick = event => {
+    const remove = event.target.closest('[data-meta-placement-remove]');
+    if (!remove) return;
+    state.metaPlacementRules = readMetaPlacementRules();
+    state.metaPlacementRules.splice(Number(remove.dataset.metaPlacementRemove), 1);
+    renderMetaPlacementRules();
+    updateMetaCreativeFields();
+  };
+  carouselCards.addEventListener('input', () => { state.metaCarouselCards = readMetaCarouselCards(); });
+  carouselCards.addEventListener('change', () => { state.metaCarouselCards = readMetaCarouselCards(); });
+  if ($('#camp-meta-carousel-add', app)) $('#camp-meta-carousel-add', app).onclick = () => {
+    state.metaCarouselCards = readMetaCarouselCards();
+    if (state.metaCarouselCards.length >= 10) return;
+    state.metaCarouselCards.push({});
+    renderMetaCarouselCards();
+    updateMetaCreativeFields();
+  };
+  if (carouselCards) carouselCards.onclick = event => {
+    const remove = event.target.closest('[data-meta-carousel-remove]');
+    if (!remove || Number(remove.dataset.metaCarouselRemove) < 2) return;
+    state.metaCarouselCards = readMetaCarouselCards();
+    state.metaCarouselCards.splice(Number(remove.dataset.metaCarouselRemove), 1);
+    renderMetaCarouselCards();
+    updateMetaCreativeFields();
+  };
+  if ($('#camp-meta-creative-format', app)) $('#camp-meta-creative-format', app).onchange = () => {
+    state.metaCarouselCards = readMetaCarouselCards();
+    state.metaPlacementRules = readMetaPlacementRules();
+    state.metaDefaultMediaAssetId = Number($('#camp-meta-placement-default', app).value) || null;
+    updateMetaCreativeFields();
+  };
   const renderSelectedInterests = () => {
     const selected = state.campaignInterests || [];
     interestList.innerHTML = selected.length
@@ -6269,6 +7508,18 @@ pages.ads = async app => {
   const setCampaignPlatform = (platform, preserveInterests = false) => {
     state.campaignPlatform = platform;
     if (!preserveInterests) state.campaignInterests = [];
+    if (platform !== 'meta') {
+      state.campaignBehaviors = [];
+      state.campaignWorkPositions = [];
+      state.campaignWorkEmployers = [];
+      state.campaignWorkIndustries = [];
+      state.campaignCities = [];
+      state.campaignRegions = [];
+      state.campaignZips = [];
+      state.campaignMetros = [];
+      state.campaignAudienceInclude = [];
+      state.campaignAudienceExclude = [];
+    }
     const connection = campaignConnectionFor(platform);
     const accounts = campaignAccountsFor(platform);
     const accountSelect = $('#camp-account', app);
@@ -6280,6 +7531,10 @@ pages.ads = async app => {
     const minimumBudget = { meta: 1, tiktok: 20, google: 1, linkedin: 10 }[platform];
     $('#camp-budget', app).min = String(minimumBudget);
     $('#camp-budget', app).step = platform === 'google' ? '1' : '0.01';
+    $('#camp-age-min', app).min = platform === 'meta' ? '13' : '18';
+    if (platform !== 'meta' && Number($('#camp-age-min', app).value) < 18) {
+      $('#camp-age-min', app).value = '18';
+    }
     $('#camp-budget-label', app).textContent = minimumBudget > 1
       ? `Daily budget (minimum ${minimumBudget})`
       : platform === 'google' ? 'Daily budget (whole currency units)' : 'Daily budget';
@@ -6294,6 +7549,7 @@ pages.ads = async app => {
     $('#camp-placement-wrap', app).hidden = platform !== 'meta';
     $('#camp-url-tags-wrap', app).hidden = platform !== 'meta';
     $('#camp-interest-wrap', app).hidden = !['meta', 'tiktok'].includes(platform);
+    $('#camp-meta-audience-wrap', app).hidden = platform !== 'meta';
     $('#camp-category-wrap', app).hidden = !['meta', 'tiktok'].includes(platform);
     $('#camp-pixel-wrap', app).hidden = !['meta', 'tiktok'].includes(platform);
     $('#camp-linkedin-fields', app).hidden = platform !== 'linkedin';
@@ -6344,6 +7600,7 @@ pages.ads = async app => {
     connectionError.hidden = !connection?.error;
     connectionError.textContent = connection?.error || '';
     renderCampaignMedia(platform);
+    updateMetaCreativeFields();
     const notes = {
       meta: '',
       tiktok: "TikTok campaigns require video and at least 20 per day. Provider rules apply to clip length, dimensions and targeting.",
@@ -6353,6 +7610,7 @@ pages.ads = async app => {
     $('#camp-platform-note', app).textContent = notes[platform];
     setGoogleCampaignType();
     renderSelectedInterests();
+    renderCampaignAdvancedTargets();
   };
   $('#camp-platform', app).onchange = () => setCampaignPlatform($('#camp-platform', app).value);
   $('#camp-google-type', app).onchange = setGoogleCampaignType;
@@ -6369,6 +7627,12 @@ pages.ads = async app => {
       const selected = campaignAccountsFor(platform).find(item => item.id === $('#camp-account', app).value);
       $('#camp-currency', app).textContent = selected && selected.currency || 'account currency';
       $('#camp-pixel', app).innerHTML = '<option value="">No pixel</option>';
+      if (platform === 'meta') {
+        $('#camp-audience-include', app).innerHTML = '';
+        $('#camp-audience-exclude', app).innerHTML = '';
+        state.campaignAudienceInclude = [];
+        state.campaignAudienceExclude = [];
+      }
     };
   }
   if (mediaSelect) mediaSelect.onchange = () => {
@@ -6389,6 +7653,8 @@ pages.ads = async app => {
     try {
       const asset = await api('POST', '/api/ads/assets/upload', form);
       state.campaignAssetId = asset.id;
+      state.metaDefaultMediaAssetId = asset.id;
+      state.metaPlacementAssetType = String(asset.content_type || '').startsWith('video/') ? 'video' : 'image';
       state.campaignDraftId = null;
       state.campaignInterests = [];
       toast('Campaign media uploaded');
@@ -6461,12 +7727,48 @@ pages.ads = async app => {
     const form = $('#campaign-builder-form', app);
     form.onsubmit = guard(async event => {
       event.preventDefault();
-      const mediaChoice = mediaSelect.value.split(':');
       const dailyBudget = Number($('#camp-budget', app).value);
       const platform = $('#camp-platform', app).value;
       const googleType = $('#camp-google-type', app).value;
       const googleText = id => $(`#${id}`, app).value.trim();
       const usesMedia = platform !== 'google';
+      const metaCreativeFormat = platform === 'meta' ? $('#camp-meta-creative-format', app).value : 'single';
+      const mediaChoice = mediaSelect.value ? mediaSelect.value.split(':') : [];
+      const metaCarouselCardsValue = platform === 'meta' && metaCreativeFormat === 'carousel'
+        ? readMetaCarouselCards() : [];
+      const metaPlacementAssetType = $('#camp-meta-placement-type', app).value;
+      const metaPlacementRulesValue = platform === 'meta' && metaCreativeFormat === 'placement_assets'
+        ? readMetaPlacementRules() : [];
+      if (metaCreativeFormat === 'carousel') {
+        if (metaCarouselCardsValue.length < 2 || metaCarouselCardsValue.length > 10
+          || metaCarouselCardsValue.some(card => !card.media_asset_id)
+          || new Set(metaCarouselCardsValue.map(card => card.media_asset_id)).size !== metaCarouselCardsValue.length) {
+          toast('Choose 2–10 different uploaded JPEG or PNG images for the carousel cards.', true);
+          return;
+        }
+        if (metaCarouselCardsValue.some(card => card.link_url && (() => {
+          try {
+            const link = new URL(card.link_url);
+            return link.protocol !== 'https:' || !link.hostname || Boolean(link.username || link.password);
+          } catch { return true; }
+        })())) {
+          toast('Each carousel card destination must be a valid HTTPS URL.', true);
+          return;
+        }
+      }
+      if (metaCreativeFormat === 'placement_assets') {
+        const defaultAssetId = Number($('#camp-meta-placement-default', app).value) || null;
+        const hasPlacementRule = rule => rule.publisher_platforms.length
+          || metaPlacementGroups.some(group => rule[group.field].length);
+        const mismatchedPlacementRule = rule => metaPlacementGroups.some(group =>
+          rule[group.field].length && !rule.publisher_platforms.includes(group.key));
+        if (!defaultAssetId || metaPlacementRulesValue.length < 1 || metaPlacementRulesValue.length > 10
+          || metaPlacementRulesValue.some(rule => !rule.media_asset_id || !hasPlacementRule(rule)
+            || mismatchedPlacementRule(rule))) {
+          toast('Choose a default asset and 1–10 rules. Each rule needs an asset and matching publisher platform/placement.', true);
+          return;
+        }
+      }
       const values = {
         platform,
         ad_connection_id: campaignConnectionFor(platform)?.id || '',
@@ -6476,9 +7778,17 @@ pages.ads = async app => {
         daily_budget: dailyBudget,
         end_date: $('#camp-end-date', app).value,
         creative_type: platform === 'google' ? (googleType === 'search' ? 'text' : 'video')
-          : mediaSelect.selectedOptions[0]?.dataset.kind || '',
-        media_asset_id: usesMedia && mediaChoice[0] === 'asset' ? Number(mediaChoice[1]) : null,
-        post_id: usesMedia && mediaChoice[0] === 'post' ? Number(mediaChoice[1]) : null,
+          : metaCreativeFormat === 'carousel' ? 'image'
+            : metaCreativeFormat === 'placement_assets' ? metaPlacementAssetType
+              : mediaSelect.selectedOptions[0]?.dataset.kind || '',
+        meta_creative_format: metaCreativeFormat,
+        meta_carousel_cards: metaCarouselCardsValue,
+        meta_placement_asset_type: metaPlacementAssetType,
+        meta_default_media_asset_id: metaCreativeFormat === 'placement_assets'
+          ? Number($('#camp-meta-placement-default', app).value) || null : null,
+        meta_placement_rules: metaPlacementRulesValue,
+        media_asset_id: usesMedia && !['carousel', 'placement_assets'].includes(metaCreativeFormat) && mediaChoice[0] === 'asset' ? Number(mediaChoice[1]) : null,
+        post_id: usesMedia && !['carousel', 'placement_assets'].includes(metaCreativeFormat) && mediaChoice[0] === 'post' ? Number(mediaChoice[1]) : null,
         brand_logo_asset_id: platform === 'google' && googleType === 'demand_gen'
           ? Number($('#camp-brand-logo', app).value) || null : null,
         headline: $('#camp-headline', app).value.trim(),
@@ -6498,6 +7808,18 @@ pages.ads = async app => {
         age_max: Number($('#camp-age-max', app).value),
         gender: $('#camp-gender', app).value,
         interests: state.campaignInterests || [],
+        behaviors: state.campaignBehaviors || [],
+        work_positions: state.campaignWorkPositions || [],
+        work_employers: state.campaignWorkEmployers || [],
+        work_industries: state.campaignWorkIndustries || [],
+        cities: state.campaignCities || [],
+        regions: state.campaignRegions || [],
+        zips: state.campaignZips || [],
+        metros: state.campaignMetros || [],
+        audience_include: $('#camp-audience-include', app)
+          ? $$('option:checked', $('#camp-audience-include', app)).map(option => option.value) : [],
+        audience_exclude: $('#camp-audience-exclude', app)
+          ? $$('option:checked', $('#camp-audience-exclude', app)).map(option => option.value) : [],
         placement_platforms: $$('input[name="camp-placement"]:checked', app).map(input => input.value),
         special_ad_categories: $$('input[name="camp-category"]:checked', app).map(input => input.value),
         pixel_id: $('#camp-pixel', app).value,
@@ -6531,7 +7853,20 @@ pages.ads = async app => {
         state.campaignDraftId = null;
         state.campaignAssetId = null;
         state.campaignLogoAssetId = null;
+        state.metaCarouselCards = [{}, {}];
+        state.metaPlacementRules = [{}];
+        state.metaDefaultMediaAssetId = null;
         state.campaignInterests = [];
+        state.campaignBehaviors = [];
+        state.campaignWorkPositions = [];
+        state.campaignWorkEmployers = [];
+        state.campaignWorkIndustries = [];
+        state.campaignCities = [];
+        state.campaignRegions = [];
+        state.campaignZips = [];
+        state.campaignMetros = [];
+        state.campaignAudienceInclude = [];
+        state.campaignAudienceExclude = [];
         await pages.ads(app);
       } finally { if (button.isConnected) busy(button, false); }
     });
@@ -6543,8 +7878,22 @@ pages.ads = async app => {
     const platform = draft.platform || values.platform || 'meta';
     state.campaignDraftId = draft.id;
     state.campaignInterests = values.interests || [];
+    state.metaCarouselCards = values.meta_carousel_cards?.length ? values.meta_carousel_cards : [{}, {}];
+    state.campaignBehaviors = values.behaviors || [];
+    state.campaignWorkPositions = values.work_positions || [];
+    state.campaignWorkEmployers = values.work_employers || [];
+    state.campaignWorkIndustries = values.work_industries || [];
+    state.campaignCities = values.cities || [];
+    state.campaignRegions = values.regions || [];
+    state.campaignZips = values.zips || [];
+    state.campaignMetros = values.metros || [];
+    state.campaignAudienceInclude = values.audience_include || [];
+    state.campaignAudienceExclude = values.audience_exclude || [];
     state.campaignAssetId = values.media_asset_id;
     state.campaignLogoAssetId = values.brand_logo_asset_id || null;
+    state.metaPlacementAssetType = values.meta_placement_asset_type || 'image';
+    state.metaDefaultMediaAssetId = values.meta_default_media_asset_id || null;
+    state.metaPlacementRules = values.meta_placement_rules?.length ? values.meta_placement_rules : [{}];
     $('#camp-platform', app).value = platform;
     setCampaignPlatform(platform, true);
     if ($('#camp-google-type', app)) $('#camp-google-type', app).value = values.google_campaign_type || 'search';
@@ -6553,6 +7902,15 @@ pages.ads = async app => {
     if ($('#camp-name', app)) $('#camp-name', app).value = values.campaign_name || '';
     if ($('#camp-objective', app)) $('#camp-objective', app).value = values.objective || 'traffic';
     setMetaObjectiveFields();
+    if ($('#camp-meta-creative-format', app)) {
+      $('#camp-meta-creative-format', app).value = values.meta_creative_format || 'single';
+      renderMetaCarouselCards();
+      if ($('#camp-meta-placement-type', app)) {
+        $('#camp-meta-placement-type', app).value = state.metaPlacementAssetType;
+        refreshMetaPlacementAssets();
+      }
+      updateMetaCreativeFields();
+    }
     if ($('#camp-budget', app)) $('#camp-budget', app).value = values.daily_budget || '';
     if ($('#camp-end-date', app)) $('#camp-end-date', app).value = values.end_date || '';
     if (mediaSelect) mediaSelect.value = values.media_asset_id ? `asset:${values.media_asset_id}` : `post:${values.post_id}`;
@@ -6572,6 +7930,17 @@ pages.ads = async app => {
     if ($('#camp-age-min', app)) $('#camp-age-min', app).value = values.age_min || 18;
     if ($('#camp-age-max', app)) $('#camp-age-max', app).value = values.age_max || 65;
     if ($('#camp-gender', app)) $('#camp-gender', app).value = values.gender || 'all';
+    if ($('#camp-audience-include', app)) {
+      $$('option', $('#camp-audience-include', app)).forEach(option => {
+        option.selected = state.campaignAudienceInclude.includes(option.value);
+      });
+    }
+    if ($('#camp-audience-exclude', app)) {
+      $$('option', $('#camp-audience-exclude', app)).forEach(option => {
+        option.selected = state.campaignAudienceExclude.includes(option.value);
+      });
+    }
+    renderCampaignAdvancedTargets();
     if ($('#camp-url-tags', app)) $('#camp-url-tags', app).value = values.url_tags || '';
     if ($('#camp-pixel', app) && values.pixel_id) {
       $('#camp-pixel', app).innerHTML = `<option value="${esc(values.pixel_id)}" selected>${esc(values.pixel_id)}</option>`;

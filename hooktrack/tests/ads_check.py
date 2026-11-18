@@ -61,6 +61,86 @@ def test_meta_ads_tool_binds_requests_to_selected_connection_and_account(monkeyp
     })
 
 
+def test_meta_draft_preview_injects_selected_workspace_and_ad_account(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(
+        latehub, "meta_ads_request",
+        lambda method, path, **kwargs: seen.append((method, path, kwargs)) or {"previews": []},
+    )
+    request = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="POST", path="/ads/preview",
+        body={"creativeSpec": {"object_story_spec": {"page_id": "page-1"}}, "formats": ["INSTAGRAM_STORY"]},
+    )
+
+    assert ads.meta_ads_request(request, _ctx()) == {"previews": []}
+    assert seen == [("POST", "/ads/preview", {
+        "params": {"accountId": "meta-connection", "adAccountId": "act-1"},
+        "body": {
+            "creativeSpec": {"object_story_spec": {"page_id": "page-1"}},
+            "formats": ["INSTAGRAM_STORY"],
+            "accountId": "meta-connection",
+            "adAccountId": "act-1",
+        },
+    })]
+
+
+def test_meta_audience_membership_request_is_account_scoped_and_keeps_user_data_in_body(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(
+        latehub, "meta_ads_request",
+        lambda method, path, **kwargs: seen.append((method, path, kwargs)) or {"numReceived": 1},
+    )
+    request = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="DELETE", path="/ads/audiences/audience-1/users",
+        body={"users": [{"email": "customer@example.com"}]},
+    )
+
+    assert ads.meta_ads_request(request, _ctx()) == {"numReceived": 1}
+    assert seen == [("DELETE", "/ads/audiences/audience-1/users", {
+        "params": {"accountId": "meta-connection", "adAccountId": "act-1"},
+        "body": {"users": [{"email": "customer@example.com"}]},
+    })]
+
+
+def test_meta_campaign_tree_is_scoped_to_workspace_profile_and_selected_ad_account(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.latehub, "ensure_profile", lambda workspace_id: f"profile-{workspace_id}")
+    monkeypatch.setattr(
+        latehub, "meta_ads_request",
+        lambda method, path, **kwargs: seen.append((method, path, kwargs)) or {"campaigns": []},
+    )
+    request = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="GET", path="/ads/tree", query={"fromDate": "2026-10-01", "toDate": "2026-10-31"},
+    )
+
+    assert ads.meta_ads_request(request, _ctx()) == {"campaigns": []}
+    assert seen == [("GET", "/ads/tree", {"params": {
+        "fromDate": "2026-10-01",
+        "toDate": "2026-10-31",
+        "accountId": "meta-connection",
+        "adAccountId": "act-1",
+        "profileId": "profile-7",
+    }, "body": None})]
+
+
+def test_meta_campaign_tree_rejects_another_workspace_profile(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.latehub, "ensure_profile", lambda _workspace_id: "profile-7")
+    request = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="GET", path="/ads/tree", query={"profileId": "another-profile"},
+    )
+
+    with pytest.raises(HTTPException, match="profileId must match"):
+        ads.meta_ads_request(request, _ctx())
+
+
 def test_meta_ads_tool_rejects_mismatched_account_and_unsafe_paths(monkeypatch):
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
     request = ads.MetaAdsRequestIn(
@@ -82,6 +162,7 @@ def test_meta_ads_tool_rejects_mismatched_account_and_unsafe_paths(monkeypatch):
 def test_meta_events_tool_does_not_inject_ad_account_field(monkeypatch):
     calls = []
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.latehub, "ensure_profile", lambda _workspace_id: "profile-7")
     monkeypatch.setattr(ads.latehub, "ad_tracking_tags", lambda *_args: [{"id": "pixel-1"}])
     monkeypatch.setattr(
         latehub, "meta_ads_request",
@@ -89,27 +170,127 @@ def test_meta_events_tool_does_not_inject_ad_account_field(monkeypatch):
     )
     request = ads.MetaAdsRequestIn(
         ad_connection_id="meta-connection", ad_account_id="act-1",
-        method="POST", path="/events", body={"destinationId": "pixel-1", "events": []},
+        method="POST", path="/events",
+        body={"destinationId": "pixel-1", "events": [{"eventName": "Lead", "eventTime": 123}]},
     )
 
     assert ads.meta_ads_request(request, _ctx()) == {"events_received": 1}
     assert calls == [("POST", "/events", {
-        "params": {"accountId": "meta-connection"},
-        "body": {"destinationId": "pixel-1", "events": []},
+        "params": {},
+        "body": {
+            "profileId": "profile-7",
+            "destinations": [{"accountId": "meta-connection", "destinationId": "pixel-1"}],
+            "events": [{"eventName": "Lead", "eventTime": 123}],
+        },
     })]
 
 
 def test_meta_events_tool_rejects_pixel_outside_selected_account(monkeypatch):
     calls = []
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.latehub, "ensure_profile", lambda _workspace_id: "profile-7")
     monkeypatch.setattr(ads.latehub, "ad_tracking_tags", lambda *_args: [{"id": "another-pixel"}])
     monkeypatch.setattr(latehub, "meta_ads_request", lambda *_args, **_kwargs: calls.append("called"))
     request = ads.MetaAdsRequestIn(
         ad_connection_id="meta-connection", ad_account_id="act-1",
-        method="POST", path="/events", body={"destinationId": "pixel-1", "events": []},
+        method="POST", path="/events",
+        body={"destinationId": "pixel-1", "events": [{"eventName": "Lead", "eventTime": 123}]},
     )
 
     with pytest.raises(HTTPException, match="pixel available to the selected ad account"):
+        ads.meta_ads_request(request, _ctx())
+    assert calls == []
+
+
+def test_meta_events_accept_only_destinations_for_selected_connection(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.latehub, "ensure_profile", lambda _workspace_id: "profile-7")
+    monkeypatch.setattr(ads.latehub, "ad_tracking_tags", lambda *_args: [{"id": "pixel-1"}])
+    monkeypatch.setattr(
+        latehub, "meta_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"events_received": 1},
+    )
+    request = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="POST", path="/events",
+        body={
+            "destinations": [{"accountId": "meta-connection", "destinationId": "pixel-1"}],
+            "events": [{"eventName": "Purchase", "eventTime": 123}],
+        },
+    )
+
+    assert ads.meta_ads_request(request, _ctx()) == {"events_received": 1}
+    assert calls == [("POST", "/events", {
+        "params": {},
+        "body": {
+            "profileId": "profile-7",
+            "destinations": [{"accountId": "meta-connection", "destinationId": "pixel-1"}],
+            "events": [{"eventName": "Purchase", "eventTime": 123}],
+        },
+    })]
+
+
+def test_meta_lead_form_create_body_uses_provider_account_id_only(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(
+        latehub, "meta_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"id": "form-1"},
+    )
+    request = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="POST", path="/ads/lead-forms",
+        body={
+            "name": "Test form",
+            "privacyPolicyUrl": "https://example.com/privacy",
+            "platformSpecificData": {"questions": [{"type": "EMAIL"}]},
+        },
+    )
+
+    assert ads.meta_ads_request(request, _ctx()) == {"id": "form-1"}
+    assert calls == [("POST", "/ads/lead-forms", {
+        "params": {"accountId": "meta-connection", "adAccountId": "act-1"},
+        "body": {
+            "name": "Test form",
+            "privacyPolicyUrl": "https://example.com/privacy",
+            "platformSpecificData": {"questions": [{"type": "EMAIL"}]},
+            "accountId": "meta-connection",
+        },
+    })]
+
+
+def test_meta_pixel_create_is_scoped_to_selected_ad_account(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(
+        latehub, "meta_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"id": "pixel-1"},
+    )
+    request = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="POST", path="/accounts/meta-connection/tracking-tags",
+        body={"name": "Store pixel", "kind": "pixel"},
+    )
+
+    assert ads.meta_ads_request(request, _ctx()) == {"id": "pixel-1"}
+    assert calls == [("POST", "/accounts/meta-connection/tracking-tags", {
+        "params": {"accountId": "meta-connection", "adAccountId": "act-1"},
+        "body": {"name": "Store pixel", "kind": "pixel", "adAccountId": "act-1"},
+    })]
+
+
+def test_meta_events_reject_empty_batches_before_provider_call(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.latehub, "ensure_profile", lambda _workspace_id: "profile-7")
+    monkeypatch.setattr(latehub, "meta_ads_request", lambda *_args, **_kwargs: calls.append("called"))
+    request = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="POST", path="/events", body={"events": []},
+    )
+
+    with pytest.raises(HTTPException, match="at least one conversion event"):
         ads.meta_ads_request(request, _ctx())
     assert calls == []
 
@@ -491,6 +672,269 @@ def test_meta_campaign_draft_maps_to_paused_create_payload(monkeypatch):
     assert request["promotedObject"] == {
         "pixelId": "1729525464415281", "customEventType": "PURCHASE",
     }
+
+
+def test_meta_carousel_campaign_maps_distinct_workspace_images_without_single_media(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(
+        ads.db, "one",
+        lambda query, params: seen.append((query, params)) or {"content_type": "image/jpeg"},
+    )
+    monkeypatch.setattr(ads, "_asset_url", lambda _workspace_id, asset_id: f"https://hooktrack.example/{asset_id}.jpg")
+    values = _campaign_values(
+        meta_creative_format="carousel",
+        media_asset_id=None,
+        post_id=None,
+        meta_carousel_cards=[
+            {"media_asset_id": 41, "headline": "First", "link_url": "https://example.com/first"},
+            {"media_asset_id": 42, "description": "Second card"},
+        ],
+    )
+
+    request, _ = ads._campaign_request(7, values)
+
+    assert "imageUrl" not in request
+    assert "video" not in request
+    assert request["carouselCards"] == [
+        {"imageUrl": "https://hooktrack.example/41.jpg", "headline": "First",
+         "linkUrl": "https://example.com/first"},
+        {"imageUrl": "https://hooktrack.example/42.jpg", "description": "Second card"},
+    ]
+    assert [params for _query, params in seen] == [(41, 7), (42, 7)]
+
+
+@pytest.mark.parametrize(
+    ("cards", "message"),
+    [
+        ([{"media_asset_id": 41}], "between 2 and 10"),
+        ([{"media_asset_id": 41}, {"media_asset_id": 41}], "different image"),
+    ],
+)
+def test_meta_carousel_validates_card_count_and_duplicate_assets(monkeypatch, cards, message):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+
+    with pytest.raises(HTTPException, match=message):
+        ads._campaign_request(7, _campaign_values(
+            meta_creative_format="carousel",
+            media_asset_id=None,
+            post_id=None,
+            meta_carousel_cards=cards,
+        ))
+
+
+def test_meta_carousel_rejects_non_image_and_cross_workspace_assets(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: None)
+    with pytest.raises(HTTPException, match="not found in this workspace"):
+        ads._campaign_request(7, _campaign_values(
+            meta_creative_format="carousel",
+            media_asset_id=None,
+            post_id=None,
+            meta_carousel_cards=[{"media_asset_id": 41}, {"media_asset_id": 42}],
+        ))
+
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "video/mp4"})
+    with pytest.raises(HTTPException, match="JPEG or PNG"):
+        ads._campaign_request(7, _campaign_values(
+            meta_creative_format="carousel",
+            media_asset_id=None,
+            post_id=None,
+            meta_carousel_cards=[{"media_asset_id": 41}, {"media_asset_id": 42}],
+        ))
+
+
+def test_non_meta_campaign_rejects_meta_carousel_fields(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "tiktok-connection"})
+
+    with pytest.raises(HTTPException, match="only for Meta campaigns"):
+        ads._campaign_request(7, _campaign_values(
+            platform="tiktok",
+            ad_connection_id="tiktok-connection",
+            ad_account_id="advertiser-1",
+            creative_type="video",
+            media_asset_id=41,
+            meta_creative_format="carousel",
+            meta_carousel_cards=[{"media_asset_id": 42}, {"media_asset_id": 43}],
+        ))
+
+
+def test_meta_placement_assets_build_image_payload_scoped_to_workspace_assets(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(
+        ads.db, "one",
+        lambda query, params: seen.append((query, params)) or {"content_type": "image/png"},
+    )
+    monkeypatch.setattr(ads, "_asset_url", lambda _workspace_id, asset_id: f"https://hooktrack.example/{asset_id}.png")
+    values = _campaign_values(
+        media_asset_id=None,
+        post_id=None,
+        meta_creative_format="placement_assets",
+        meta_placement_asset_type="image",
+        meta_default_media_asset_id=41,
+        meta_placement_rules=[
+            {
+                "media_asset_id": 42,
+                "publisher_platforms": ["instagram"],
+                "instagram_positions": ["story", "reels"],
+                "headline": "Vertical headline",
+                "body": "Vertical copy",
+            },
+        ],
+    )
+
+    request, _ = ads._campaign_request(7, values)
+
+    assert "imageUrl" not in request
+    assert "video" not in request
+    assert request["placementAssets"] == {
+        "defaultImageUrl": "https://hooktrack.example/41.png",
+        "rules": [{
+            "imageUrl": "https://hooktrack.example/42.png",
+            "placements": {
+                "publisherPlatforms": ["instagram"],
+                "instagramPositions": ["story", "reels"],
+            },
+            "headline": "Vertical headline",
+            "body": "Vertical copy",
+        }],
+    }
+    assert [params for _query, params in seen] == [(41, 7), (42, 7)]
+
+
+def test_meta_placement_assets_build_video_payload_and_validate_consistent_types(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "video/mp4"})
+    monkeypatch.setattr(ads, "_asset_url", lambda _workspace_id, asset_id: f"https://hooktrack.example/{asset_id}.mp4")
+    values = _campaign_values(
+        creative_type="video",
+        media_asset_id=None,
+        post_id=None,
+        meta_placement_asset_type="video",
+        meta_creative_format="placement_assets",
+        meta_default_media_asset_id=41,
+        meta_placement_rules=[{
+            "media_asset_id": 42,
+            "publisher_platforms": ["facebook"],
+            "facebook_positions": ["story"],
+        }],
+    )
+
+    request, _ = ads._campaign_request(7, values)
+
+    assert request["placementAssets"] == {
+        "defaultVideoUrl": "https://hooktrack.example/41.mp4",
+        "rules": [{
+            "videoUrl": "https://hooktrack.example/42.mp4",
+            "placements": {
+                "publisherPlatforms": ["facebook"],
+                "facebookPositions": ["story"],
+            },
+        }],
+    }
+
+    monkeypatch.setattr(ads.db, "one", lambda query, params: {
+        "content_type": "image/png" if params[0] == 41 else "video/mp4",
+    })
+    with pytest.raises(HTTPException, match="All Meta placement assets must be supported image"):
+        ads._campaign_request(7, _campaign_values(
+            media_asset_id=None,
+            post_id=None,
+            meta_creative_format="placement_assets",
+            meta_placement_asset_type="image",
+            meta_default_media_asset_id=41,
+            meta_placement_rules=[{
+                "media_asset_id": 42,
+                "publisher_platforms": ["facebook"],
+                "facebook_positions": ["feed"],
+            }],
+        ))
+
+
+@pytest.mark.parametrize(
+    ("rule", "message"),
+    [
+        ({"media_asset_id": 42}, "at least one publisher platform or position"),
+        ({"media_asset_id": 42, "instagram_positions": ["story"]}, "Add instagram to publisher platforms"),
+    ],
+)
+def test_meta_placement_assets_require_valid_platform_selection(monkeypatch, rule, message):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    with pytest.raises(HTTPException, match=message):
+        ads._campaign_request(7, _campaign_values(
+            media_asset_id=None,
+            post_id=None,
+            meta_creative_format="placement_assets",
+            meta_default_media_asset_id=41,
+            meta_placement_rules=[rule],
+        ))
+
+
+def test_meta_placement_assets_require_matching_creative_media_mode(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+
+    with pytest.raises(HTTPException, match="creative type must match"):
+        ads._campaign_request(7, _campaign_values(
+            creative_type="image",
+            media_asset_id=None,
+            post_id=None,
+            meta_creative_format="placement_assets",
+            meta_placement_asset_type="video",
+            meta_default_media_asset_id=41,
+            meta_placement_rules=[{
+                "media_asset_id": 42,
+                "publisher_platforms": ["facebook"],
+                "facebook_positions": ["feed"],
+            }],
+        ))
+
+
+def test_meta_campaign_maps_behavior_geo_and_custom_audience_targeting(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "image/png"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/ad.png")
+    values = _campaign_values(
+        countries=[],
+        behaviors=[{"id": "behavior-1", "name": "Frequent travelers"}],
+        cities=[{"key": "city-1", "radius": 17, "distance_unit": "kilometer"}],
+        regions=[{"key": "region-1"}],
+        zips=[{"key": "US:94304"}],
+        metros=[{"key": "DMA:807"}],
+        audience_include=["platform-audience-1"],
+        audience_exclude=["platform-audience-2"],
+    )
+
+    request, _ = ads._campaign_request(7, values)
+
+    assert "countries" not in request
+    assert request["behaviors"] == [{"id": "behavior-1", "name": "Frequent travelers"}]
+    assert request["cities"] == [{"key": "city-1", "radius": 17, "distance_unit": "kilometer"}]
+    assert request["regions"] == [{"key": "region-1"}]
+    assert request["zips"] == [{"key": "US:94304"}]
+    assert request["metros"] == [{"key": "DMA:807"}]
+    assert request["audienceInclude"] == ["platform-audience-1"]
+    assert request["audienceExclude"] == ["platform-audience-2"]
+
+
+def test_meta_campaign_allows_meta_minimum_age_of_thirteen(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "image/png"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/ad.png")
+
+    request, _ = ads._campaign_request(7, _campaign_values(age_min=13, age_max=18))
+
+    assert request["ageMin"] == 13
+    assert request["ageMax"] == 18
+
+
+def test_non_meta_campaign_rejects_meta_audience_targeting(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "tiktok-connection"})
+    with pytest.raises(HTTPException, match="available only for Meta"):
+        ads._campaign_request(7, _campaign_values(
+            platform="tiktok", ad_connection_id="tiktok-connection", ad_account_id="advertiser-1",
+            objective="traffic", creative_type="video", behaviors=[{"id": "1", "name": "Behavior"}],
+        ))
 
 
 @pytest.mark.parametrize(
