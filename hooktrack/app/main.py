@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import activation, ai, auth, baseline, billing, cache, crypto, db, demo, discover, freeai, inquiry, legal, logic, media, pages, peer, publish, seo, sociavault, vaultwatch, youtube_api
-from . import backup, digest, reports, inbox, approvals, shotstack, wavespeed, team_review
+from . import backup, digest, reports, inbox, approvals, shotstack, wavespeed, team_review, ads
 from .auth import Ctx, admin, current
 
 import mimetypes
@@ -228,6 +228,7 @@ app.include_router(inbox.router)
 app.include_router(approvals.router)
 app.include_router(approvals.pages)
 app.include_router(team_review.router)
+app.include_router(ads.router)
 
 
 @app.middleware("http")

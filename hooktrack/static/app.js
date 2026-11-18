@@ -68,6 +68,7 @@ const state = {
   weekStart: null,   // set lazily from the workspace time zone
   calMonth: null,
   calAccount: '', hookStatus: '', hookAccount: '', hookQuick: 'all', hookSearch: '', postsView: 'board', discNiche: null, discBand: '', discPlatform: '',
+  campaignDraftId: null, campaignAssetId: null, campaignInterests: [],
 };
 
 async function api(method, path, body) {
@@ -483,7 +484,7 @@ function endRouteLoading(my, tab) {
 async function route() {
   const hash = location.hash.replace('#/', '');
   document.body.classList.toggle('studio-fit', hash.split('?')[0] === 'studio');
-  document.body.classList.toggle('wide-workspace', ['accounts', 'discover', 'inbox', 'clients'].includes(hash.split('?')[0]));
+  document.body.classList.toggle('wide-workspace', ['accounts', 'discover', 'inbox', 'clients', 'ads'].includes(hash.split('?')[0]));
   if (hash.startsWith('invite/')) return renderInvite(hash.slice(7));
   if (hash.startsWith('reset/')) return renderReset(hash.slice(6));
   if (hash.startsWith('verify/')) return renderVerify(hash.slice(7));
@@ -5788,6 +5789,476 @@ pages.accounts = async app => {
       route();
     } finally { busy(sa, false, 'Sync all'); }
   });
+};
+
+pages.ads = async app => {
+  const d = await api('GET', '/api/ads');
+  let campaignReport = { campaigns: [] };
+  let campaignReportError = '';
+  if (d.configured) {
+    try { campaignReport = await api('GET', '/api/ads/campaigns'); }
+    catch (error) { campaignReportError = error.message; }
+  }
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const connectNotice = params.get('error_message') || params.get('error')
+    ? `<div class="notice" style="margin-bottom:12px">${esc(params.get('error_message') || `Ads connection was not completed (${params.get('error')}).`)}</div>`
+    : params.get('connected')
+      ? '<div class="notice" style="margin-bottom:12px">Ads account connected. Choose an ad account below to boost a published post.</div>'
+      : '';
+  const names = { metaads: 'Meta Ads', tiktokads: 'TikTok Ads', facebook: 'Facebook', instagram: 'Instagram', tiktok: 'TikTok' };
+  const connectCard = platform => {
+    const adsKey = platform === 'meta' ? 'metaads' : 'tiktokads';
+    const connection = d.ads_connections.find(a => a.platform === adsKey);
+    const parentPlatforms = platform === 'meta' ? ['facebook', 'instagram'] : ['tiktok'];
+    const posting = d.posting_accounts.filter(a => parentPlatforms.includes(String(a.platform).toLowerCase()));
+    const linkedPosting = connection && d.posting_accounts.find(a => a.id === connection.parent_account_id);
+    const accountList = connection
+      ? (connection.ad_accounts || []).map(a => `<span class="pill">${esc(a.name)}${a.currency ? ` · ${esc(a.currency)}` : ''} · ${a.selected ? 'selected' : 'not selected'}</span>`).join(' ')
+        || '<span class="muted small">No usable ad accounts were returned. Check account access and selection in the ad platform.</span>'
+      : '<span class="muted small">Not connected</span>';
+    return `<div class="card">
+      <div class="row" style="align-items:flex-start"><div style="flex:1"><h2 style="margin:0">${names[adsKey]}</h2>
+        <p class="muted small" style="margin:5px 0 10px">${connection ? 'Connected to this workspace' : platform === 'tiktok' ? 'Connect TikTok Ads and link the matching TikTok publishing account to enable Spark Ads.' : 'Connect an ad account you are authorized to manage.'}</p>
+        ${connection && platform === 'tiktok' && linkedPosting ? `<p class="muted small">Linked TikTok identity: ${esc(linkedPosting.display_name || linkedPosting.username || 'TikTok account')}${linkedPosting.username ? ` · @${esc(linkedPosting.username.replace(/^@/, ''))}` : ''}</p>` : ''}
+        ${connection ? accountList : ''}${connection && connection.error ? `<p class="small" style="color:var(--bad)">${esc(connection.error)}</p>` : ''}
+        ${!connection && d.can_manage && d.configured ? posting.length
+          ? `<label class="small muted" for="ads-parent-${platform}">Linked publishing account</label>
+             <select id="ads-parent-${platform}" style="width:100%;margin:4px 0 8px">${posting.map(a =>
+               `<option value="${esc(a.id)}">${esc(a.display_name || a.username || a.platform)}${a.username ? ` · @${esc(a.username.replace(/^@/, ''))}` : ''}</option>`).join('')}</select>
+             <button class="btn primary" type="button" data-ads-connect="${platform}">Connect ${names[adsKey]}</button>`
+          : `<p class="small muted">Connect a ${platform === 'tiktok' ? 'TikTok' : 'Facebook or Instagram'} publishing account first in Settings → Publishing.</p>`
+          : ''}</div>${connection ? '<span class="pill">Connected</span>' : ''}</div>
+    </div>`;
+  };
+  const metaConnection = d.ads_connections.find(item => item.platform === 'metaads');
+  const metaAdAccounts = (metaConnection && metaConnection.ad_accounts || []).filter(item => item.selected);
+  const campaignMediaOptions = [
+    ...(d.existing_media || []).map(item => ({
+      value: `post:${item.post_id}`, label: `${item.creative_type} · ${item.label} · ${item.handle || item.platform}`,
+      type: item.creative_type,
+    })),
+    ...(d.campaign_assets || []).map(item => ({
+      value: `asset:${item.id}`, label: `${String(item.content_type).startsWith('video/') ? 'video' : 'image'} · ${item.file_name}`,
+      type: String(item.content_type).startsWith('video/') ? 'video' : 'image',
+    })),
+  ];
+  const campaignDraftCards = (d.campaign_drafts || []).map(draft => {
+    const form = draft.draft_json || {};
+    const reported = (campaignReport.campaigns || []).find(item =>
+      String(item.platformCampaignId) === String(draft.platform_campaign_id));
+    const metrics = reported && reported.metrics || {};
+    const action = draft.status === 'draft' || draft.status === 'failed'
+      ? `${d.can_manage ? `<button class="btn sm" type="button" data-campaign-edit="${draft.id}">Edit</button>
+         <button class="btn sm" type="button" data-campaign-delete="${draft.id}">Delete</button>
+         <button class="btn primary sm" type="button" data-campaign-create="${draft.id}">Create paused</button>` : ''}`
+      : draft.status === 'unknown'
+          ? `${d.can_manage && draft.retry_safe ? `<button class="btn sm" type="button" data-campaign-retry="${draft.id}">Retry create safely</button>` : ''}`
+        : draft.pending_status
+          ? `${d.can_manage ? `<button class="btn sm" type="button" data-campaign-status="${draft.id}" data-status="${draft.pending_status}">Retry ${draft.pending_status}</button>` : ''}`
+          : d.can_manage
+            ? `<button class="btn sm" type="button" data-campaign-status="${draft.id}" data-status="${draft.status === 'active' ? 'paused' : 'active'}">${draft.status === 'active' ? 'Pause' : 'Launch'}</button>`
+            : '';
+    return `<article class="card">
+      <div class="row" style="align-items:flex-start"><b style="flex:1">${esc(draft.campaign_name)}</b><span class="pill">${esc(draft.status.replace('_', ' '))}</span></div>
+      <p class="muted small">${esc(form.objective || '')} · ${esc(String(form.daily_budget || ''))}/day · ends ${esc(String(form.end_date || ''))} · ${esc(form.creative_type || '')}</p>
+      <p class="small"><b>${esc(form.headline || '')}</b><br>${esc(short(form.body || '', 180))}<br><span class="muted">${esc(form.link_url || '')}</span></p>
+      ${draft.platform_campaign_id ? `<p class="small">Spend ${fmt(metrics.spend || 0)} · ${fmt(metrics.impressions || 0)} impressions · ${fmt(metrics.clicks || 0)} clicks${reported && reported.currency ? ` · ${esc(reported.currency)}` : ''}${reported ? ` · Meta status: ${esc(reported.status || 'unknown')}` : ''}</p>` : ''}
+      ${draft.status === 'unknown' && !draft.retry_safe ? '<p class="small" style="color:var(--bad)">Automatic retry window expired. Check Meta Ads Manager before taking action.</p>' : ''}
+      ${draft.error ? `<p class="small" style="color:var(--bad)">${esc(draft.error)}</p>` : ''}
+      <div class="actions">${action}</div>
+    </article>`;
+  }).join('');
+  const campaignBuilder = `<section class="card" style="margin:12px 0 20px">
+    <h2 style="margin:0 0 4px">Build a Meta campaign</h2>
+    <p class="small muted">Save a draft, send it to Meta paused for review, then explicitly launch it. No spend starts until you choose Launch.</p>
+    ${!metaConnection ? `<p class="notice">Connect Meta Ads above and select an available ad account to start a draft.</p>` : ''}
+    ${metaConnection?.error ? `<p class="notice" style="color:var(--bad)">${esc(metaConnection.error)}</p>` : ''}
+    <form id="campaign-builder-form">
+      <div class="grid clients-grid" style="gap:10px">
+        <div><label class="small muted" for="camp-account">Meta ad account</label>
+          <select id="camp-account" required style="width:100%">${metaAdAccounts.map(item =>
+            `<option value="${esc(item.id)}">${esc(item.name)}${item.currency ? ` · ${esc(item.currency)}` : ''}</option>`).join('')}</select></div>
+        <div><label class="small muted" for="camp-name">Campaign name</label><input id="camp-name" maxlength="100" required style="width:100%"></div>
+        <div><label class="small muted" for="camp-objective">Objective</label>
+          <select id="camp-objective" style="width:100%"><option value="traffic">Traffic</option><option value="awareness">Awareness</option><option value="video_views">Video views</option><option value="conversions">Conversions</option></select></div>
+        <div><label class="small muted" for="camp-budget">Daily budget (<span id="camp-currency">${esc(metaAdAccounts[0]?.currency || 'account currency')}</span>)</label>
+          <input id="camp-budget" type="number" min="1" step="0.01" required style="width:100%"></div>
+        <div><label class="small muted" for="camp-end-date">Campaign end date</label>
+          <input id="camp-end-date" type="date" required style="width:100%"></div>
+        <div><label class="small muted" for="camp-media">Creative media</label>
+          <select id="camp-media" required style="width:100%">${campaignMediaOptions.map(item =>
+            `<option value="${esc(item.value)}" data-kind="${item.type}" ${state.campaignAssetId && item.value === `asset:${state.campaignAssetId}` ? 'selected' : ''}>${esc(item.label)}</option>`).join('')}</select>
+          <label class="small muted" for="camp-upload">Or upload JPEG, PNG, MP4 or MOV</label>
+          <input id="camp-upload" type="file" accept="image/jpeg,image/png,video/mp4,video/quicktime" style="width:100%">
+          ${!campaignMediaOptions.length ? '<span class="small muted">Upload a creative to begin. Existing published post media appears here when available.</span>' : ''}</div>
+        <div><label class="small muted" for="camp-headline">Headline</label><input id="camp-headline" maxlength="255" required style="width:100%"></div>
+        <div><label class="small muted" for="camp-body">Primary text</label><textarea id="camp-body" maxlength="5000" required style="width:100%;min-height:84px"></textarea></div>
+        <div><label class="small muted" for="camp-link">Landing page URL (HTTPS)</label><input id="camp-link" type="url" required placeholder="https://example.com" style="width:100%"></div>
+        <div><label class="small muted" for="camp-cta">Call to action</label>
+          <select id="camp-cta" style="width:100%">${[
+            ['LEARN_MORE', 'Learn more'], ['SHOP_NOW', 'Shop now'], ['SIGN_UP', 'Sign up'], ['CONTACT_US', 'Contact us'],
+            ['DOWNLOAD', 'Download'], ['GET_OFFER', 'Get offer'], ['GET_QUOTE', 'Get quote'], ['SUBSCRIBE', 'Subscribe'],
+            ['WATCH_MORE', 'Watch more'], ['ADD_TO_CART', 'Add to cart'], ['APPLY_NOW', 'Apply now'], ['BOOK_NOW', 'Book now'],
+            ['BUY_TICKETS', 'Buy tickets'], ['DONATE', 'Donate'], ['LISTEN_NOW', 'Listen now'], ['ORDER_NOW', 'Order now'],
+            ['REQUEST_TIME', 'Request time'], ['SEE_MENU', 'See menu'], ['START_ORDER', 'Start order'], ['BUY_NOW', 'Buy now'],
+          ].map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></div>
+        <div><label class="small muted" for="camp-countries">Countries (ISO codes, comma-separated)</label><input id="camp-countries" value="US" placeholder="US, CA" style="width:100%"></div>
+        <div class="row" style="gap:8px"><div><label class="small muted" for="camp-age-min">Minimum age</label><input id="camp-age-min" type="number" min="18" max="65" value="18" style="width:100%"></div>
+          <div><label class="small muted" for="camp-age-max">Maximum age</label><input id="camp-age-max" type="number" min="18" max="65" value="65" style="width:100%"></div>
+          <div><label class="small muted" for="camp-gender">Gender</label><select id="camp-gender"><option value="all">All</option><option value="female">Women</option><option value="male">Men</option></select></div></div>
+      </div>
+      <details style="margin:10px 0"><summary>Audience, placements and tracking</summary>
+        <div style="padding:10px 0">
+          <label class="small muted" for="camp-interest-search">Interest targeting (search Meta)</label>
+          <div class="row"><input id="camp-interest-search" placeholder="Search interests" style="flex:1"><button class="btn sm" type="button" id="camp-interest-button">Search</button></div>
+          <div id="camp-interest-results" class="small" style="margin:6px 0"></div><div id="camp-interests" class="small muted">No interests selected.</div>
+          <p class="small muted">Leave placements unchecked for Meta automatic placements; choose one or more platforms for manual placement control.</p>
+          <div class="row" style="gap:12px;flex-wrap:wrap">${[['facebook','Facebook'],['instagram','Instagram'],['threads','Threads'],['messenger','Messenger']].map(([value,label]) =>
+            `<label class="check"><input type="checkbox" name="camp-placement" value="${value}"> ${label}</label>`).join('')}</div>
+          <fieldset style="margin:10px 0"><legend class="small muted">Special ad category (if applicable)</legend>
+            ${[['HOUSING','Housing'],['EMPLOYMENT','Employment'],['CREDIT','Credit'],['FINANCIAL_PRODUCTS_SERVICES','Financial products/services'],['ISSUES_ELECTIONS_POLITICS','Issues/elections/politics'],['ONLINE_GAMBLING_AND_GAMING','Online gambling/gaming']].map(([value,label]) =>
+              `<label class="check"><input type="checkbox" name="camp-category" value="${value}"> ${label}</label>`).join('')}</fieldset>
+          <div class="row"><div style="flex:1"><label class="small muted" for="camp-pixel">Meta pixel</label><select id="camp-pixel" style="width:100%"><option value="">No pixel</option></select></div>
+            <button class="btn sm" type="button" id="camp-load-pixels">Load pixels</button>
+            <div style="flex:1"><label class="small muted" for="camp-event">Conversion event</label><select id="camp-event" style="width:100%">${[
+              'PURCHASE','COMPLETE_REGISTRATION','ADD_TO_CART','INITIATE_CHECKOUT','ADD_PAYMENT_INFO',
+              'SUBSCRIBE','START_TRIAL','VIEW_CONTENT','SEARCH',
+            ].map(event => `<option value="${event}">${event.replaceAll('_',' ')}</option>`).join('')}</select></div></div>
+          <label class="small muted" for="camp-url-tags">URL tracking tags (key=value&amp;key=value)</label>
+          <input id="camp-url-tags" placeholder="utm_source=meta&amp;utm_medium=paid_social" style="width:100%">
+        </div>
+      </details>
+      <p id="camp-upload-note" class="small muted"></p>
+      ${d.can_manage ? `<div class="actions"><button id="camp-save" class="btn primary" type="submit">Save campaign draft</button></div>` : '<p class="small muted">Ask a workspace admin to create and launch campaigns.</p>'}
+    </form>
+  </section>
+  <section style="margin:16px 0 20px"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Campaign drafts and Meta campaigns</h2><button class="btn sm" type="button" id="camp-report-refresh">Refresh reports</button></div>
+    ${campaignReportError ? `<p class="notice" style="color:var(--bad)">${esc(campaignReportError)}</p>` : ''}
+    ${(d.campaign_drafts || []).length ? `<div class="grid clients-grid" style="margin-top:10px">${campaignDraftCards}</div>` : '<p class="small muted">No campaign drafts yet.</p>'}
+    ${(campaignReport.campaigns || []).length ? `<details style="margin-top:10px"><summary>Meta campaigns from Ads Manager (${campaignReport.campaigns.length})</summary><div class="card"><ul class="list">${campaignReport.campaigns.map(campaign =>
+      `<li><span style="flex:1"><b>${esc(campaign.campaignName || campaign.platformCampaignId || 'Campaign')}</b><span class="muted"> · ${esc(campaign.status || '')} · ${esc(campaign.currency || '')}</span><div class="small muted">Spend ${fmt(campaign.metrics?.spend || 0)} · ${fmt(campaign.metrics?.impressions || 0)} impressions · ${fmt(campaign.metrics?.clicks || 0)} clicks</div></span></li>`).join('')}</ul></div></details>` : ''}
+  </section>`;
+  const platformForPost = post => {
+    const platform = String(post.platform || '').toLowerCase();
+    return platform === 'tiktok' ? 'tiktok' : ['facebook', 'instagram'].includes(platform) ? 'meta' : '';
+  };
+  const cards = d.posts.map(post => {
+    const platform = platformForPost(post);
+    const connection = d.ads_connections.find(a => a.platform === (platform === 'meta' ? 'metaads' : 'tiktokads'));
+    const existing = d.boosts.find(b => b.post_id === post.id && b.platform === platform
+      && ['pending', 'created', 'unknown'].includes(b.status));
+    const tiktokIdentityMatches = platform !== 'tiktok' || (post.tiktok_posting_account_id
+      && (!connection?.parent_account_id || connection.parent_account_id === post.tiktok_posting_account_id));
+    const canBoost = platform && connection && tiktokIdentityMatches && (connection.ad_accounts || []).some(a => a.selected)
+      && d.can_manage && !existing;
+    return `<article class="card">
+      <div class="row" style="gap:8px;align-items:flex-start"><span class="pill">${esc(post.platform || '')}</span><b style="flex:1">${esc(short(post.hook || post.caption || 'Published post', 100))}</b></div>
+      <p class="muted small" style="margin:8px 0">${esc(post.handle || '')} · ${esc(String(post.post_date || '').slice(0, 10))} · ${fmt(post.views || 0)} views · ${fmt(post.comments || 0)} comments</p>
+      ${existing ? `<p class="small">${existing.status === 'created' ? 'Boost submitted' : existing.status === 'unknown' ? 'Submission needs confirmation' : 'Submission in progress'}${existing.error ? ` · ${esc(existing.error)}` : ''}</p>
+        ${existing.status === 'unknown' && d.can_manage ? `<button class="btn sm" data-boost-retry="${existing.id}">Retry safely</button>` : ''}`
+        : canBoost ? `<button class="btn primary" type="button" data-boost-post="${post.id}" data-boost-platform="${platform}">Boost on ${platform === 'meta' ? 'Meta' : 'TikTok'}</button>`
+          : `<span class="muted small">${!platform ? 'This network is not supported in this first release.' : !connection ? `Connect ${platform === 'meta' ? 'Meta' : 'TikTok'} Ads above to boost.` : !d.can_manage ? 'Ask a workspace admin to launch ads.' : !tiktokIdentityMatches ? 'This post belongs to a different TikTok identity than the one linked to TikTok Ads.' : 'No selected ad account is available.'}</span>`}
+    </article>`;
+  }).join('');
+  app.innerHTML = `<div class="page-head"><div><div class="eyebrow">PAID PROMOTION</div><h1>Ads</h1>
+    <div class="sub">Boost published winners as Meta or TikTok ads. Your ad account pays the platform directly.</div></div></div>
+    ${connectNotice}
+    ${!d.configured ? '<div class="notice" style="margin-bottom:12px">Managed publishing and Ads are not configured on this server yet. Ask the platform admin to set up Zernio.</div>' : ''}
+    <p class="small muted">Submitting a boost creates an ad immediately; actual delivery may wait for platform review. Set a daily budget and an end date; the confirmation shows the estimated scheduled budget. Actual charges and delivery are controlled by Meta or TikTok. For now, pause or edit a live boost in that platform’s Ads Manager.</p>
+    <div class="grid clients-grid" style="margin:12px 0 20px">${connectCard('meta')}${connectCard('tiktok')}</div>
+    ${campaignBuilder}
+    <div class="row" style="justify-content:space-between;margin:16px 0 8px"><h2 style="margin:0">Published posts to boost</h2><button class="btn sm" id="ads-refresh">Refresh</button></div>
+    ${cards ? `<div class="grid clients-grid">${cards}</div>` : '<div class="empty card"><h2>No boostable posts yet</h2><p>Sync a published TikTok, Instagram, or Facebook post first. The post must have its platform ID in Hooks.</p></div>'}
+    <div class="row" style="justify-content:space-between;margin:24px 0 8px"><h2 style="margin:0">Recent boosts</h2></div>
+    ${d.boosts.length ? `<div class="card"><ul class="list">${d.boosts.map(b => `<li><span style="flex:1;min-width:0"><b>${esc(b.campaign_name)}</b>
+      <span class="muted"> · ${esc(names[b.platform === 'meta' ? 'metaads' : 'tiktokads'])} · ${esc(String(b.daily_budget))}/day for ${b.duration_days} days · ${esc(b.status)}</span>
+      ${b.error ? `<div class="small" style="color:var(--bad)">${esc(b.error)}</div>` : ''}</span>
+      ${b.status === 'unknown' && d.can_manage ? `<button class="btn sm" data-boost-retry="${b.id}">Retry safely</button>` : ''}</li>`).join('')}</ul></div>`
+      : '<p class="small muted">Boost submissions will appear here.</p>'}`;
+
+  $('#ads-refresh', app).onclick = () => route();
+  const mediaSelect = $('#camp-media', app);
+  const uploadInput = $('#camp-upload', app);
+  const uploadNote = $('#camp-upload-note', app);
+  const interestList = $('#camp-interests', app);
+  const renderSelectedInterests = () => {
+    const selected = state.campaignInterests || [];
+    interestList.innerHTML = selected.length
+      ? selected.map(item => `<button class="pill" type="button" data-camp-interest-remove="${esc(item.id)}">${esc(item.name)} ×</button>`).join(' ')
+      : 'No interests selected.';
+  };
+  if ($('#camp-end-date', app)) {
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    $('#camp-end-date', app).min = tomorrow;
+    if (!$('#camp-end-date', app).value) $('#camp-end-date', app).value = tomorrow;
+  }
+  if ($('#camp-account', app)) {
+    $('#camp-account', app).onchange = () => {
+      const selected = metaAdAccounts.find(item => item.id === $('#camp-account', app).value);
+      $('#camp-currency', app).textContent = selected && selected.currency || 'account currency';
+      $('#camp-pixel', app).innerHTML = '<option value="">No pixel</option>';
+    };
+  }
+  if (mediaSelect) mediaSelect.onchange = () => {
+    const option = mediaSelect.selectedOptions[0];
+    if ($('#camp-objective', app).value === 'video_views' && option?.dataset.kind !== 'video') {
+      $('#camp-objective', app).value = 'traffic';
+    }
+  };
+  if (uploadInput) uploadInput.onchange = guard(async () => {
+    const file = uploadInput.files && uploadInput.files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    uploadNote.textContent = 'Uploading creative…';
+    try {
+      const asset = await api('POST', '/api/ads/assets/upload', form);
+      state.campaignAssetId = asset.id;
+      state.campaignDraftId = null;
+      state.campaignInterests = [];
+      toast('Campaign media uploaded');
+      await pages.ads(app);
+    } finally {
+      if (uploadNote.isConnected) uploadNote.textContent = '';
+    }
+  });
+  if ($('#camp-load-pixels', app)) $('#camp-load-pixels', app).onclick = guard(async button => {
+    const accountId = $('#camp-account', app).value;
+    if (!accountId || !metaConnection) { toast('Connect Meta Ads and choose an ad account first.', true); return; }
+    busy($('#camp-load-pixels', app), true, 'Loading…');
+    try {
+      const result = await api('GET', `/api/ads/pixels?ad_connection_id=${encodeURIComponent(metaConnection.id)}&ad_account_id=${encodeURIComponent(accountId)}`);
+      $('#camp-pixel', app).innerHTML = `<option value="">No pixel</option>${(result.pixels || []).map(pixel =>
+        `<option value="${esc(pixel.id)}">${esc(pixel.name || pixel.id)}${pixel.status ? ` · ${esc(pixel.status)}` : ''}</option>`).join('')}`;
+      if (!result.pixels?.length) toast('No Meta pixels were found for this ad account.');
+    } finally { busy($('#camp-load-pixels', app), false); }
+  });
+  if ($('#camp-interest-button', app)) $('#camp-interest-button', app).onclick = guard(async () => {
+    if (!metaConnection) { toast('Connect Meta Ads first.', true); return; }
+    const query = $('#camp-interest-search', app).value.trim();
+    if (query.length < 2) { toast('Enter at least two characters to search interests.', true); return; }
+    const button = $('#camp-interest-button', app);
+    busy(button, true, 'Searching…');
+    try {
+      const result = await api('GET', `/api/ads/targeting-search?q=${encodeURIComponent(query)}&dimension=interest&ad_connection_id=${encodeURIComponent(metaConnection.id)}`);
+      $('#camp-interest-results', app).innerHTML = (result.results || []).map(item =>
+        `<button class="btn sm" type="button" data-camp-interest-id="${esc(item.id)}" data-camp-interest-name="${esc(item.name)}">${esc(item.name)}</button>`).join(' ')
+        || '<span class="muted">No matching interests found.</span>';
+      $$('[data-camp-interest-id]', app).forEach(item => item.onclick = () => {
+        state.campaignInterests = state.campaignInterests || [];
+        if (!state.campaignInterests.some(selected => selected.id === item.dataset.campInterestId)) {
+          state.campaignInterests.push({ id: item.dataset.campInterestId, name: item.dataset.campInterestName });
+        }
+        renderSelectedInterests();
+      });
+    } finally { busy(button, false); }
+  });
+  if (interestList) interestList.onclick = event => {
+    const button = event.target.closest('[data-camp-interest-remove]');
+    if (!button) return;
+    state.campaignInterests = (state.campaignInterests || []).filter(item => item.id !== button.dataset.campInterestRemove);
+    renderSelectedInterests();
+  };
+  if ($('#campaign-builder-form', app)) {
+    const form = $('#campaign-builder-form', app);
+    form.onsubmit = guard(async event => {
+      event.preventDefault();
+      const mediaChoice = mediaSelect.value.split(':');
+      const dailyBudget = Number($('#camp-budget', app).value);
+      const values = {
+        ad_connection_id: metaConnection && metaConnection.id || '',
+        ad_account_id: $('#camp-account', app).value,
+        campaign_name: $('#camp-name', app).value.trim(),
+        objective: $('#camp-objective', app).value,
+        daily_budget: dailyBudget,
+        end_date: $('#camp-end-date', app).value,
+        creative_type: mediaSelect.selectedOptions[0]?.dataset.kind || '',
+        media_asset_id: mediaChoice[0] === 'asset' ? Number(mediaChoice[1]) : null,
+        post_id: mediaChoice[0] === 'post' ? Number(mediaChoice[1]) : null,
+        headline: $('#camp-headline', app).value.trim(),
+        body: $('#camp-body', app).value.trim(),
+        link_url: $('#camp-link', app).value.trim(),
+        call_to_action: $('#camp-cta', app).value,
+        countries: $('#camp-countries', app).value.split(',').map(country => country.trim().toUpperCase()).filter(Boolean),
+        age_min: Number($('#camp-age-min', app).value),
+        age_max: Number($('#camp-age-max', app).value),
+        gender: $('#camp-gender', app).value,
+        interests: state.campaignInterests || [],
+        placement_platforms: $$('input[name="camp-placement"]:checked', app).map(input => input.value),
+        special_ad_categories: $$('input[name="camp-category"]:checked', app).map(input => input.value),
+        pixel_id: $('#camp-pixel', app).value,
+        conversion_event: $('#camp-event', app).value,
+        url_tags: $('#camp-url-tags', app).value.trim(),
+      };
+      if (!Number.isFinite(dailyBudget) || dailyBudget <= 0) { toast('Enter a valid daily budget.', true); return; }
+      if (values.objective === 'video_views' && values.creative_type !== 'video') {
+        toast('Choose a video creative for a video views campaign.', true); return;
+      }
+      const button = $('#camp-save', app);
+      busy(button, true, 'Saving…');
+      try {
+        if (state.campaignDraftId) await api('PUT', `/api/ads/drafts/${state.campaignDraftId}`, values);
+        else await api('POST', '/api/ads/drafts', values);
+        toast('Campaign draft saved');
+        state.campaignDraftId = null;
+        state.campaignAssetId = null;
+        state.campaignInterests = [];
+        await pages.ads(app);
+      } finally { if (button.isConnected) busy(button, false); }
+    });
+  }
+  $$('[data-campaign-edit]', app).forEach(button => button.onclick = () => {
+    const draft = d.campaign_drafts.find(item => item.id === Number(button.dataset.campaignEdit));
+    if (!draft) return;
+    const values = draft.draft_json || {};
+    state.campaignDraftId = draft.id;
+    state.campaignInterests = values.interests || [];
+    state.campaignAssetId = values.media_asset_id;
+    if ($('#camp-account', app)) $('#camp-account', app).value = values.ad_account_id;
+    if ($('#camp-name', app)) $('#camp-name', app).value = values.campaign_name || '';
+    if ($('#camp-objective', app)) $('#camp-objective', app).value = values.objective || 'traffic';
+    if ($('#camp-budget', app)) $('#camp-budget', app).value = values.daily_budget || '';
+    if ($('#camp-end-date', app)) $('#camp-end-date', app).value = values.end_date || '';
+    if (mediaSelect) mediaSelect.value = values.media_asset_id ? `asset:${values.media_asset_id}` : `post:${values.post_id}`;
+    if ($('#camp-headline', app)) $('#camp-headline', app).value = values.headline || '';
+    if ($('#camp-body', app)) $('#camp-body', app).value = values.body || '';
+    if ($('#camp-link', app)) $('#camp-link', app).value = values.link_url || '';
+    if ($('#camp-cta', app)) $('#camp-cta', app).value = values.call_to_action || 'LEARN_MORE';
+    if ($('#camp-countries', app)) $('#camp-countries', app).value = (values.countries || []).join(', ');
+    if ($('#camp-age-min', app)) $('#camp-age-min', app).value = values.age_min || 18;
+    if ($('#camp-age-max', app)) $('#camp-age-max', app).value = values.age_max || 65;
+    if ($('#camp-gender', app)) $('#camp-gender', app).value = values.gender || 'all';
+    if ($('#camp-url-tags', app)) $('#camp-url-tags', app).value = values.url_tags || '';
+    if ($('#camp-pixel', app) && values.pixel_id) {
+      $('#camp-pixel', app).innerHTML = `<option value="${esc(values.pixel_id)}" selected>${esc(values.pixel_id)}</option>`;
+    }
+    if ($('#camp-event', app)) $('#camp-event', app).value = values.conversion_event || 'PURCHASE';
+    $$('input[name="camp-placement"]', app).forEach(input => { input.checked = (values.placement_platforms || []).includes(input.value); });
+    $$('input[name="camp-category"]', app).forEach(input => { input.checked = (values.special_ad_categories || []).includes(input.value); });
+    renderSelectedInterests();
+    $('#camp-save', app).textContent = 'Update campaign draft';
+    $('#campaign-builder-form', app).scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  $$('[data-campaign-delete]', app).forEach(button => button.onclick = guard(async () => {
+    if (!await askConfirm('Delete this unsent campaign draft?', { title: 'Delete draft', ok: 'Delete', danger: true })) return;
+    await api('DELETE', `/api/ads/drafts/${button.dataset.campaignDelete}`);
+    toast('Campaign draft deleted');
+    await pages.ads(app);
+  }));
+  $$('[data-campaign-create]', app).forEach(button => button.onclick = guard(async () => {
+    if (!await askConfirm('Create this campaign in Meta as PAUSED? It will not deliver or spend until you separately choose Launch.', {
+      title: 'Create paused campaign', ok: 'Create paused', danger: false,
+    })) return;
+    busy(button, true, 'Creating…');
+    try {
+      await api('POST', `/api/ads/drafts/${button.dataset.campaignCreate}/create`);
+      toast('Campaign created paused in Meta. Review it, then choose Launch when ready.');
+    } finally { await pages.ads(app); }
+  }));
+  $$('[data-campaign-retry]', app).forEach(button => button.onclick = guard(async () => {
+    if (!await askConfirm('Retry the exact saved request with the same idempotency key? The provider key is time-limited.', {
+      title: 'Retry campaign safely', ok: 'Retry', danger: false,
+    })) return;
+    busy(button, true, 'Checking…');
+    try {
+      await api('POST', `/api/ads/drafts/${button.dataset.campaignRetry}/retry`);
+      toast('Campaign create confirmed. It remains paused until you launch it.');
+    } finally { await pages.ads(app); }
+  }));
+  $$('[data-campaign-status]', app).forEach(button => button.onclick = guard(async () => {
+    const nextStatus = button.dataset.status;
+    const title = nextStatus === 'active' ? 'Launch Meta campaign' : 'Pause Meta campaign';
+    const message = nextStatus === 'active'
+      ? 'Activate this campaign? Meta will review it and, when approved, spend from the selected ad account up to your daily budget.'
+      : 'Pause this campaign? Meta will stop delivery for this campaign.';
+    if (!await askConfirm(message, { title, ok: nextStatus === 'active' ? 'Launch campaign' : 'Pause campaign', danger: nextStatus === 'active' })) return;
+    busy(button, true, nextStatus === 'active' ? 'Launching…' : 'Pausing…');
+    try {
+      await api('PUT', `/api/ads/drafts/${button.dataset.campaignStatus}/status`, { status: nextStatus });
+      toast(nextStatus === 'active' ? 'Campaign activated in Meta; delivery waits for Meta review.' : 'Campaign paused in Meta.');
+    } finally { await pages.ads(app); }
+  }));
+  if ($('#camp-report-refresh', app)) $('#camp-report-refresh', app).onclick = () => pages.ads(app);
+  $$('[data-ads-connect]', app).forEach(button => button.onclick = guard(async () => {
+    const platform = button.dataset.adsConnect;
+    const postingAccountId = $(`#ads-parent-${platform}`, app).value;
+    busy(button, true, 'Opening…');
+    try {
+      const result = await api('POST', '/api/ads/connect', { platform, posting_account_id: postingAccountId });
+      if (result.already_connected) { toast('Ads account already connected'); route(); return; }
+      location.href = result.auth_url;
+    } finally { busy(button, false); }
+  }));
+  const openBoost = async (postId, platform) => {
+    const post = d.posts.find(item => item.id === Number(postId));
+    const connection = d.ads_connections.find(item => item.platform === (platform === 'meta' ? 'metaads' : 'tiktokads'));
+    const adAccounts = (connection && connection.ad_accounts || []).filter(account => account.selected);
+    if (!post || !adAccounts.length) { toast('No selected ad account is available.', true); return; }
+    const title = short(post.hook || post.caption || 'Published post', 70);
+    const currency = adAccounts[0].currency || 'account currency';
+    const videoPost = ['short_video', 'long_video'].includes(post.content_type);
+    const m = openModal(`<h2>Boost this post</h2>
+      <p class="muted">${esc(title)} · ${esc(post.platform)}</p>
+      <div class="notice" style="margin:10px 0">This submits a paid ad campaign immediately. Delivery may wait for platform review. It will run for the selected number of days at the daily budget below. HookTrack does not fund or bill ad spend.</div>
+      <label class="small muted" for="boost-campaign-name">Campaign name</label>
+      <input id="boost-campaign-name" maxlength="100" value="${esc(short(title, 80))}" style="width:100%;margin:4px 0 10px">
+      <label class="small muted" for="boost-ad-account">Ad account</label>
+      <select id="boost-ad-account" style="width:100%;margin:4px 0 10px">${adAccounts.map(account =>
+        `<option value="${esc(account.id)}">${esc(account.name)}${account.currency ? ` · ${esc(account.currency)}` : ''}</option>`).join('')}</select>
+      <label class="small muted" for="boost-budget">Daily budget (<span id="boost-currency">${esc(currency)}</span>)</label>
+      <input id="boost-budget" type="number" min="0.01" step="0.01" required style="width:100%;margin:4px 0 10px">
+      <label class="small muted" for="boost-duration">Run for</label>
+      <select id="boost-duration" style="width:100%;margin:4px 0 10px">${[1, 3, 7, 14, 30].map(days =>
+        `<option value="${days}" ${days === 7 ? 'selected' : ''}>${days} day${days === 1 ? '' : 's'}</option>`).join('')}</select>
+      <label class="small muted" for="boost-goal">Campaign goal</label>
+      <select id="boost-goal" style="width:100%;margin:4px 0 10px">${videoPost ? '<option value="video_views">Video views</option>' : ''}<option value="awareness" ${videoPost ? '' : 'selected'}>Awareness</option><option value="engagement">Engagement</option></select>
+      <fieldset style="margin:4px 0 10px"><legend class="small muted">Special ad category (if applicable)</legend>
+        ${['HOUSING', 'EMPLOYMENT', 'CREDIT', ...(platform === 'meta' ? ['SOCIAL_ISSUES_ELECTIONS_POLITICS'] : [])].map(category =>
+          `<label class="check"><input type="checkbox" name="boost-category" value="${category}"> ${category.replaceAll('_', ' ').toLowerCase()}</label>`).join('')}
+      </fieldset>
+      <p class="small muted">An end date is set automatically from the selected duration. You can pause or edit the live ad in ${platform === 'meta' ? 'Meta' : 'TikTok'} Ads Manager.</p>
+      <div class="actions"><span class="spacer"></span><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" id="boost-submit" type="button">Start paid boost</button></div>`);
+    $('#boost-ad-account', m).onchange = () => {
+      const selected = adAccounts.find(account => account.id === $('#boost-ad-account', m).value);
+      $('#boost-currency', m).textContent = selected && selected.currency || 'account currency';
+    };
+    const submit = $('#boost-submit', m);
+    submit.onclick = guard(async () => {
+      const dailyBudget = Number($('#boost-budget', m).value);
+      const durationDays = Number($('#boost-duration', m).value);
+      const campaignName = $('#boost-campaign-name', m).value.trim();
+      if (!Number.isFinite(dailyBudget) || dailyBudget <= 0 || !campaignName) {
+        toast('Enter a campaign name and a valid daily budget.', true);
+        return;
+      }
+      const total = dailyBudget * durationDays;
+      const selected = adAccounts.find(account => account.id === $('#boost-ad-account', m).value);
+      const selectedCurrency = selected && selected.currency || 'account currency';
+      if (!await askConfirm(`Start this ${platform === 'meta' ? 'Meta' : 'TikTok'} boost now?\n\nDaily budget: ${dailyBudget.toFixed(2)} ${selectedCurrency}\nEstimated scheduled budget: ${total.toFixed(2)} ${selectedCurrency} over ${durationDays} day${durationDays === 1 ? '' : 's'}.\n\nThe ad platform charges the connected ad account.`, { title: 'Confirm paid ad', ok: 'Start ad', danger: false })) return;
+      busy(submit, true, 'Submitting…');
+      try {
+        const result = await api('POST', '/api/ads/boost', {
+          post_id: post.id, platform, ad_connection_id: connection.id, ad_account_id: $('#boost-ad-account', m).value,
+          campaign_name: campaignName, daily_budget: dailyBudget, duration_days: durationDays,
+          goal: $('#boost-goal', m).value,
+          special_ad_categories: $$('input[name="boost-category"]:checked', m).map(input => input.value),
+        });
+        m.close();
+        toast(`Boost submitted: ${result.campaign_name}`);
+      } finally {
+        await pages.ads(app);
+      }
+    });
+  };
+  $$('[data-boost-post]', app).forEach(button => button.onclick = () => openBoost(button.dataset.boostPost, button.dataset.boostPlatform));
+  $$('[data-boost-retry]', app).forEach(button => button.onclick = guard(async () => {
+    if (!await askConfirm('The previous provider response was not confirmed. Retry with the same idempotency key and request so it cannot create a duplicate?', { title: 'Retry boost safely', ok: 'Retry', danger: false })) return;
+    busy(button, true, 'Checking…');
+    try {
+      const result = await api('POST', `/api/ads/boost/${button.dataset.boostRetry}/retry`);
+      toast(`Boost confirmed: ${result.campaign_name}`);
+    } finally { await pages.ads(app); }
+  }));
 };
 
 pages.clients = async app => {

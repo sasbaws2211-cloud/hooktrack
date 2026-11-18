@@ -65,14 +65,23 @@ def _headers() -> dict:
             "User-Agent": "HookTrack-Publish/1.0"}
 
 
-def _call(method: str, path: str, **kw) -> dict:
+def _call(method: str, path: str, *, idempotency_key: str = "", timeout: float = 30.0, **kw) -> dict:
     if not available():
         raise LateHubError("Publishing is not set up on this server yet.")
-    with httpx.Client(timeout=30.0) as c:
-        r = c.request(method, f"{base_url()}{path}", headers=_headers(), **kw)
+    headers = _headers()
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
+    try:
+        with httpx.Client(timeout=timeout) as c:
+            r = c.request(method, f"{base_url()}{path}", headers=headers, **kw)
+    except httpx.HTTPError as error:
+        raise LateHubError(f"Could not reach Zernio: {error}") from error
     if r.status_code >= 400:
         raise LateHubError(f"Late error {r.status_code}: {r.text[:200]}", r.status_code)
-    return r.json() if r.content else {}
+    try:
+        return r.json() if r.content else {}
+    except ValueError as error:
+        raise LateHubError("Zernio returned an invalid response.") from error
 
 
 def ensure_profile(ws: int) -> str:
@@ -98,8 +107,8 @@ def ensure_profile(ws: int) -> str:
     return pid
 
 
-def accounts(ws: int) -> list[dict]:
-    """The social accounts connected under this workspace's profile only."""
+def _profile_accounts(ws: int) -> list[dict]:
+    """All active social accounts under this workspace's Zernio profile."""
     pid = ensure_profile(ws)
     data = _call("GET", "/accounts", params={"profileId": pid})
     items = data.get("accounts") if isinstance(data, dict) else data
@@ -113,9 +122,96 @@ def accounts(ws: int) -> list[dict]:
         prof_id = str(prof.get("_id") if isinstance(prof, dict) else prof or "")
         if prof_id != pid or a.get("isActive") is False:      # never trust the filter alone
             continue
+        parent = a.get("parentAccountId")
+        parent_id = str(parent.get("_id") if isinstance(parent, dict) else parent or "")
         out.append({"id": str(a.get("_id") or a.get("id") or ""), "platform": str(a.get("platform") or "").lower(),
-                    "username": a.get("username") or "", "display_name": a.get("displayName") or ""})
+                    "username": a.get("username") or "", "display_name": a.get("displayName") or "",
+                    "parent_account_id": parent_id})
     return [a for a in out if a["id"] and a["id"] not in gone]
+
+
+def accounts(ws: int) -> list[dict]:
+    """The publishing accounts connected under this workspace's profile only."""
+    return [a for a in _profile_accounts(ws) if a["platform"] not in ("metaads", "tiktokads")]
+
+
+def ads_connections(ws: int) -> list[dict]:
+    """The Meta and TikTok Ads connections connected under this workspace's profile only."""
+    return [a for a in _profile_accounts(ws) if a["platform"] in ("metaads", "tiktokads")]
+
+
+def ad_accounts(connection_id: str) -> list[dict]:
+    """List only ad accounts usable by one verified ads connection."""
+    data = _call("GET", "/ads/accounts", params={"accountId": connection_id, "inScopeOnly": "true"})
+    items = data.get("adAccounts") or data.get("accounts") or data.get("data") or []
+    if not isinstance(items, list):
+        raise LateHubError("Zernio returned an invalid ad-account list.")
+    out = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        account_id = str(item.get("adAccountId") or item.get("id") or item.get("_id") or "")
+        if not account_id:
+            continue
+        out.append({
+            "id": account_id,
+            "name": str(item.get("name") or item.get("displayName") or account_id)[:160],
+            "currency": str(item.get("currency") or ""),
+            "selected": item.get("selected") is not False,
+        })
+    return out
+
+
+def connect_ads_url(ws: int, platform: str, redirect_url: str, posting_account_id: str) -> dict:
+    """Start a workspace-scoped Meta or TikTok Ads authorization."""
+    if platform not in ("meta", "tiktok"):
+        raise LateHubError("Choose Meta or TikTok Ads.")
+    posting = {a["id"]: a for a in accounts(ws)}
+    selected = posting.get(posting_account_id)
+    if not selected:
+        raise LateHubError("Choose a publishing account connected to this workspace.", 404)
+    allowed = ("facebook", "instagram") if platform == "meta" else ("tiktok",)
+    if selected["platform"] not in allowed:
+        raise LateHubError("The selected publishing account does not match this ads platform.", 400)
+    provider_platform = selected["platform"] if platform == "meta" else "tiktok"
+    data = _call("GET", f"/connect/{provider_platform}/ads", params={
+        "profileId": ensure_profile(ws),
+        "accountId": posting_account_id,
+        "redirect_url": redirect_url,
+    })
+    auth_url = data.get("authUrl") or ""
+    if not data.get("alreadyConnected") and (not isinstance(auth_url, str) or not auth_url.startswith("https://")):
+        raise LateHubError("Zernio did not return a valid Ads authorization link.")
+    return {"auth_url": auth_url, "already_connected": bool(data.get("alreadyConnected"))}
+
+
+def boost_post(body: dict, idempotency_key: str) -> dict:
+    return _call("POST", "/ads/boost", json=body, idempotency_key=idempotency_key, timeout=300.0)
+
+
+def create_standalone_ad(body: dict, idempotency_key: str) -> dict:
+    return _call("POST", "/ads/create", json=body, idempotency_key=idempotency_key, timeout=750.0)
+
+
+def update_ad_campaign_status(campaign_id: str, status: str) -> dict:
+    return _call("PUT", f"/ads/campaigns/{campaign_id}/status",
+                 json={"status": status, "platform": "facebook"}, timeout=60.0)
+
+
+def ad_campaign_tree(params: dict) -> dict:
+    return _call("GET", "/ads/tree", params=params, timeout=90.0)
+
+
+def ad_targeting_search(params: dict) -> dict:
+    return _call("GET", "/ads/targeting/search", params=params, timeout=30.0)
+
+
+def ad_tracking_tags(account_id: str, ad_account_id: str) -> list[dict]:
+    data = _call("GET", f"/accounts/{account_id}/tracking-tags", params={"adAccountId": ad_account_id})
+    tags = data.get("tags") if isinstance(data, dict) else None
+    if not isinstance(tags, list):
+        raise LateHubError("Zernio returned an invalid Meta pixel list.")
+    return [tag for tag in tags if isinstance(tag, dict) and tag.get("kind") == "pixel"]
 
 
 def disconnect(ws: int, account_id: str) -> dict:

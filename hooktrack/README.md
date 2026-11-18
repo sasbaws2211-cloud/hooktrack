@@ -341,6 +341,26 @@ For customers who do not bring their own provider key. The platform admin sets *
 - **Not built yet:** disconnecting an account from inside HookTrack, a per-plan monthly post cap, and surfacing Late's own per-profile plan limit before it is hit (a full plan returns "no room for another customer profile").
 - Late's API base is `https://zernio.com/api/v1` (override with `HOOKTRACK_LATE_BASE_URL`).
 
+### Boosting posts with Meta and TikTok Ads
+
+The Ads page supports boosting an already-published, synced TikTok, Instagram, or Facebook post. Each workspace authorizes its own Meta Ads and/or TikTok Ads connection through the managed Zernio profile. Connecting a normal publishing account does not by itself grant ad-management access; TikTok Spark Ads also need the Ads connection linked to the publishing account that owns the video.
+
+- Only workspace owners/admins can connect ad accounts or start boosts. The user must explicitly confirm each paid campaign, choose a daily budget and an end date (1–30 days), and select any applicable special-ad category.
+- HookTrack asks Zernio to promote the original platform post to preserve its social proof. Media spend is charged by Meta or TikTok to the selected ad account, not to HookTrack; HookTrack does not set up ad billing or guarantee delivery.
+- Submitting a boost creates the ad immediately, but actual delivery may wait for platform review. Boosts cannot yet be paused or edited in HookTrack; use the relevant platform's Ads Manager for that. Failed or uncertain submissions are recorded, and uncertain ones can be retried with the same Zernio idempotency key.
+- Zernio's API and ads plan must be enabled for the platform-managed key. Zernio may apply its own ads add-on and active-ad charges; those are separate from HookTrack subscriptions and the ad account's media budget.
+- The provider API must be configured by the platform operator; no live campaigns are launched during setup or deployment.
+
+### Meta campaign builder
+
+Only workspace owners/admins can create campaigns. The Meta builder supports daily budget and an end date, country/age/gender and interest targeting, automatic or selected publisher placements, special ad categories, URL tags and pixel tracking. Conversion campaigns require a selected Meta pixel and event.
+
+Campaign drafts can use an uploaded JPEG, PNG, MP4 or MOV or existing media attached to a published workspace post. Creating the campaign sends it to Meta paused; a separate explicit Launch action activates it. Pausing an active builder-created campaign is also available in HookTrack. Uploaded media is served to Zernio through a signed link, so `HOOKTRACK_PUBLIC_URL` must be a publicly reachable HTTPS address.
+
+The Ads page also supports boosting an already-published, synced TikTok, Instagram or Facebook post. HookTrack asks Zernio to promote the original platform post to preserve its social proof. Boosts start immediately after confirmation; unlike builder-created campaigns, they cannot yet be paused or edited in HookTrack. Media spend is charged by Meta or TikTok to the selected ad account, not to HookTrack; Meta may review ads before delivery. Zernio usage/add-on charges are separate from HookTrack subscriptions and ad account media spend.
+
+Campaign creates use a saved Zernio idempotency key. Uncertain creates can be retried safely during the provider's idempotency window; after that, check Meta Ads Manager before retrying. Campaign status and performance are read from Zernio's campaign tree API.
+
 ### Responsive layout
 
 One set of header breakpoints (`static/app.css`, "responsive header"): above 1100 px brand, the six links and the tools share one row; from 1100 px down the links take their own full-width row of six equal cells; at 560 px and below they become two rows of three with larger tap targets, the tools fill the row above and the workspace picker spans the full width. Grid and flex children can shrink (`min-width: 0`), long words wrap, and media is capped to its container, so no page scrolls sideways at 320 px (checked on Dashboard, Accounts, Hooks, Posts, Calendar, Inspiration, Settings, Billing, Today and Views).
