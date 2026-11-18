@@ -1,4 +1,4 @@
-import { ALL_FORMATS, AudioBufferSink, BlobSource, Input } from 'mediabunny';
+import { ALL_FORMATS, AudioSampleSink, BlobSource, Input } from 'mediabunny';
 
 const MODEL = 'onnx-community/whisper-tiny';
 const SAMPLE_RATE = 16000;
@@ -72,26 +72,33 @@ async function extractAudio(blob, clip, requestId) {
     const duration = Math.min(requestedDuration, Math.max(0, sourceDuration - trim) / speed);
     const end = Math.min(sourceDuration, trim + duration * speed);
     const samples = new Float32Array(Math.ceil(duration * SAMPLE_RATE));
-    const sink = new AudioBufferSink(track);
+    const sink = new AudioSampleSink(track);
     let receivedSamples = 0;
-    for await (const wrapped of sink.buffers(trim, end)) {
-      const { buffer, timestamp } = wrapped;
-      const sampleRate = buffer.sampleRate;
-      const channels = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i));
-      const outStart = Math.max(0, Math.round(((timestamp - trim) / speed) * SAMPLE_RATE));
-      const outEnd = Math.min(samples.length, Math.ceil(outStart + buffer.length * SAMPLE_RATE / (sampleRate * speed)));
-      for (let outIndex = outStart; outIndex < outEnd; outIndex++) {
-        const sourceFrame = (outIndex / SAMPLE_RATE * speed + trim - timestamp) * sampleRate;
-        const frame = Math.max(0, Math.min(buffer.length - 1, Math.floor(sourceFrame)));
-        const nextFrame = Math.min(buffer.length - 1, frame + 1);
-        const fraction = Math.max(0, Math.min(1, sourceFrame - frame));
-        let mono = 0;
-        for (const channel of channels) {
-          mono += channel[frame] * (1 - fraction) + channel[nextFrame] * fraction;
+    for await (const sample of sink.samples(trim, end)) {
+      try {
+        const channelData = Array.from({ length: sample.numberOfChannels }, (_, channelIndex) => {
+          const plane = new Float32Array(sample.numberOfFrames);
+          sample.copyTo(plane, { planeIndex: channelIndex, format: 'f32-planar' });
+          return plane;
+        });
+        const outStart = Math.max(0, Math.round(((sample.timestamp - trim) / speed) * SAMPLE_RATE));
+        const outEnd = Math.min(samples.length,
+          Math.ceil(outStart + sample.numberOfFrames * SAMPLE_RATE / (sample.sampleRate * speed)));
+        for (let outIndex = outStart; outIndex < outEnd; outIndex++) {
+          const sourceFrame = (outIndex / SAMPLE_RATE * speed + trim - sample.timestamp) * sample.sampleRate;
+          const frame = Math.max(0, Math.min(sample.numberOfFrames - 1, Math.floor(sourceFrame)));
+          const nextFrame = Math.min(sample.numberOfFrames - 1, frame + 1);
+          const fraction = Math.max(0, Math.min(1, sourceFrame - frame));
+          let mono = 0;
+          for (const channel of channelData) {
+            mono += channel[frame] * (1 - fraction) + channel[nextFrame] * fraction;
+          }
+          samples[outIndex] = mono / channelData.length;
         }
-        samples[outIndex] = mono / channels.length;
+        receivedSamples += outEnd - outStart;
+      } finally {
+        sample.close();
       }
-      receivedSamples += outEnd - outStart;
       if (requestId) {
         sendProgress('audio', 'Reading audio on this device…', Math.min(100, receivedSamples / samples.length * 100));
       }

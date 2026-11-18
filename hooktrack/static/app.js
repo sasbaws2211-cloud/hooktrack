@@ -3500,7 +3500,7 @@ pages.studio = async app => {
           if (!mediaResponse.ok) throw new Error(`Could not read the selected video (${mediaResponse.status}).`);
           const blob = await mediaResponse.blob();
           if (cancelled) return;
-          worker = new Worker('/studio-transcriber-worker.js?v=studio-localcaptions2', { type: 'module' });
+          worker = new Worker('/studio-transcriber-worker.js?v=studio-localcaptions3', { type: 'module' });
           worker.onmessage = event => {
             const message = event.data || {};
             if (message.type === 'progress') {
