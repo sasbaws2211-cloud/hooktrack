@@ -373,7 +373,7 @@ function loadBase() {
   return baseInFlight;
 }
 async function loadBaseNow() {
-  [state.accounts, state.phones, state.settings, state.ai, state.sv, state.publish, state.queued, state.clientList, state.shotstack] = await Promise.all([
+  [state.accounts, state.phones, state.settings, state.ai, state.sv, state.publish, state.queued, state.clientList, state.shotstack, state.wavespeed] = await Promise.all([
     api('GET', '/api/accounts'), api('GET', '/api/phones'), api('GET', '/api/settings'),
     api('GET', '/api/ai/status'),
     api('GET', '/api/connectors/sociavault').catch(() => ({ configured: false })),
@@ -381,6 +381,7 @@ async function loadBaseNow() {
     api('GET', '/api/publish/queued-count').catch(() => ({ count: 0 })),
     api('GET', '/api/clients').catch(() => ({ clients: [] })),
     api('GET', '/api/shotstack/status').catch(() => ({ configured: false })),
+    api('GET', '/api/wavespeed/status').catch(() => ({ configured: false })),
   ]);
   state.clients = (state.clientList && state.clientList.clients) || [];
   try {
@@ -1785,7 +1786,8 @@ function postModal(post, defaults, onDone) {
       if (hasFiles(e)) await handleFiles(e.dataTransfer.files);
     }));
   };
-  const studioButtonHtml = () => (post && post.id && !post.external_id && state.shotstack && state.shotstack.configured)
+  const studioButtonHtml = () => (post && post.id && !post.external_id &&
+    ((state.shotstack && state.shotstack.configured) || (state.wavespeed && state.wavespeed.configured)))
     ? `<a class="btn sm" href="#/studio?post=${post.id}" id="studio-open" target="_blank" rel="noopener">✂️ Edit in Studio</a>` : '';
   const imageBlock = () => {
     const el = $('#vidupload', m);
@@ -2861,7 +2863,7 @@ pages.studio = async app => {
               <button class="btn sm" id="studio-add-audio" disabled title="Add audio without needing another clip selected">+ Audio</button>
               <button class="btn sm" id="studio-voiceover" disabled title="Record a voiceover or clean an audio file">Voiceover / clean</button>
               <button class="btn sm" id="studio-add-text" disabled title="Add text without needing another clip selected">+ Text</button>
-              ${state.shotstack && state.shotstack.configured ? '<button class="btn sm" id="studio-add-ai" disabled title="Generate and add a clip">+ AI clip</button>' : ''}
+              ${state.wavespeed && state.wavespeed.configured ? '<button class="btn sm" id="studio-add-ai" disabled title="Generate an image or video with WaveSpeedAI">+ AI clip</button>' : ''}
               <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
               <input type="file" id="studio-audio-upload" accept="audio/mpeg,audio/mp3,audio/mp4,audio/wav,audio/x-wav,audio/aac,audio/ogg" hidden>
               <input type="file" id="studio-clean-audio-upload" accept="audio/*" hidden>
@@ -2902,7 +2904,6 @@ pages.studio = async app => {
           <section class="studio-tool-group studio-tool-group-export" aria-label="Export">
             <div class="studio-tool-label">Export</div>
             <div class="studio-tool-buttons">
-              ${!isImageFormat(post.content_type) && state.shotstack && state.shotstack.configured ? '<button class="btn sm" id="studio-render-cloud" disabled title="Renders on Shotstack servers and uses your account render credits">Cloud render</button>' : ''}
               <button class="btn sm primary" id="studio-finish" disabled ${locked ? `title="Move this card back to Scripted first"` : ''}>${isImageFormat(post.content_type) ? 'Finish images' : 'Finish video'}</button>
             </div>
           </section>
@@ -2995,7 +2996,7 @@ pages.studio = async app => {
             </label>
           </div>
           <p id="studio-export-effects-note" class="studio-effects-note" hidden>
-            Filters, transitions, and motion may not be supported by browser export. Use Cloud render when available.
+            Filters, transitions, and motion may not be supported by browser export.
           </p>
         </section>
         <div class="studio-toolbar-status">
@@ -3059,9 +3060,6 @@ pages.studio = async app => {
   const hasCloudTranscribedCaptions = () => edit.getEdit().timeline.tracks.some(track =>
     (track.clips || []).some(clip => clip.asset && clip.asset.type === 'rich-caption' &&
       typeof clip.asset.src === 'string' && clip.asset.src.startsWith('alias://')));
-  const hasLocalCaptions = () => edit.getEdit().timeline.tracks.some(track =>
-    (track.clips || []).some(clip => clip.asset && clip.asset.type === 'rich-caption' &&
-      typeof clip.asset.src === 'string' && clip.asset.src.startsWith('data:text/vtt')));
   const localCaptionMarker = clip => `hooktrack_local_caption_${clip.id || clip.alias || Math.round(clip.start * 1000)}`;
 
   let edit, canvas, timeline, controls, ui, StudioSdk, draftDirty = !!sessionDraft, draftRevision = sessionDraft ? 1 : 0;
@@ -3319,17 +3317,10 @@ pages.studio = async app => {
       finish.disabled = locked || !canFinish || needsCloudRender;
       finish.title = locked
         ? 'Move this card back to Scripted first'
-        : needsCloudRender ? 'Auto-transcribed captions require Shotstack Cloud render'
+        : needsCloudRender ? 'Remove legacy Shotstack captions before finishing in the browser'
           : canFinish ? '' : isImageFormat(post.content_type)
           ? 'Add at least one image to the timeline before finishing'
           : 'Add content to the timeline before finishing';
-      const cloudRender = $('#studio-render-cloud', app);
-      if (cloudRender) {
-        cloudRender.disabled = locked || !hasContent || hasLocalCaptions();
-        cloudRender.title = hasLocalCaptions()
-          ? 'Local captions are rendered in your browser and cannot be sent to Shotstack Cloud.'
-          : 'Renders on Shotstack servers and uses your account render credits';
-      }
     };
     syncStudioOutputButtons();
     $('#studio-save-draft', app).disabled = false;
@@ -3973,18 +3964,46 @@ pages.studio = async app => {
         syncStudioClipActions();
       }
     });
-    // Studio's own "Generate" toolbar only appears on a clip once a generator is registered - this is
-    // the whole UI, we just resolve the prompt to a real asset. Billed in Shotstack's own generation
-    // credits (separate pool from render credits), same account as the cloud-render path.
+    // Studio's own Generate toolbar delegates the prompt to this provider callback. Image/video
+    // generation is billed to the WaveSpeedAI account configured on the server.
     edit.registerAssetGenerator(async request => {
-      let row = await api('POST', '/api/shotstack/generate',
-        { asset: { type: request.asset.type, prompt: request.asset.prompt, model: request.asset.model, options: request.asset.options },
-          post_id: post.id });
-      while (row.status === 'queued' || row.status === 'processing') {
-        await new Promise(r => setTimeout(r, 1500));
-        row = await api('GET', `/api/shotstack/generate/${row.generation_id}`);
+      let row;
+      if (request.asset.model === 'wavespeed-ai/wan-2.1/i2v-480p') {
+        if (!request.asset.image_src) throw new Error('Choose a source image from the timeline first.');
+        let imageResponse;
+        try { imageResponse = await fetch(request.asset.image_src); }
+        catch (_) { throw new Error('Could not access the selected image. Try an image uploaded to this post.'); }
+        if (!imageResponse.ok) throw new Error('Could not load the selected source image.');
+        const imageBlob = await imageResponse.blob();
+        setStatus('Uploading source image to WaveSpeedAI…');
+        const form = new FormData();
+        form.append('prompt', request.asset.prompt);
+        form.append('negative_prompt', request.asset.negative_prompt || '');
+        form.append('duration', String(request.asset.duration || 5));
+        form.append('size', request.asset.size || '832*480');
+        form.append('post_id', String(post.id));
+        form.append('file', imageBlob, 'studio-source-image');
+        row = await api('POST', '/api/wavespeed/generate-image-to-video', form);
+      } else {
+        row = await api('POST', '/api/wavespeed/generate',
+          { asset: {
+            type: request.asset.type, prompt: request.asset.prompt, model: request.asset.model,
+            duration: request.asset.duration, size: request.asset.size, negative_prompt: request.asset.negative_prompt,
+          },
+            post_id: post.id });
       }
-      if (row.status !== 'done' || !row.output_url) throw new Error(row.error || 'Generation failed.');
+      const predictionId = row.prediction_id;
+      if (!predictionId) throw new Error('WaveSpeedAI did not return a prediction id.');
+      const terminal = new Set(['completed', 'failed', 'cancelled', 'timeout', 'deleted']);
+      const startedAt = Date.now();
+      while (!terminal.has(String(row.status || '').toLowerCase())) {
+        if (Date.now() - startedAt > 10 * 60 * 1000) throw new Error('WaveSpeedAI generation timed out. Check your WaveSpeedAI history before retrying.');
+        await new Promise(r => setTimeout(r, 2000));
+        row = await api('GET', `/api/wavespeed/generate/${encodeURIComponent(predictionId)}`);
+      }
+      if (String(row.status).toLowerCase() !== 'completed' || !row.output_url) {
+        throw new Error(row.error || `WaveSpeedAI generation ended with status "${row.status}".`);
+      }
       return { url: row.output_url };
     });
   } catch (e) {
@@ -4089,39 +4108,87 @@ pages.studio = async app => {
       let settled = false;
       const finish = v => { if (!settled) { settled = true; obs.disconnect(); resolve(v); } };
       const m = openModal(`<h2>Add an AI-generated clip</h2>
-        <p class="small muted" style="margin:6px 0 10px">Shotstack generates the asset from your prompt - billed to your Shotstack account's generation credits.</p>
+        <p class="small muted" style="margin:6px 0 10px">Images and videos are generated by WaveSpeedAI using the API key configured on this server. Generation uses your WaveSpeedAI account credits.</p>
         <label class="small muted">Type</label>
-        <select id="ai-type" style="width:100%;margin-bottom:10px"><option value="image">Image</option><option value="video">Video</option><option value="audio">Audio (text-to-speech)</option></select>
+        <select id="ai-type" style="width:100%;margin-bottom:10px"><option value="image">Image</option><option value="video">Video</option></select>
+        <label class="small muted" id="ai-video-mode-label" hidden>Video generation</label>
+        <select id="ai-video-mode" style="width:100%;margin-bottom:10px" hidden>
+          <option value="text">Text to video</option><option value="image">Animate a timeline image</option>
+        </select>
+        <label class="small muted" id="ai-source-image-label" hidden>Starting image</label>
+        <select id="ai-source-image" style="width:100%;margin-bottom:10px" hidden></select>
+        <div id="ai-video-options" hidden>
+          <label class="small muted">Aspect ratio</label>
+          <select id="ai-video-size" style="width:100%;margin-bottom:10px">
+            <option value="832*480">Landscape · 16:9</option><option value="480*832">Portrait · 9:16</option>
+          </select>
+          <label class="small muted">Duration</label>
+          <select id="ai-video-duration" style="width:100%;margin-bottom:10px">
+            <option value="5">5 seconds</option><option value="10">10 seconds</option>
+          </select>
+          <label class="small muted">Negative prompt <span class="muted">(optional)</span></label>
+          <textarea id="ai-negative-prompt" rows="2" maxlength="1000" style="width:100%;margin-bottom:10px"
+            placeholder="Things to avoid, e.g. blur, jitter, distorted hands"></textarea>
+        </div>
+        <label class="small muted">Model</label>
+        <select id="ai-model" style="width:100%;margin-bottom:10px"></select>
         <label class="small muted">Prompt</label>
         <textarea id="ai-prompt" rows="3" style="width:100%" placeholder="A lighthouse on a rocky coast at sunset, cinematic lighting"></textarea>
         <div class="actions"><span class="spacer"></span><button class="btn" data-close type="button">Cancel</button>
           <button class="btn primary" type="button" id="ai-ok">Add clip</button></div>`);
       const obs = new MutationObserver(() => { if (!document.body.contains(m)) finish(null); });
       obs.observe(document.body, { childList: true, subtree: true });
+      const typeInput = $('#ai-type', m), videoModeInput = $('#ai-video-mode', m);
+      const sourceImageInput = $('#ai-source-image', m), modelInput = $('#ai-model', m);
+      const timelineImages = edit.getEdit().timeline.tracks.flatMap((track, trackIndex) =>
+        (track.clips || []).flatMap((clip, clipIndex) =>
+          clip.asset && clip.asset.type === 'image' && typeof clip.asset.src === 'string' && clip.asset.src
+            ? [{ src: clip.asset.src, start: Number(clip.start) || 0, trackIndex, clipIndex }]
+            : []));
+      const syncModels = () => {
+        const imageToVideo = typeInput.value === 'video' && videoModeInput.value === 'image';
+        const imageGeneration = typeInput.value === 'image';
+        $('#ai-video-options', m).hidden = imageGeneration;
+        $('#ai-video-mode-label', m).hidden = imageGeneration;
+        videoModeInput.hidden = imageGeneration;
+        $('#ai-source-image-label', m).hidden = !imageToVideo;
+        sourceImageInput.hidden = !imageToVideo;
+        sourceImageInput.innerHTML = timelineImages.map((source, index) =>
+          `<option value="${index}">Image · ${source.start.toFixed(1)}s · Track ${source.trackIndex + 1}</option>`).join('');
+        sourceImageInput.disabled = !timelineImages.length;
+        modelInput.innerHTML = (imageGeneration
+        ? [['wavespeed-ai/flux-dev', 'FLUX Dev · image'], ['wavespeed-ai/flux-schnell', 'FLUX Schnell · fast image']]
+        : imageToVideo
+          ? [['wavespeed-ai/wan-2.1/i2v-480p', 'Wan 2.1 · image to video · 480p']]
+          : [['wavespeed-ai/wan-2.1/t2v-480p', 'Wan 2.1 · text to video · 480p']])
+          .map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+      };
+      typeInput.onchange = syncModels;
+      videoModeInput.onchange = syncModels;
+      syncModels();
       $('#ai-ok', m).onclick = () => {
         const prompt = $('#ai-prompt', m).value.trim();
         if (!prompt) { toast('Enter a prompt first', true); return; }
-        finish({ type: $('#ai-type', m).value, prompt });
+        const source = videoModeInput.value === 'image' ? timelineImages[Number(sourceImageInput.value)] : null;
+        if (typeInput.value === 'video' && videoModeInput.value === 'image' && !source) {
+          toast('Add an image to the timeline before choosing image-to-video.', true);
+          return;
+        }
+        const duration = typeInput.value === 'video' ? Number($('#ai-video-duration', m).value) : 5;
+        finish({
+          type: typeInput.value, prompt, model: modelInput.value, image_src: source && source.src,
+          duration, size: $('#ai-video-size', m).value,
+          negative_prompt: $('#ai-negative-prompt', m).value.trim(),
+        });
         m.close();
       };
       $('#ai-prompt', m).focus();
     });
     if (!picked) return;
-    const clip = { asset: { type: picked.type, prompt: picked.prompt }, start: 0, length: picked.type === 'image' ? 3 : 5 };
-    // Audio needs its own track so it plays alongside the visual clips rather than sequentially after
-    // them, the way two clips sharing one track would - a new track needs its first clip in the same call.
-    if (picked.type === 'audio') {
-      const trackIndex = edit.getEdit().timeline.tracks.length;
-      const result = await edit.addTrack(trackIndex, { clips: [clip] });
-      if (result.status !== 'success') throw new Error(result.message || 'Could not add the generated audio clip.');
-      const addedClip = edit.getClip(trackIndex, 0);
-      if (addedClip) {
-        selectedClipLocation = { trackIndex, clipIndex: 0 };
-        selectedClipId = addedClip.id || null;
-        syncStudioClipActions();
-      }
-    }
-    else await edit.addClip(baseTrackIndex(), clip);
+    const clip = { asset: { type: picked.type, prompt: picked.prompt, model: picked.model, image_src: picked.image_src },
+      start: 0, length: picked.type === 'image' ? 3 : picked.duration };
+    Object.assign(clip.asset, { duration: picked.duration, size: picked.size, negative_prompt: picked.negative_prompt });
+    await edit.addClip(baseTrackIndex(), clip);
   });
   $('#studio-add-text').onclick = guard(async () => {
     const text = await askText('Text to show on the video', { title: 'Add text', placeholder: 'Your text here' });
@@ -4414,29 +4481,6 @@ pages.studio = async app => {
   });
 
   $('#studio-finish').onclick = guard(isImageFormat(post.content_type) ? finishImages : finishVideo);
-  if ($('#studio-render-cloud')) $('#studio-render-cloud').onclick = guard(async () => {
-    const renderBtn = $('#studio-render-cloud', app), finishBtn = $('#studio-finish', app);
-    renderBtn.disabled = true; finishBtn.disabled = true;
-    try {
-      setStatus('Submitting to Shotstack…');
-      let row = await api('POST', '/api/shotstack/render', { edit: edit.getEdit(), post_id: post.id });
-      while (row.status && !['done', 'failed'].includes(row.status)) {
-        setStatus(`Rendering… (${row.status})`);
-        await new Promise(r => setTimeout(r, 2000));
-        row = await api('GET', `/api/shotstack/render/${row.render_id}`);
-      }
-      if (row.status !== 'done' || !row.output_url) throw new Error(row.error || 'Render failed.');
-      await api('PATCH', `/api/posts/${post.id}`, { video_url: row.output_url });
-      await finishedDraftCleanup();
-      setStatus('Done — cloud-rendered video attached to this post');
-      toast('Cloud-rendered video attached to this post');
-    } catch (err) {
-      toast(err.message || 'Could not render this in the cloud.', true);
-      setStatus('Ready');
-    } finally {
-      syncStudioOutputButtons();
-    }
-  });
 
   async function finishVideo() {
     const finishBtn = $('#studio-finish', app), addBtn = $('#studio-add-media', app);

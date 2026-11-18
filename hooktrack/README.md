@@ -54,6 +54,15 @@ with a Test connection button. Server-wide defaults: `ANTHROPIC_API_KEY`, `OPENA
   On a trusted single-tenant host set `HOOKTRACK_ALLOW_PRIVATE_AI_URLS=1` to allow e.g. `http://localhost:11434/v1`.
 - Screenshot reading needs a vision-capable model; every feature needs tool/JSON-output support (a JSON-in-text fallback is built in).
 
+## Studio image and video generation
+Studio's **AI clip** generator uses WaveSpeedAI; set `WAVESPEED_API_KEY` in the server process environment (or use
+`HOOKTRACK_WAVESPEED_API_KEY`) and restart HookTrack. The key stays server-side. Studio offers FLUX Dev and FLUX Schnell
+for images, and Wan 2.1 text-to-video and image-to-video at 480p; image-to-video can animate a still already on the
+timeline. Video generation supports 5- or 10-second clips in landscape or portrait with an optional negative prompt.
+Generation usage is billed to the WaveSpeedAI account, so check its
+current pricing and account credits before generating. WaveSpeedAI trial credits, if offered, depend on account eligibility.
+Shotstack remains available for cloud rendering and is not used for these generations.
+
 ## First-time setup
 **Posts** is the main content UI with a **Board | Calendar** toggle (same posts). Settings has **Getting started** (AI, rules, import) and **Publishing** (connect your TikTok, Instagram and YouTube accounts). SociaVault and the publishing connection are set once by the platform admin, not per workspace.
 
@@ -77,7 +86,7 @@ New workspaces see a **Get started** checklist (accounts → views → score a h
 - **Pipeline (kanban)**: Idea → Scripted → Filmed → Posted → Analysed. Each card is the same `posts` row; drag between columns. Synced posts are on Hooks, not the board.
 - **Hooks**: log each post, VSC score (manual or AI), SCALE 24+ / MUTATE 21-23 / KILL <21.
 - **Publishing**: HookTrack's own Late (Zernio) connection, on by default once the platform admin has set its key. Users connect their own accounts in Settings → Publishing; an explicit **Publish** on a Filmed card posts it. Never auto-posts.
-- **Videos are uploaded, not generated**: drag and drop or choose a file. (The video generator add-on was removed.)
+- **Studio**: upload or choose media, edit clips, or generate AI image/video assets through WaveSpeedAI when configured.
 - **Inspiration**: save competitor hooks (URL + screenshot + notes); AI hook generation uses them as few-shot examples when **Use in AI** is on.
 - **Dashboard**: weekly totals, 8-week trend, by phone, what to scale/kill, and "ask your data".
 - **Rules** (Accounts tab) make the spreadsheet's thresholds configurable.
