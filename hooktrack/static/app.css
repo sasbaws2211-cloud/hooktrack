@@ -1677,6 +1677,77 @@ th { font-size: 10.5px; letter-spacing: .075em; }
   font-size: 11px;
   line-height: 1.45;
 }
+.studio-caption-privacy {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 12px;
+}
+.studio-caption-progress {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.studio-caption-progress progress { width: 100%; accent-color: var(--accent); }
+.studio-caption-transcript,
+.studio-caption-options > label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.studio-caption-transcript textarea {
+  width: 100%;
+  min-height: 130px;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.studio-caption-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.studio-caption-options select {
+  width: 100%;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.studio-caption-options input[type="color"] {
+  width: 100%;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.studio-caption-options input[type="range"] { width: 100%; }
+.studio-caption-options output { color: var(--text); font-weight: 500; }
+.studio-caption-options .studio-caption-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.studio-caption-check input { accent-color: var(--accent); }
+.modal .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
 .studio-toolbar-status {
   display: flex;
   align-items: center;

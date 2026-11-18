@@ -2882,9 +2882,11 @@ pages.studio = async app => {
               <select id="studio-caption-style" aria-label="Caption animation" title="Caption word animation">
                 <option value="highlight">Highlight words</option><option value="karaoke">Karaoke</option>
                 <option value="pop">Pop words</option><option value="typewriter">Typewriter</option>
+                <option value="fade">Fade words</option><option value="slide">Slide words</option>
+                <option value="bounce">Bounce words</option>
                 <option value="none">No animation</option>
               </select>
-              <button class="btn sm" id="studio-add-captions" type="button" disabled title="Select a video clip to add auto-captions">Add auto-captions</button>
+              <button class="btn sm" id="studio-add-captions" type="button" disabled title="Select a video clip to transcribe">Transcribe on device</button>
             </div>
           </section>
         </div>
@@ -2965,7 +2967,7 @@ pages.studio = async app => {
           <span class="small muted" id="studio-status" role="status" aria-live="polite">Loading editor…</span>
         </div>
         <p id="studio-captions-note" class="studio-effects-note">
-          Auto-captions are transcribed by Shotstack during Cloud render, which uses render credits. The editor preview shows placeholder words until then.
+          Captions are transcribed on this device. The speech model downloads the first time you use it; your selected clip's audio is not uploaded for transcription.
         </p>
       </div>
       <div data-shotstack-studio style="width:100%;background:#000"></div>
@@ -3016,9 +3018,13 @@ pages.studio = async app => {
       !(clip.asset.type === 'text' && clip.asset.text === 'Add your media above to get started')));
   const hasStudioImage = () => edit.getEdit().timeline.tracks.some(track =>
     (track.clips || []).some(clip => clip.asset && clip.asset.type === 'image'));
-  const hasAutoTranscribedCaptions = () => edit.getEdit().timeline.tracks.some(track =>
+  const hasCloudTranscribedCaptions = () => edit.getEdit().timeline.tracks.some(track =>
     (track.clips || []).some(clip => clip.asset && clip.asset.type === 'rich-caption' &&
       typeof clip.asset.src === 'string' && clip.asset.src.startsWith('alias://')));
+  const hasLocalCaptions = () => edit.getEdit().timeline.tracks.some(track =>
+    (track.clips || []).some(clip => clip.asset && clip.asset.type === 'rich-caption' &&
+      typeof clip.asset.src === 'string' && clip.asset.src.startsWith('data:text/vtt')));
+  const localCaptionMarker = clip => `hooktrack_local_caption_${clip.id || clip.alias || Math.round(clip.start * 1000)}`;
 
   let edit, canvas, timeline, controls, ui, StudioSdk, draftDirty = !!sessionDraft, draftRevision = sessionDraft ? 1 : 0;
   let draftSaveTimer = null, draftSaveInFlight = null, scheduleDraftSave = () => {}, selectedClipLocation = null, selectedClipId = null;
@@ -3077,7 +3083,7 @@ pages.studio = async app => {
       const hasContent = hasStudioContent();
       const canFinish = isImageFormat(post.content_type) ? hasStudioImage() : hasContent;
       const finish = $('#studio-finish', app);
-      const needsCloudRender = hasAutoTranscribedCaptions();
+      const needsCloudRender = hasCloudTranscribedCaptions();
       finish.disabled = locked || !canFinish || needsCloudRender;
       finish.title = locked
         ? 'Move this card back to Scripted first'
@@ -3085,7 +3091,13 @@ pages.studio = async app => {
           : canFinish ? '' : isImageFormat(post.content_type)
           ? 'Add at least one image to the timeline before finishing'
           : 'Add content to the timeline before finishing';
-      if ($('#studio-render-cloud', app)) $('#studio-render-cloud', app).disabled = locked || !hasContent;
+      const cloudRender = $('#studio-render-cloud', app);
+      if (cloudRender) {
+        cloudRender.disabled = locked || !hasContent || hasLocalCaptions();
+        cloudRender.title = hasLocalCaptions()
+          ? 'Local captions are rendered in your browser and cannot be sent to Shotstack Cloud.'
+          : 'Renders on Shotstack servers and uses your account render credits';
+      }
     };
     syncStudioOutputButtons();
     $('#studio-save-draft', app).disabled = false;
@@ -3157,18 +3169,16 @@ pages.studio = async app => {
       trimStartButton.title = selected ? 'Remove the selected video from its start to the playhead' : 'Select a video clip to trim';
       trimEndButton.title = selected ? 'Remove the selected video from the playhead to its end' : 'Select a video clip to trim';
       const selectedVideo = getSelectedVideo();
-      const cloudConfigured = !!(state.shotstack && state.shotstack.configured && !isImageFormat(post.content_type));
-      const alreadyCaptioned = selectedVideo && selectedVideo.alias &&
+      const alreadyCaptioned = selectedVideo &&
         edit.getEdit().timeline.tracks.some(track => (track.clips || []).some(clip =>
-          clip.asset && clip.asset.type === 'rich-caption' && clip.asset.src === `alias://${selectedVideo.alias}`));
-      captionsButton.disabled = !selectedVideo || !cloudConfigured || !!alreadyCaptioned;
+          clip.asset && clip.asset.type === 'rich-caption' &&
+          (clip.asset.src === `alias://${selectedVideo.alias}` || clip.alias === localCaptionMarker(selectedVideo))));
+      captionsButton.disabled = !selectedVideo || isImageFormat(post.content_type) || !!alreadyCaptioned;
       captionsButton.title = !selectedVideo ? 'Select a video clip to generate captions'
-        : !cloudConfigured ? 'Configure Shotstack Cloud render for this video post first'
-          : alreadyCaptioned ? 'This video already has an auto-caption clip; remove it before generating another'
-            : 'Transcribe the selected video and add timed captions';
-      $('#studio-captions-note', app).textContent = cloudConfigured
-        ? 'Auto-captions are transcribed by Shotstack during Cloud render, which uses render credits. The editor preview shows placeholder words until then.'
-        : 'Auto-captions require a video post and Shotstack Cloud render configured in Settings.';
+        : alreadyCaptioned ? 'This video already has captions; remove them before generating another set'
+          : 'Transcribe this clip locally and add editable, timed captions';
+      $('#studio-captions-note', app).textContent =
+        'Transcription runs on this device. The speech model downloads on first use; your clip audio is not uploaded for transcription.';
       syncStudioProperties();
     };
     const propertyField = id => $(`#studio-${id}-field`, app);
@@ -3324,46 +3334,276 @@ pages.studio = async app => {
     });
     captionsButton.onclick = guard(async () => {
       const clip = getSelectedVideo();
-      if (!clip) throw new Error('Select a video clip before generating captions.');
-      if (!(state.shotstack && state.shotstack.configured) || isImageFormat(post.content_type)) {
-        throw new Error('Configure Shotstack Cloud render for a video post before generating captions.');
-      }
+      if (!clip) throw new Error('Select a video clip before transcribing captions.');
+      if (isImageFormat(post.content_type)) throw new Error('Captions are only available for video posts.');
       if (typeof clip.start !== 'number' || clip.start < 0) {
         throw new Error('This video has an unsupported start time; set its start time to a number first.');
       }
-      if (clip.alias && edit.getEdit().timeline.tracks.some(track => (track.clips || []).some(c =>
-        c.asset && c.asset.type === 'rich-caption' && c.asset.src === `alias://${clip.alias}`))) {
-        throw new Error('This video already has auto-transcribed captions. Remove that caption clip before generating another.');
+      if (edit.getEdit().timeline.tracks.some(track => (track.clips || []).some(c =>
+        c.asset && c.asset.type === 'rich-caption' &&
+        (c.asset.src === `alias://${clip.alias}` || c.alias === localCaptionMarker(clip))))) {
+        throw new Error('This video already has captions. Remove that caption clip before generating another set.');
       }
-      const alias = clip.alias || `hooktrack_video_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      if (!clip.alias) await updateSelectedClip({ alias });
-      const caption = {
-        asset: {
-          type: 'rich-caption',
-          src: `alias://${alias}`,
-          font: { family: 'Roboto', size: 44, weight: 700, color: '#ffffff' },
-          stroke: { width: 2, color: '#000000' },
-          align: { horizontal: 'center', vertical: 'bottom' },
-          active: { font: { color: '#ffe15a' } },
-          animation: { style: $('#studio-caption-style', app).value },
-        },
-        start: clip.start,
-        length: clip.length,
-        position: 'bottom',
+      const presets = {
+        classic: { color: '#ffffff', active: '#ffe15a', background: false, stroke: 2, weight: 700 },
+        bold: { color: '#ffffff', active: '#ffcf24', background: false, stroke: 3, weight: 900 },
+        neon: { color: '#ffffff', active: '#5dffda', background: false, stroke: 2, weight: 800 },
+        boxed: { color: '#ffffff', active: '#ffffff', background: true, stroke: 0, weight: 700 },
+        minimal: { color: '#f5f5f5', active: '#f5f5f5', background: false, stroke: 0, weight: 500 },
       };
-      const result = await edit.addTrack(0, { clips: [caption] });
-      if (result.status !== 'success') throw new Error(result.message || 'Could not add the caption clip.');
-      // addTrack may auto-link to another source, so restore the explicitly selected video alias afterward.
-      const addedCaption = edit.getClip(0, 0);
-      if (!addedCaption) throw new Error('The caption clip was added but could not be found in the timeline.');
-      const captionUpdates = { asset: { ...addedCaption.asset, src: `alias://${alias}` } };
-      const linked = addedCaption.id
-        ? await edit.updateClipById(addedCaption.id, captionUpdates)
-        : await edit.updateClip(0, 0, captionUpdates);
-      if (linked.status !== 'success') throw new Error(linked.message || 'Could not link captions to the selected video.');
-      syncStudioClipActions();
-      setStatus('Caption clip added — use Cloud render to transcribe it', true);
-      toast('Caption clip added. Shotstack will transcribe the video during Cloud render.');
+      const modal = openModal(`
+        <div class="modal-head"><h2>Transcribe on this device</h2><button class="icon-btn" type="button" data-close aria-label="Close">×</button></div>
+        <p class="studio-caption-privacy">Your selected clip's audio is processed in this browser and is not uploaded for transcription. First use downloads the transcription runtime and Whisper Tiny model (tens of megabytes); later uses can reuse the cached model.</p>
+        <div class="studio-caption-progress" role="status" aria-live="polite">
+          <span id="studio-caption-progress-label">Ready to transcribe.</span>
+          <progress id="studio-caption-progress" max="100" value="0"></progress>
+        </div>
+        <label class="studio-caption-transcript">Caption text
+          <textarea id="studio-caption-text" rows="6" placeholder="Transcribed captions will appear here, grouped into short lines." disabled></textarea>
+        </label>
+        <div class="studio-caption-options">
+          <label>Style preset
+            <select id="studio-caption-preset">
+              <option value="classic">Classic highlight</option><option value="bold">Bold creator</option>
+              <option value="neon">Neon accent</option><option value="boxed">Caption pill</option>
+              <option value="minimal">Minimal</option>
+            </select>
+          </label>
+          <label>Position
+            <select id="studio-caption-position">
+              <option value="bottom">Bottom center</option><option value="top">Top center</option>
+              <option value="center">Center</option><option value="left">Center left</option><option value="right">Center right</option>
+              <option value="bottomLeft">Bottom left</option>
+              <option value="bottomRight">Bottom right</option><option value="topLeft">Top left</option>
+              <option value="topRight">Top right</option>
+            </select>
+          </label>
+          <label>Text color <input id="studio-caption-color" type="color" value="#ffffff"></label>
+          <label>Active word <input id="studio-caption-active-color" type="color" value="#ffe15a"></label>
+          <label>Font size <output id="studio-caption-size-value">44 px</output>
+            <input id="studio-caption-size" type="range" min="24" max="80" step="2" value="44">
+          </label>
+          <label>Text case
+            <select id="studio-caption-case">
+              <option value="none">Original</option><option value="uppercase">Uppercase</option>
+              <option value="capitalize">Capitalize</option><option value="lowercase">Lowercase</option>
+            </select>
+          </label>
+          <label class="studio-caption-check"><input id="studio-caption-background" type="checkbox"> Background pill</label>
+          <label>Slide direction
+            <select id="studio-caption-direction">
+              <option value="up">Up</option><option value="down">Down</option>
+              <option value="left">From left</option><option value="right">From right</option>
+            </select>
+          </label>
+        </div>
+        <div class="modal-actions"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" id="studio-caption-add" type="button" disabled>Add captions</button></div>
+      `, true);
+      const progressLabel = $('#studio-caption-progress-label', modal);
+      const progress = $('#studio-caption-progress', modal);
+      const transcript = $('#studio-caption-text', modal);
+      const addCaptionButton = $('#studio-caption-add', modal);
+      const presetInput = $('#studio-caption-preset', modal);
+      const backgroundInput = $('#studio-caption-background', modal);
+      const textColorInput = $('#studio-caption-color', modal);
+      const activeColorInput = $('#studio-caption-active-color', modal);
+      let worker = null, words = null, transcriptGroups = null, cancelled = false;
+      const abortController = new AbortController();
+      const originalClose = modal.close;
+      modal.close = () => {
+        cancelled = true;
+        abortController.abort();
+        if (worker) worker.terminate();
+        originalClose();
+        syncStudioClipActions();
+      };
+      const groupWords = inputWords => {
+        const groups = [];
+        let group = [];
+        for (const word of inputWords) {
+          group.push(word);
+          if (group.length >= 6 || /[.!?]$/.test(word.text)) {
+            groups.push(group);
+            group = [];
+          }
+        }
+        if (group.length) groups.push(group);
+        return groups;
+      };
+      const textOfWords = inputWords => inputWords.map(word => word.text).join(' ')
+        .replace(/\s+([,.;:!?])/g, '$1')
+        .replace(/([(])\s+/g, '$1');
+      const timecode = milliseconds => {
+        const ms = Math.max(0, Math.round(milliseconds));
+        const hours = Math.floor(ms / 3600000);
+        const minutes = Math.floor(ms / 60000) % 60;
+        const seconds = Math.floor(ms / 1000) % 60;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(ms % 1000).padStart(3, '0')}`;
+      };
+      const makeEditedWords = () => {
+        const lines = transcript.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+        if (!lines.length) throw new Error('Enter at least one caption line.');
+        const originalText = transcriptGroups.map(group => textOfWords(group)).join('\n');
+        if (lines.join('\n') === originalText) return transcriptGroups.flat();
+        const totalStart = transcriptGroups[0][0].start;
+        const totalEnd = transcriptGroups[transcriptGroups.length - 1][transcriptGroups[transcriptGroups.length - 1].length - 1].end;
+        return lines.flatMap((line, lineIndex) => {
+          const tokens = line.split(/\s+/).filter(Boolean);
+          const sourceIndex = Math.min(transcriptGroups.length - 1,
+            Math.floor(lineIndex * transcriptGroups.length / lines.length));
+          const source = transcriptGroups[sourceIndex];
+          const start = lines.length === transcriptGroups.length ? source[0].start
+            : totalStart + (totalEnd - totalStart) * lineIndex / lines.length;
+          const end = lines.length === transcriptGroups.length ? source[source.length - 1].end
+            : totalStart + (totalEnd - totalStart) * (lineIndex + 1) / lines.length;
+          return tokens.map((text, index) => {
+            const original = lines.length === transcriptGroups.length && tokens.length === source.length
+              ? source[index] : null;
+            if (original) return { ...original, text };
+            const wordStart = Math.round(start + (end - start) * index / tokens.length);
+            return {
+              text,
+              start: wordStart,
+              end: Math.max(Math.round(start + (end - start) * (index + 1) / tokens.length), wordStart + 1),
+            };
+          });
+        });
+      };
+      const applyPreset = () => {
+        const preset = presets[presetInput.value] || presets.classic;
+        textColorInput.value = preset.color;
+        activeColorInput.value = preset.active;
+        backgroundInput.checked = preset.background;
+      };
+      presetInput.onchange = applyPreset;
+      $('#studio-caption-size', modal).oninput = event => {
+        $('#studio-caption-size-value', modal).textContent = `${event.target.value} px`;
+      };
+      const failTranscription = message => {
+        progressLabel.textContent = message;
+        progress.removeAttribute('value');
+        setStatus('Transcription failed', true);
+      };
+      modal.querySelector('[data-close]').focus();
+      const startTranscription = async () => {
+        captionsButton.disabled = true;
+        addCaptionButton.disabled = true;
+        transcript.disabled = true;
+        try {
+          const source = clip.asset && clip.asset.src;
+          if (typeof source !== 'string' || !source) throw new Error('The selected video has no readable media source.');
+          progressLabel.textContent = 'Reading the selected clip…';
+          const mediaResponse = await fetch(new URL(source, location.href), {
+            credentials: 'same-origin',
+            signal: abortController.signal,
+          });
+          if (!mediaResponse.ok) throw new Error(`Could not read the selected video (${mediaResponse.status}).`);
+          const blob = await mediaResponse.blob();
+          if (cancelled) return;
+          worker = new Worker('/studio-transcriber-worker.js?v=studio-localcaptions2', { type: 'module' });
+          worker.onmessage = event => {
+            const message = event.data || {};
+            if (message.type === 'progress') {
+              progressLabel.textContent = message.detail;
+              if (Number.isFinite(message.progress)) {
+                progress.value = message.progress;
+              } else {
+                progress.removeAttribute('value');
+              }
+              setStatus(message.detail);
+              return;
+            }
+            if (message.type === 'error') {
+              failTranscription(message.message || 'On-device transcription failed.');
+              worker.terminate();
+              worker = null;
+              captionsButton.disabled = false;
+              return;
+            }
+            if (message.type !== 'done') return;
+            words = message.words;
+            transcriptGroups = groupWords(words);
+            transcript.value = transcriptGroups.map(group => textOfWords(group)).join('\n');
+            transcript.disabled = false;
+            addCaptionButton.disabled = false;
+            progressLabel.textContent = `Transcribed ${message.wordCount} words on this device. Edit the lines and styles, then add them to the timeline.`;
+            progress.value = 100;
+            setStatus('Local transcription complete', true);
+            worker.terminate();
+            worker = null;
+            captionsButton.disabled = false;
+          };
+          worker.onerror = event => {
+            failTranscription(event.message || 'The local transcription worker failed to load.');
+            worker.terminate();
+            worker = null;
+            captionsButton.disabled = false;
+          };
+          worker.postMessage({
+            id: Date.now(),
+            blob,
+            clip: {
+              trim: clip.asset.trim || 0,
+              speed: clip.asset.speed == null ? 1 : clip.asset.speed,
+              length: clip.length == null ? 'auto' : clip.length,
+            },
+          });
+          progressLabel.textContent = 'Preparing the local transcription model…';
+          setStatus('Preparing on-device transcription…');
+        } catch (error) {
+          if (error.name === 'AbortError' || cancelled) return;
+          failTranscription(error.message || 'Could not transcribe this clip on this device.');
+          captionsButton.disabled = false;
+        }
+      };
+      addCaptionButton.onclick = guard(async () => {
+        if (!words || !transcriptGroups) throw new Error('Transcribe the clip before adding captions.');
+        const captionWords = makeEditedWords();
+        const vtt = `WEBVTT\n\n${captionWords.map((word, index) =>
+          `${index + 1}\n${timecode(word.start)} --> ${timecode(word.end)}\n${word.text.replace(/-->/g, '—>')}\n`,
+        ).join('\n')}`;
+        const position = $('#studio-caption-position', modal).value;
+        const horizontal = position === 'left' || position.endsWith('Left') ? 'left'
+          : position === 'right' || position.endsWith('Right') ? 'right' : 'center';
+        const vertical = position.startsWith('top') ? 'top'
+          : position.startsWith('bottom') ? 'bottom' : 'middle';
+        const preset = presets[presetInput.value] || presets.classic;
+        const caption = {
+          asset: {
+            type: 'rich-caption',
+            src: `data:text/vtt;charset=utf-8,${encodeURIComponent(vtt)}`,
+            font: {
+              family: 'Roboto',
+              size: Number($('#studio-caption-size', modal).value),
+              weight: preset.weight,
+              color: textColorInput.value,
+            },
+            style: { textTransform: $('#studio-caption-case', modal).value },
+            stroke: { width: preset.stroke, color: '#000000' },
+            align: { horizontal, vertical },
+            active: { font: { color: activeColorInput.value } },
+            animation: {
+              style: $('#studio-caption-style', app).value,
+              direction: $('#studio-caption-direction', modal).value,
+            },
+            ...(backgroundInput.checked
+              ? { background: { color: '#000000', opacity: 0.72, borderRadius: 12, wrap: true, padding: 14 } }
+              : {}),
+          },
+          start: clip.start,
+          length: clip.length === 'auto' || clip.length == null ? Math.max(0.1, words[words.length - 1].end / 1000) : clip.length,
+          position,
+          alias: localCaptionMarker(clip),
+        };
+        const result = await edit.addTrack(0, { clips: [caption] });
+        if (result.status !== 'success') throw new Error(result.message || 'Could not add the local captions to the timeline.');
+        modal.close();
+        syncStudioClipActions();
+        syncStudioOutputButtons();
+        setStatus('Local captions added — ready for browser export', true);
+        toast('Captions added. Your transcript is stored in this Studio draft and rendered in your browser.');
+      });
+      startTranscription();
     });
     duplicateButton.onclick = guard(async () => {
       const clip = getSelectedClip();
