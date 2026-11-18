@@ -274,6 +274,82 @@ def test_meta_campaign_draft_maps_to_paused_create_payload(monkeypatch):
     }
 
 
+def test_tiktok_campaign_maps_video_targeting_and_pixel_to_create_payload(monkeypatch):
+    selected = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *args: selected.append(args) or {"id": "tiktok-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "video/mp4"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/ad.mp4")
+    values = _campaign_values(
+        platform="tiktok",
+        ad_connection_id="tiktok-connection",
+        ad_account_id="advertiser-1",
+        objective="conversions",
+        daily_budget="20",
+        creative_type="video",
+        headline="",
+        pixel_id="7987654321098765432",
+        conversion_event="ON_WEB_ORDER",
+        placement_platforms=[],
+        url_tags="",
+    )
+
+    request, connection = ads._campaign_request(7, values)
+
+    assert selected == [(7, "tiktok-connection", "advertiser-1", "tiktok")]
+    assert connection["id"] == "tiktok-connection"
+    assert request["status"] == "PAUSED"
+    assert request["accountId"] == "tiktok-connection"
+    assert request["adAccountId"] == "advertiser-1"
+    assert request["budgetAmount"] == 20
+    assert request["imageUrl"] == "https://hooktrack.example/ad.mp4"
+    assert request["ageMin"] == 21
+    assert request["ageMax"] == 55
+    assert request["gender"] == "female"
+    assert request["interests"] == [{"id": "interest-1", "name": "Gardening"}]
+    assert request["promotedObject"] == {
+        "pixelId": "7987654321098765432",
+        "customEventType": "ON_WEB_ORDER",
+    }
+    assert "headline" not in request
+    assert "video" not in request
+    assert "placements" not in request
+    assert "tracking" not in request
+    assert "advantageAudience" not in request
+
+
+def test_tiktok_campaign_requires_minimum_daily_budget(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "tiktok-connection"})
+
+    with pytest.raises(HTTPException) as error:
+        ads._campaign_request(7, _campaign_values(
+            platform="tiktok",
+            daily_budget="19.99",
+            creative_type="video",
+            headline="",
+            placement_platforms=[],
+            url_tags="",
+        ))
+
+    assert error.value.status_code == 400
+    assert "minimum daily budget" in error.value.detail
+
+
+def test_tiktok_campaign_rejects_image_creatives(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "tiktok-connection"})
+
+    with pytest.raises(HTTPException) as error:
+        ads._campaign_request(7, _campaign_values(
+            platform="tiktok",
+            creative_type="image",
+            headline="",
+            placement_platforms=[],
+            url_tags="",
+        ))
+
+    assert error.value.status_code == 400
+    assert "video creative" in error.value.detail
+
+
 def test_video_views_campaign_requires_video_asset(monkeypatch):
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
 
@@ -345,3 +421,53 @@ def test_campaign_create_pauses_if_provider_does_not_confirm_paused(monkeypatch)
 
     assert result["status"] == "paused"
     assert pause_calls == [("campaign-1", "paused")]
+
+
+def test_tiktok_campaign_create_explicitly_confirms_paused_status(monkeypatch):
+    updates = []
+    pause_calls = []
+    monkeypatch.setattr(ads.latehub, "create_standalone_ad", lambda *_args: {
+        "ad": {
+            "_id": "zernio-ad", "platform": "tiktok", "platformCampaignId": "campaign-1",
+            "platformAdSetId": "adgroup-1", "status": "pending_review",
+        },
+        "message": "Ad created",
+    })
+    monkeypatch.setattr(ads.latehub, "update_ad_campaign_status",
+                        lambda campaign_id, status, platform: pause_calls.append(
+                            (campaign_id, status, platform)) or {"status": "paused"})
+    monkeypatch.setattr(ads.db, "execute", lambda query, params: updates.append((query, params)))
+
+    result = ads._campaign_create_result(
+        7, 42, {"name": "Spring launch", "status": "PAUSED"}, "idempotency-key", "tiktok",
+    )
+
+    assert result["status"] == "paused"
+    assert pause_calls == [("campaign-1", "paused", "tiktok")]
+    assert updates[-1][1][1:5] == ("campaign-1", "adgroup-1", "zernio-ad", 42)
+
+
+def test_campaign_reporting_merges_selected_meta_and_tiktok_accounts(monkeypatch):
+    monkeypatch.setattr(ads, "_connections", lambda _workspace_id: [
+        {"id": "meta-connection", "platform": "metaads"},
+        {"id": "tiktok-connection", "platform": "tiktokads"},
+    ])
+    monkeypatch.setattr(ads.latehub, "ad_accounts", lambda connection_id: [
+        {"id": f"advertiser-{connection_id}", "selected": True},
+    ])
+    monkeypatch.setattr(ads.latehub, "ensure_profile", lambda _workspace_id: "profile-7")
+    calls = []
+
+    def tree(params):
+        calls.append(params)
+        platform = params.get("platform", "meta")
+        return {"campaigns": [{"platform": platform, "platformCampaignId": platform}]}
+
+    monkeypatch.setattr(ads.latehub, "ad_campaign_tree", tree)
+
+    result = ads.campaign_reporting(_ctx())
+
+    assert {campaign["platform"] for campaign in result["campaigns"]} == {"meta", "tiktok"}
+    assert all(call["profileId"] == "profile-7" for call in calls)
+    assert next(call for call in calls if call["adAccountId"].endswith("tiktok-connection"))["platform"] == "tiktok"
+    assert not any(call["adAccountId"].endswith("meta-connection") and "platform" in call for call in calls)

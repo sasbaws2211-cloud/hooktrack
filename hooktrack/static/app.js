@@ -5831,15 +5831,22 @@ pages.ads = async app => {
     </div>`;
   };
   const metaConnection = d.ads_connections.find(item => item.platform === 'metaads');
+  const tiktokConnection = d.ads_connections.find(item => item.platform === 'tiktokads');
   const metaAdAccounts = (metaConnection && metaConnection.ad_accounts || []).filter(item => item.selected);
+  const tiktokAdAccounts = (tiktokConnection && tiktokConnection.ad_accounts || []).filter(item => item.selected);
+  const builderPlatform = state.campaignPlatform || (metaConnection ? 'meta' : tiktokConnection ? 'tiktok' : 'meta');
+  const builderConnection = builderPlatform === 'meta' ? metaConnection : tiktokConnection;
+  const builderAdAccounts = builderPlatform === 'meta' ? metaAdAccounts : tiktokAdAccounts;
   const campaignMediaOptions = [
     ...(d.existing_media || []).map(item => ({
       value: `post:${item.post_id}`, label: `${item.creative_type} · ${item.label} · ${item.handle || item.platform}`,
       type: item.creative_type,
+      platform: String(item.platform).toLowerCase() === 'tiktok' ? 'tiktok' : 'meta',
     })),
     ...(d.campaign_assets || []).map(item => ({
       value: `asset:${item.id}`, label: `${String(item.content_type).startsWith('video/') ? 'video' : 'image'} · ${item.file_name}`,
       type: String(item.content_type).startsWith('video/') ? 'video' : 'image',
+      platform: 'both',
     })),
   ];
   const campaignDraftCards = (d.campaign_drafts || []).map(draft => {
@@ -5860,39 +5867,46 @@ pages.ads = async app => {
             : '';
     return `<article class="card">
       <div class="row" style="align-items:flex-start"><b style="flex:1">${esc(draft.campaign_name)}</b><span class="pill">${esc(draft.status.replace('_', ' '))}</span></div>
-      <p class="muted small">${esc(form.objective || '')} · ${esc(String(form.daily_budget || ''))}/day · ends ${esc(String(form.end_date || ''))} · ${esc(form.creative_type || '')}</p>
-      <p class="small"><b>${esc(form.headline || '')}</b><br>${esc(short(form.body || '', 180))}<br><span class="muted">${esc(form.link_url || '')}</span></p>
-      ${draft.platform_campaign_id ? `<p class="small">Spend ${fmt(metrics.spend || 0)} · ${fmt(metrics.impressions || 0)} impressions · ${fmt(metrics.clicks || 0)} clicks${reported && reported.currency ? ` · ${esc(reported.currency)}` : ''}${reported ? ` · Meta status: ${esc(reported.status || 'unknown')}` : ''}</p>` : ''}
-      ${draft.status === 'unknown' && !draft.retry_safe ? '<p class="small" style="color:var(--bad)">Automatic retry window expired. Check Meta Ads Manager before taking action.</p>' : ''}
+      <p class="muted small">${esc(draft.platform === 'tiktok' ? 'TikTok' : 'Meta')} · ${esc(form.objective || '')} · ${esc(String(form.daily_budget || ''))}/day · ends ${esc(String(form.end_date || ''))} · ${esc(form.creative_type || '')}</p>
+      <p class="small">${form.headline ? `<b>${esc(form.headline)}</b><br>` : ''}${esc(short(form.body || '', 180))}<br><span class="muted">${esc(form.link_url || '')}</span></p>
+      ${draft.platform_campaign_id ? `<p class="small">Spend ${fmt(metrics.spend || 0)} · ${fmt(metrics.impressions || 0)} impressions · ${fmt(metrics.clicks || 0)} clicks${reported && reported.currency ? ` · ${esc(reported.currency)}` : ''}${reported ? ` · ${esc(draft.platform === 'tiktok' ? 'TikTok' : 'Meta')} status: ${esc(reported.status || 'unknown')}` : ''}</p>` : ''}
+      ${draft.status === 'unknown' && !draft.retry_safe ? `<p class="small" style="color:var(--bad)">Automatic retry window expired. Check ${draft.platform === 'tiktok' ? 'TikTok' : 'Meta'} Ads Manager before taking action.</p>` : ''}
       ${draft.error ? `<p class="small" style="color:var(--bad)">${esc(draft.error)}</p>` : ''}
       <div class="actions">${action}</div>
     </article>`;
   }).join('');
   const campaignBuilder = `<section class="card" style="margin:12px 0 20px">
-    <h2 style="margin:0 0 4px">Build a Meta campaign</h2>
-    <p class="small muted">Save a draft, send it to Meta paused for review, then explicitly launch it. No spend starts until you choose Launch.</p>
-    ${!metaConnection ? `<p class="notice">Connect Meta Ads above and select an available ad account to start a draft.</p>` : ''}
-    ${metaConnection?.error ? `<p class="notice" style="color:var(--bad)">${esc(metaConnection.error)}</p>` : ''}
+    <h2 style="margin:0 0 4px">Build an ad campaign</h2>
+    <p class="small muted">Save a draft, create it paused for review, then explicitly launch it. No spend starts until you choose Launch.</p>
+    <div style="max-width:320px;margin:10px 0"><label class="small muted" for="camp-platform">Ad platform</label>
+      <select id="camp-platform" style="width:100%"><option value="meta" ${builderPlatform === 'meta' ? 'selected' : ''}>Meta</option><option value="tiktok" ${builderPlatform === 'tiktok' ? 'selected' : ''}>TikTok</option></select></div>
+    <p id="camp-connection-notice" class="notice" ${builderConnection ? 'hidden' : ''}>Connect ${builderPlatform === 'tiktok' ? 'TikTok' : 'Meta'} Ads above and select an available ad account to start a draft.</p>
+    <p id="camp-connection-error" class="notice" style="color:var(--bad)" ${builderConnection?.error ? '' : 'hidden'}>${esc(builderConnection?.error || '')}</p>
+    ${builderPlatform === 'tiktok' ? '<p class="small muted">TikTok campaigns require video (MP4 or MOV) and a daily budget of at least 20 in the ad account currency. The provider checks video duration, dimensions and account-specific limits.</p>' : ''}
     <form id="campaign-builder-form">
       <div class="grid clients-grid" style="gap:10px">
-        <div><label class="small muted" for="camp-account">Meta ad account</label>
-          <select id="camp-account" required style="width:100%">${metaAdAccounts.map(item =>
+        <div><label class="small muted" for="camp-account"><span id="camp-account-label">${builderPlatform === 'tiktok' ? 'TikTok' : 'Meta'} ad account</span></label>
+          <select id="camp-account" required style="width:100%">${builderAdAccounts.map(item =>
             `<option value="${esc(item.id)}">${esc(item.name)}${item.currency ? ` · ${esc(item.currency)}` : ''}</option>`).join('')}</select></div>
         <div><label class="small muted" for="camp-name">Campaign name</label><input id="camp-name" maxlength="100" required style="width:100%"></div>
         <div><label class="small muted" for="camp-objective">Objective</label>
           <select id="camp-objective" style="width:100%"><option value="traffic">Traffic</option><option value="awareness">Awareness</option><option value="video_views">Video views</option><option value="conversions">Conversions</option></select></div>
-        <div><label class="small muted" for="camp-budget">Daily budget (<span id="camp-currency">${esc(metaAdAccounts[0]?.currency || 'account currency')}</span>)</label>
-          <input id="camp-budget" type="number" min="1" step="0.01" required style="width:100%"></div>
+        <div><label class="small muted" for="camp-budget"><span id="camp-budget-label">${builderPlatform === 'tiktok' ? 'Daily budget (minimum 20)' : 'Daily budget'}</span> (<span id="camp-currency">${esc(builderAdAccounts[0]?.currency || 'account currency')}</span>)</label>
+          <input id="camp-budget" type="number" min="${builderPlatform === 'tiktok' ? '20' : '1'}" step="0.01" required style="width:100%"></div>
         <div><label class="small muted" for="camp-end-date">Campaign end date</label>
           <input id="camp-end-date" type="date" required style="width:100%"></div>
         <div><label class="small muted" for="camp-media">Creative media</label>
-          <select id="camp-media" required style="width:100%">${campaignMediaOptions.map(item =>
+          <select id="camp-media" required style="width:100%">${campaignMediaOptions.filter(item =>
+            (item.platform === 'both' || item.platform === builderPlatform) &&
+            (builderPlatform !== 'tiktok' || item.type === 'video')).map(item =>
             `<option value="${esc(item.value)}" data-kind="${item.type}" ${state.campaignAssetId && item.value === `asset:${state.campaignAssetId}` ? 'selected' : ''}>${esc(item.label)}</option>`).join('')}</select>
-          <label class="small muted" for="camp-upload">Or upload JPEG, PNG, MP4 or MOV</label>
-          <input id="camp-upload" type="file" accept="image/jpeg,image/png,video/mp4,video/quicktime" style="width:100%">
-          ${!campaignMediaOptions.length ? '<span class="small muted">Upload a creative to begin. Existing published post media appears here when available.</span>' : ''}</div>
-        <div><label class="small muted" for="camp-headline">Headline</label><input id="camp-headline" maxlength="255" required style="width:100%"></div>
-        <div><label class="small muted" for="camp-body">Primary text</label><textarea id="camp-body" maxlength="5000" required style="width:100%;min-height:84px"></textarea></div>
+          <label class="small muted" for="camp-upload">Or upload ${builderPlatform === 'tiktok' ? 'MP4 or MOV video' : 'JPEG, PNG, MP4 or MOV'}</label>
+          <input id="camp-upload" type="file" accept="${builderPlatform === 'tiktok' ? 'video/mp4,video/quicktime' : 'image/jpeg,image/png,video/mp4,video/quicktime'}" style="width:100%">
+          <span id="camp-media-note" class="small muted">${!campaignMediaOptions.some(item =>
+            (item.platform === 'both' || item.platform === builderPlatform) && (builderPlatform !== 'tiktok' || item.type === 'video'))
+            ? 'Upload a creative to begin. Existing published post media appears here when available.' : ''}</span></div>
+        <div id="camp-headline-wrap" ${builderPlatform === 'tiktok' ? 'hidden' : ''}><label class="small muted" for="camp-headline">Headline</label><input id="camp-headline" maxlength="255" ${builderPlatform === 'tiktok' ? '' : 'required'} style="width:100%"></div>
+        <div><label class="small muted" for="camp-body"><span id="camp-body-label">${builderPlatform === 'tiktok' ? 'Video caption' : 'Primary text'}</span></label><textarea id="camp-body" maxlength="5000" required style="width:100%;min-height:84px"></textarea></div>
         <div><label class="small muted" for="camp-link">Landing page URL (HTTPS)</label><input id="camp-link" type="url" required placeholder="https://example.com" style="width:100%"></div>
         <div><label class="small muted" for="camp-cta">Call to action</label>
           <select id="camp-cta" style="width:100%">${[
@@ -5909,34 +5923,42 @@ pages.ads = async app => {
       </div>
       <details style="margin:10px 0"><summary>Audience, placements and tracking</summary>
         <div style="padding:10px 0">
-          <label class="small muted" for="camp-interest-search">Interest targeting (search Meta)</label>
+          <label class="small muted" for="camp-interest-search">Interest targeting (search ${builderPlatform === 'tiktok' ? 'TikTok' : 'Meta'})</label>
           <div class="row"><input id="camp-interest-search" placeholder="Search interests" style="flex:1"><button class="btn sm" type="button" id="camp-interest-button">Search</button></div>
           <div id="camp-interest-results" class="small" style="margin:6px 0"></div><div id="camp-interests" class="small muted">No interests selected.</div>
-          <p class="small muted">Leave placements unchecked for Meta automatic placements; choose one or more platforms for manual placement control.</p>
-          <div class="row" style="gap:12px;flex-wrap:wrap">${[['facebook','Facebook'],['instagram','Instagram'],['threads','Threads'],['messenger','Messenger']].map(([value,label]) =>
-            `<label class="check"><input type="checkbox" name="camp-placement" value="${value}"> ${label}</label>`).join('')}</div>
-          <fieldset style="margin:10px 0"><legend class="small muted">Special ad category (if applicable)</legend>
+          <div id="camp-placement-wrap" ${builderPlatform === 'tiktok' ? 'hidden' : ''}>
+            <p class="small muted">Leave placements unchecked for Meta automatic placements; choose one or more platforms for manual placement control.</p>
+            <div class="row" style="gap:12px;flex-wrap:wrap">${[['facebook','Facebook'],['instagram','Instagram'],['threads','Threads'],['messenger','Messenger']].map(([value,label]) =>
+              `<label class="check"><input type="checkbox" name="camp-placement" value="${value}"> ${label}</label>`).join('')}</div>
+          </div>
+          ${builderPlatform === 'tiktok' ? '<p class="small muted">TikTok delivery uses TikTok placements automatically.</p>' : ''}
+          <fieldset id="camp-category-wrap" style="margin:10px 0"><legend class="small muted">Special ad category (if applicable)</legend>
             ${[['HOUSING','Housing'],['EMPLOYMENT','Employment'],['CREDIT','Credit'],['FINANCIAL_PRODUCTS_SERVICES','Financial products/services'],['ISSUES_ELECTIONS_POLITICS','Issues/elections/politics'],['ONLINE_GAMBLING_AND_GAMING','Online gambling/gaming']].map(([value,label]) =>
-              `<label class="check"><input type="checkbox" name="camp-category" value="${value}"> ${label}</label>`).join('')}</fieldset>
-          <div class="row"><div style="flex:1"><label class="small muted" for="camp-pixel">Meta pixel</label><select id="camp-pixel" style="width:100%"><option value="">No pixel</option></select></div>
+              `<label class="check" data-camp-category-option="${value}"><input type="checkbox" name="camp-category" value="${value}"> ${label}</label>`).join('')}</fieldset>
+          <div class="row"><div style="flex:1"><label class="small muted" for="camp-pixel"><span id="camp-pixel-label">${builderPlatform === 'tiktok' ? 'TikTok' : 'Meta'} pixel</span></label><select id="camp-pixel" style="width:100%"><option value="">No pixel</option></select></div>
             <button class="btn sm" type="button" id="camp-load-pixels">Load pixels</button>
-            <div style="flex:1"><label class="small muted" for="camp-event">Conversion event</label><select id="camp-event" style="width:100%">${[
+            <div style="flex:1"><label class="small muted" for="camp-event">Conversion event</label><select id="camp-event" style="width:100%"><optgroup id="camp-meta-events" label="Meta">${[
               'PURCHASE','COMPLETE_REGISTRATION','ADD_TO_CART','INITIATE_CHECKOUT','ADD_PAYMENT_INFO',
               'SUBSCRIBE','START_TRIAL','VIEW_CONTENT','SEARCH',
-            ].map(event => `<option value="${event}">${event.replaceAll('_',' ')}</option>`).join('')}</select></div></div>
-          <label class="small muted" for="camp-url-tags">URL tracking tags (key=value&amp;key=value)</label>
-          <input id="camp-url-tags" placeholder="utm_source=meta&amp;utm_medium=paid_social" style="width:100%">
+            ].map(event => `<option value="${event}">${event.replaceAll('_',' ')}</option>`).join('')}</optgroup><optgroup id="camp-tiktok-events" label="TikTok" ${builderPlatform === 'tiktok' ? '' : 'hidden'}>${[
+              'ON_WEB_ORDER','INITIATE_ORDER','ON_WEB_CART','ON_WEB_REGISTER','ON_WEB_DETAIL',
+              'FORM','ON_WEB_SEARCH','ON_WEB_ADD_TO_WISHLIST','LANDING_PAGE_VIEW',
+            ].map(event => `<option value="${event}">${event.replaceAll('_',' ')}</option>`).join('')}</optgroup></select></div></div>
+          <div id="camp-url-tags-wrap" ${builderPlatform === 'tiktok' ? 'hidden' : ''}>
+            <label class="small muted" for="camp-url-tags">URL tracking tags (key=value&amp;key=value)</label>
+            <input id="camp-url-tags" placeholder="utm_source=meta&amp;utm_medium=paid_social" style="width:100%">
+          </div>
         </div>
       </details>
       <p id="camp-upload-note" class="small muted"></p>
       ${d.can_manage ? `<div class="actions"><button id="camp-save" class="btn primary" type="submit">Save campaign draft</button></div>` : '<p class="small muted">Ask a workspace admin to create and launch campaigns.</p>'}
     </form>
   </section>
-  <section style="margin:16px 0 20px"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Campaign drafts and Meta campaigns</h2><button class="btn sm" type="button" id="camp-report-refresh">Refresh reports</button></div>
+  <section style="margin:16px 0 20px"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Campaign drafts and Meta / TikTok campaigns</h2><button class="btn sm" type="button" id="camp-report-refresh">Refresh reports</button></div>
     ${campaignReportError ? `<p class="notice" style="color:var(--bad)">${esc(campaignReportError)}</p>` : ''}
     ${(d.campaign_drafts || []).length ? `<div class="grid clients-grid" style="margin-top:10px">${campaignDraftCards}</div>` : '<p class="small muted">No campaign drafts yet.</p>'}
-    ${(campaignReport.campaigns || []).length ? `<details style="margin-top:10px"><summary>Meta campaigns from Ads Manager (${campaignReport.campaigns.length})</summary><div class="card"><ul class="list">${campaignReport.campaigns.map(campaign =>
-      `<li><span style="flex:1"><b>${esc(campaign.campaignName || campaign.platformCampaignId || 'Campaign')}</b><span class="muted"> · ${esc(campaign.status || '')} · ${esc(campaign.currency || '')}</span><div class="small muted">Spend ${fmt(campaign.metrics?.spend || 0)} · ${fmt(campaign.metrics?.impressions || 0)} impressions · ${fmt(campaign.metrics?.clicks || 0)} clicks</div></span></li>`).join('')}</ul></div></details>` : ''}
+    ${(campaignReport.campaigns || []).length ? `<details style="margin-top:10px"><summary>Meta and TikTok campaigns from Ads Manager (${campaignReport.campaigns.length})</summary><div class="card"><ul class="list">${campaignReport.campaigns.map(campaign =>
+      `<li><span style="flex:1"><b>${esc(campaign.campaignName || campaign.platformCampaignId || 'Campaign')}</b><span class="muted"> · ${esc(campaign.platform || '')} · ${esc(campaign.status || '')} · ${esc(campaign.currency || '')}</span><div class="small muted">Spend ${fmt(campaign.metrics?.spend || 0)} · ${fmt(campaign.metrics?.impressions || 0)} impressions · ${fmt(campaign.metrics?.clicks || 0)} clicks</div></span></li>`).join('')}</ul></div></details>` : ''}
   </section>`;
   const platformForPost = post => {
     const platform = String(post.platform || '').toLowerCase();
@@ -5987,6 +6009,68 @@ pages.ads = async app => {
       ? selected.map(item => `<button class="pill" type="button" data-camp-interest-remove="${esc(item.id)}">${esc(item.name)} ×</button>`).join(' ')
       : 'No interests selected.';
   };
+  const campaignConnectionFor = platform => platform === 'meta' ? metaConnection : tiktokConnection;
+  const campaignAccountsFor = platform => platform === 'meta' ? metaAdAccounts : tiktokAdAccounts;
+  const renderCampaignMedia = (platform, selectedValue = mediaSelect.value) => {
+    const options = campaignMediaOptions.filter(item =>
+      (item.platform === 'both' || item.platform === platform) &&
+      (platform !== 'tiktok' || item.type === 'video'));
+    mediaSelect.innerHTML = options.map(item =>
+      `<option value="${esc(item.value)}" data-kind="${item.type}">${esc(item.label)}</option>`).join('');
+    if (options.some(item => item.value === selectedValue)) mediaSelect.value = selectedValue;
+    else if (options.length) mediaSelect.selectedIndex = 0;
+    const note = $('#camp-media-note', app);
+    if (note) note.textContent = options.length ? '' : 'Upload a creative to begin. Existing published post media appears here when available.';
+  };
+  const setCampaignPlatform = (platform, preserveInterests = false) => {
+    state.campaignPlatform = platform;
+    if (!preserveInterests) state.campaignInterests = [];
+    const connection = campaignConnectionFor(platform);
+    const accounts = campaignAccountsFor(platform);
+    const accountSelect = $('#camp-account', app);
+    accountSelect.innerHTML = accounts.length ? accounts.map(item =>
+      `<option value="${esc(item.id)}">${esc(item.name)}${item.currency ? ` · ${esc(item.currency)}` : ''}</option>`).join('')
+      : '<option value="">No selected ad account</option>';
+    $('#camp-account-label', app).textContent = `${platform === 'tiktok' ? 'TikTok' : 'Meta'} ad account`;
+    $('#camp-currency', app).textContent = accounts[0]?.currency || 'account currency';
+    $('#camp-budget', app).min = platform === 'tiktok' ? '20' : '1';
+    $('#camp-budget-label', app).textContent = platform === 'tiktok'
+      ? 'Daily budget (minimum 20)'
+      : 'Daily budget';
+    $('#camp-headline-wrap', app).hidden = platform === 'tiktok';
+    $('#camp-headline', app).required = platform === 'meta';
+    $('#camp-body-label', app).textContent = platform === 'tiktok' ? 'Video caption' : 'Primary text';
+    $('#camp-upload', app).accept = platform === 'tiktok'
+      ? 'video/mp4,video/quicktime'
+      : 'image/jpeg,image/png,video/mp4,video/quicktime';
+    $('#camp-placement-wrap', app).hidden = platform === 'tiktok';
+    $('#camp-url-tags-wrap', app).hidden = platform === 'tiktok';
+    if (platform === 'tiktok') $('#camp-url-tags', app).value = '';
+    $('#camp-pixel-label', app).textContent = `${platform === 'tiktok' ? 'TikTok' : 'Meta'} pixel`;
+    $('#camp-pixel', app).innerHTML = '<option value="">No pixel</option>';
+    $('#camp-meta-events', app).hidden = platform === 'tiktok';
+    $('#camp-tiktok-events', app).hidden = platform !== 'tiktok';
+    if (platform === 'tiktok' && !$('#camp-tiktok-events', app).querySelector('option:checked')) {
+      $('#camp-event', app).value = 'ON_WEB_ORDER';
+    } else if (platform === 'meta' && !$('#camp-meta-events', app).querySelector('option:checked')) {
+      $('#camp-event', app).value = 'PURCHASE';
+    }
+    $$('[data-camp-category-option]', app).forEach(item => {
+      const supported = platform === 'meta' || ['HOUSING', 'EMPLOYMENT', 'CREDIT'].includes(item.dataset.campCategoryOption);
+      item.hidden = !supported;
+      if (!supported) $('input', item).checked = false;
+    });
+    const notice = $('#camp-connection-notice', app);
+    notice.hidden = Boolean(connection);
+    notice.textContent = `Connect ${platform === 'tiktok' ? 'TikTok' : 'Meta'} Ads above and select an available ad account to start a draft.`;
+    const connectionError = $('#camp-connection-error', app);
+    connectionError.hidden = !connection?.error;
+    connectionError.textContent = connection?.error || '';
+    renderCampaignMedia(platform);
+    renderSelectedInterests();
+  };
+  $('#camp-platform', app).onchange = () => setCampaignPlatform($('#camp-platform', app).value);
+  setCampaignPlatform(builderPlatform, Boolean(state.campaignDraftId));
   if ($('#camp-end-date', app)) {
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
     $('#camp-end-date', app).min = tomorrow;
@@ -5994,7 +6078,8 @@ pages.ads = async app => {
   }
   if ($('#camp-account', app)) {
     $('#camp-account', app).onchange = () => {
-      const selected = metaAdAccounts.find(item => item.id === $('#camp-account', app).value);
+      const platform = $('#camp-platform', app).value;
+      const selected = campaignAccountsFor(platform).find(item => item.id === $('#camp-account', app).value);
       $('#camp-currency', app).textContent = selected && selected.currency || 'account currency';
       $('#camp-pixel', app).innerHTML = '<option value="">No pixel</option>';
     };
@@ -6023,24 +6108,28 @@ pages.ads = async app => {
     }
   });
   if ($('#camp-load-pixels', app)) $('#camp-load-pixels', app).onclick = guard(async button => {
+    const platform = $('#camp-platform', app).value;
+    const connection = campaignConnectionFor(platform);
     const accountId = $('#camp-account', app).value;
-    if (!accountId || !metaConnection) { toast('Connect Meta Ads and choose an ad account first.', true); return; }
+    if (!accountId || !connection) { toast(`Connect ${platform === 'tiktok' ? 'TikTok' : 'Meta'} Ads and choose an ad account first.`, true); return; }
     busy($('#camp-load-pixels', app), true, 'Loading…');
     try {
-      const result = await api('GET', `/api/ads/pixels?ad_connection_id=${encodeURIComponent(metaConnection.id)}&ad_account_id=${encodeURIComponent(accountId)}`);
+      const result = await api('GET', `/api/ads/pixels?platform=${platform}&ad_connection_id=${encodeURIComponent(connection.id)}&ad_account_id=${encodeURIComponent(accountId)}`);
       $('#camp-pixel', app).innerHTML = `<option value="">No pixel</option>${(result.pixels || []).map(pixel =>
         `<option value="${esc(pixel.id)}">${esc(pixel.name || pixel.id)}${pixel.status ? ` · ${esc(pixel.status)}` : ''}</option>`).join('')}`;
-      if (!result.pixels?.length) toast('No Meta pixels were found for this ad account.');
+      if (!result.pixels?.length) toast(`No ${platform === 'tiktok' ? 'TikTok' : 'Meta'} pixels were found for this ad account.`);
     } finally { busy($('#camp-load-pixels', app), false); }
   });
   if ($('#camp-interest-button', app)) $('#camp-interest-button', app).onclick = guard(async () => {
-    if (!metaConnection) { toast('Connect Meta Ads first.', true); return; }
+    const platform = $('#camp-platform', app).value;
+    const connection = campaignConnectionFor(platform);
+    if (!connection) { toast(`Connect ${platform === 'tiktok' ? 'TikTok' : 'Meta'} Ads first.`, true); return; }
     const query = $('#camp-interest-search', app).value.trim();
     if (query.length < 2) { toast('Enter at least two characters to search interests.', true); return; }
     const button = $('#camp-interest-button', app);
     busy(button, true, 'Searching…');
     try {
-      const result = await api('GET', `/api/ads/targeting-search?q=${encodeURIComponent(query)}&dimension=interest&ad_connection_id=${encodeURIComponent(metaConnection.id)}`);
+      const result = await api('GET', `/api/ads/targeting-search?q=${encodeURIComponent(query)}&dimension=interest&platform=${platform}&ad_connection_id=${encodeURIComponent(connection.id)}`);
       $('#camp-interest-results', app).innerHTML = (result.results || []).map(item =>
         `<button class="btn sm" type="button" data-camp-interest-id="${esc(item.id)}" data-camp-interest-name="${esc(item.name)}">${esc(item.name)}</button>`).join(' ')
         || '<span class="muted">No matching interests found.</span>';
@@ -6066,7 +6155,8 @@ pages.ads = async app => {
       const mediaChoice = mediaSelect.value.split(':');
       const dailyBudget = Number($('#camp-budget', app).value);
       const values = {
-        ad_connection_id: metaConnection && metaConnection.id || '',
+        platform: $('#camp-platform', app).value,
+        ad_connection_id: campaignConnectionFor($('#camp-platform', app).value)?.id || '',
         ad_account_id: $('#camp-account', app).value,
         campaign_name: $('#camp-name', app).value.trim(),
         objective: $('#camp-objective', app).value,
@@ -6090,7 +6180,9 @@ pages.ads = async app => {
         conversion_event: $('#camp-event', app).value,
         url_tags: $('#camp-url-tags', app).value.trim(),
       };
-      if (!Number.isFinite(dailyBudget) || dailyBudget <= 0) { toast('Enter a valid daily budget.', true); return; }
+      if (!Number.isFinite(dailyBudget) || dailyBudget < (values.platform === 'tiktok' ? 20 : 1)) {
+        toast(values.platform === 'tiktok' ? 'TikTok requires a daily budget of at least 20 in the ad account currency.' : 'Enter a valid daily budget.', true); return;
+      }
       if (values.objective === 'video_views' && values.creative_type !== 'video') {
         toast('Choose a video creative for a video views campaign.', true); return;
       }
@@ -6111,9 +6203,12 @@ pages.ads = async app => {
     const draft = d.campaign_drafts.find(item => item.id === Number(button.dataset.campaignEdit));
     if (!draft) return;
     const values = draft.draft_json || {};
+    const platform = draft.platform || values.platform || 'meta';
     state.campaignDraftId = draft.id;
     state.campaignInterests = values.interests || [];
     state.campaignAssetId = values.media_asset_id;
+    $('#camp-platform', app).value = platform;
+    setCampaignPlatform(platform, true);
     if ($('#camp-account', app)) $('#camp-account', app).value = values.ad_account_id;
     if ($('#camp-name', app)) $('#camp-name', app).value = values.campaign_name || '';
     if ($('#camp-objective', app)) $('#camp-objective', app).value = values.objective || 'traffic';
@@ -6146,13 +6241,15 @@ pages.ads = async app => {
     await pages.ads(app);
   }));
   $$('[data-campaign-create]', app).forEach(button => button.onclick = guard(async () => {
-    if (!await askConfirm('Create this campaign in Meta as PAUSED? It will not deliver or spend until you separately choose Launch.', {
+    const draft = d.campaign_drafts.find(item => item.id === Number(button.dataset.campaignCreate));
+    const platform = draft?.platform === 'tiktok' ? 'TikTok' : 'Meta';
+    if (!await askConfirm(`Create this campaign in ${platform} as paused? It will not deliver or spend until you separately choose Launch.`, {
       title: 'Create paused campaign', ok: 'Create paused', danger: false,
     })) return;
     busy(button, true, 'Creating…');
     try {
       await api('POST', `/api/ads/drafts/${button.dataset.campaignCreate}/create`);
-      toast('Campaign created paused in Meta. Review it, then choose Launch when ready.');
+      toast(`Campaign created paused in ${platform}. Review it, then choose Launch when ready.`);
     } finally { await pages.ads(app); }
   }));
   $$('[data-campaign-retry]', app).forEach(button => button.onclick = guard(async () => {
@@ -6167,15 +6264,19 @@ pages.ads = async app => {
   }));
   $$('[data-campaign-status]', app).forEach(button => button.onclick = guard(async () => {
     const nextStatus = button.dataset.status;
-    const title = nextStatus === 'active' ? 'Launch Meta campaign' : 'Pause Meta campaign';
+    const draft = d.campaign_drafts.find(item => item.id === Number(button.dataset.campaignStatus));
+    const platform = draft?.platform === 'tiktok' ? 'TikTok' : 'Meta';
+    const title = nextStatus === 'active' ? `Launch ${platform} campaign` : `Pause ${platform} campaign`;
     const message = nextStatus === 'active'
-      ? 'Activate this campaign? Meta will review it and, when approved, spend from the selected ad account up to your daily budget.'
-      : 'Pause this campaign? Meta will stop delivery for this campaign.';
+      ? `Activate this campaign? ${platform} will review it and, when approved, spend from the selected ad account up to your daily budget.`
+      : `Pause this campaign? ${platform} will stop delivery for this campaign.`;
     if (!await askConfirm(message, { title, ok: nextStatus === 'active' ? 'Launch campaign' : 'Pause campaign', danger: nextStatus === 'active' })) return;
     busy(button, true, nextStatus === 'active' ? 'Launching…' : 'Pausing…');
     try {
       await api('PUT', `/api/ads/drafts/${button.dataset.campaignStatus}/status`, { status: nextStatus });
-      toast(nextStatus === 'active' ? 'Campaign activated in Meta; delivery waits for Meta review.' : 'Campaign paused in Meta.');
+      toast(nextStatus === 'active'
+        ? `Campaign activated in ${platform}; delivery waits for platform review.`
+        : `Campaign paused in ${platform}.`);
     } finally { await pages.ads(app); }
   }));
   if ($('#camp-report-refresh', app)) $('#camp-report-refresh', app).onclick = () => pages.ads(app);

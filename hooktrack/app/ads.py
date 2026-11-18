@@ -47,6 +47,7 @@ class InterestIn(BaseModel):
 
 
 class CampaignDraftIn(BaseModel):
+    platform: Literal["meta", "tiktok"] = "meta"
     ad_connection_id: str = Field(min_length=1, max_length=200)
     ad_account_id: str = Field(min_length=1, max_length=200)
     campaign_name: str = Field(min_length=1, max_length=100)
@@ -56,7 +57,7 @@ class CampaignDraftIn(BaseModel):
     creative_type: Literal["image", "video"]
     media_asset_id: int | None = Field(default=None, gt=0)
     post_id: int | None = Field(default=None, gt=0)
-    headline: str = Field(min_length=1, max_length=255)
+    headline: str = Field(default="", max_length=255)
     body: str = Field(min_length=1, max_length=5000)
     link_url: str = Field(min_length=1, max_length=2048)
     call_to_action: Literal[
@@ -77,10 +78,7 @@ class CampaignDraftIn(BaseModel):
         "ISSUES_ELECTIONS_POLITICS", "ONLINE_GAMBLING_AND_GAMING",
     ]] = Field(default_factory=list, max_length=6)
     pixel_id: str = Field(default="", max_length=100)
-    conversion_event: Literal[
-        "PURCHASE", "COMPLETE_REGISTRATION", "ADD_TO_CART", "INITIATE_CHECKOUT",
-        "ADD_PAYMENT_INFO", "SUBSCRIBE", "START_TRIAL", "VIEW_CONTENT", "SEARCH",
-    ] = "PURCHASE"
+    conversion_event: str = Field(default="PURCHASE", max_length=100)
     url_tags: str = Field(default="", max_length=1000)
 
 
@@ -142,8 +140,10 @@ def _connection(workspace_id: int, platform: str, account_id: str) -> dict:
     return connection
 
 
-def _selected_ad_account(workspace_id: int, connection_id: str, ad_account_id: str) -> dict:
-    connection = _connection(workspace_id, "meta", connection_id)
+def _selected_ad_account(
+    workspace_id: int, connection_id: str, ad_account_id: str, platform: str = "meta",
+) -> dict:
+    connection = _connection(workspace_id, platform, connection_id)
     try:
         accounts = latehub.ad_accounts(connection["id"])
     except latehub.LateHubError as error:
@@ -151,7 +151,7 @@ def _selected_ad_account(workspace_id: int, connection_id: str, ad_account_id: s
     account = next((item for item in accounts
                     if item["id"] == ad_account_id and item.get("selected")), None)
     if not account:
-        raise HTTPException(400, "Choose an ad account selected for this workspace's Meta Ads connection.")
+        raise HTTPException(400, f"Choose an ad account selected for this workspace's {platform.title()} Ads connection.")
     return connection
 
 
@@ -171,16 +171,17 @@ def _asset_url(workspace_id: int, asset_id: int) -> str:
     return f"{base}/api/ads/media/ads/{workspace_id}/{asset_id}/{exp}/{sig}"
 
 
-def _post_media_url(workspace_id: int, post_id: int, creative_type: str) -> str:
+def _post_media_url(workspace_id: int, post_id: int, creative_type: str, platform: str = "meta") -> str:
+    allowed_platforms = ("facebook", "instagram") if platform == "meta" else ("tiktok",)
     post = db.one(
         """SELECT p.id, p.video_file, p.video_url FROM posts p
              JOIN accounts a ON a.id=p.account_id
             WHERE p.id=%s AND p.workspace_id=%s AND p.status IN ('posted', 'analysed')
-              AND a.workspace_id=%s AND lower(a.platform) IN ('facebook', 'instagram')""",
-        (post_id, workspace_id, workspace_id),
+              AND a.workspace_id=%s AND lower(a.platform)=ANY(%s)""",
+        (post_id, workspace_id, workspace_id, list(allowed_platforms)),
     )
     if not post:
-        raise HTTPException(404, "That published Meta post is no longer available in this workspace.")
+        raise HTTPException(404, f"That published {platform.title()} post is no longer available in this workspace.")
     if creative_type == "video":
         if post["video_file"]:
             try:
@@ -191,6 +192,8 @@ def _post_media_url(workspace_id: int, post_id: int, creative_type: str) -> str:
         if urlparse(url).scheme == "https" and urlparse(url).hostname:
             return url
         raise HTTPException(400, "That post has no reusable video file. Choose another post or upload media.")
+    if platform == "tiktok":
+        raise HTTPException(400, "TikTok campaigns require a video creative.")
     image = db.one(
         """SELECT id FROM post_media
             WHERE post_id=%s AND workspace_id=%s ORDER BY position, id LIMIT 1""",
@@ -221,8 +224,9 @@ def _url_tags(value: str) -> list[dict]:
 
 
 def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
+    platform = values.get("platform", "meta")
     connection = _selected_ad_account(
-        workspace_id, values["ad_connection_id"], values["ad_account_id"])
+        workspace_id, values["ad_connection_id"], values["ad_account_id"], platform)
     end_date = values["end_date"]
     if isinstance(end_date, str):
         end_date = date.fromisoformat(end_date)
@@ -230,8 +234,12 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         raise HTTPException(400, "Choose exactly one uploaded asset or existing published post.")
     if values["age_max"] < values["age_min"]:
         raise HTTPException(400, "Maximum age must be equal to or above minimum age.")
-    if not values["campaign_name"].strip() or not values["headline"].strip() or not values["body"].strip():
-        raise HTTPException(400, "Enter a campaign name, headline, and primary text.")
+    if not values["campaign_name"].strip() or not values["body"].strip():
+        raise HTTPException(400, "Enter a campaign name and primary text.")
+    if platform == "meta" and not values["headline"].strip():
+        raise HTTPException(400, "Enter a campaign headline.")
+    if platform == "tiktok" and Decimal(str(values["daily_budget"])) < Decimal("20"):
+        raise HTTPException(400, "TikTok's minimum daily budget is 20 in the ad account's currency.")
     countries = [str(code).strip().upper() for code in values["countries"]]
     if not countries:
         raise HTTPException(400, "Choose at least one target country.")
@@ -247,15 +255,26 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
     if values["objective"] == "video_views" and values["creative_type"] != "video":
         raise HTTPException(400, "The video views objective requires a video creative.")
     if values["objective"] == "conversions" and not values["pixel_id"]:
-        raise HTTPException(400, "Choose a Meta pixel for a conversions campaign.")
+        raise HTTPException(400, f"Choose a {platform.title()} pixel for a conversions campaign.")
+    if platform == "tiktok" and values["creative_type"] != "video":
+        raise HTTPException(400, "TikTok campaigns require a video creative.")
     if values["special_ad_categories"] and values["interests"]:
         raise HTTPException(400, "Remove interest targeting for ads with a special ad category.")
-    if values["special_ad_categories"] and (
+    if values["special_ad_categories"] and platform == "meta" and (
         values["age_min"] != 18 or values["age_max"] != 65 or values["gender"] != "all"
     ):
         raise HTTPException(400, "Meta restricts age and gender targeting for special ad categories. Use all ages and genders.")
+    if platform == "tiktok" and any(category not in ("HOUSING", "EMPLOYMENT", "CREDIT")
+                                    for category in values["special_ad_categories"]):
+        raise HTTPException(400, "TikTok supports Housing, Employment, and Credit special ad categories.")
+    if platform == "tiktok" and values["special_ad_categories"] and values["gender"] != "all":
+        raise HTTPException(400, "TikTok restricts gender targeting for special ad categories.")
+    if platform == "tiktok" and values["url_tags"]:
+        raise HTTPException(400, "TikTok Ads does not support URL tracking tags.")
     if values["pixel_id"] and not values["pixel_id"].isdigit():
-        raise HTTPException(400, "Choose a valid numeric Meta pixel ID.")
+        raise HTTPException(400, f"Choose a valid numeric {platform.title()} pixel ID.")
+    if platform == "tiktok" and values["placement_platforms"]:
+        raise HTTPException(400, "TikTok campaigns use automatic TikTok placements.")
     if values["placement_platforms"] and not set(values["placement_platforms"]) <= {
         "facebook", "instagram", "threads", "messenger",
     }:
@@ -272,9 +291,11 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         is_video = asset["content_type"].startswith("video/")
         if is_video != (values["creative_type"] == "video"):
             raise HTTPException(400, "The selected campaign media type does not match the creative.")
+        if platform == "tiktok" and not is_video:
+            raise HTTPException(400, "TikTok campaigns require a video creative.")
         media_url = _asset_url(workspace_id, values["media_asset_id"])
     else:
-        media_url = _post_media_url(workspace_id, values["post_id"], values["creative_type"])
+        media_url = _post_media_url(workspace_id, values["post_id"], values["creative_type"], platform)
 
     request_body = {
         "accountId": connection["id"],
@@ -284,36 +305,52 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         "budgetAmount": float(values["daily_budget"]),
         "budgetType": "daily",
         "endDate": f"{end_date.isoformat()}T23:59:59Z",
-        "headline": values["headline"].strip(),
         "body": values["body"].strip(),
         "linkUrl": values["link_url"].strip(),
         "callToAction": values["call_to_action"],
         "status": "PAUSED",
         "countries": countries,
-        "advantageAudience": 0,
     }
-    if not values["special_ad_categories"]:
-        request_body["ageMin"] = values["age_min"]
-        request_body["ageMax"] = values["age_max"]
-    if values["creative_type"] == "video":
-        request_body["video"] = {"url": media_url}
+    if platform == "meta":
+        request_body["headline"] = values["headline"].strip()
+        request_body["advantageAudience"] = 0
+        if not values["special_ad_categories"]:
+            request_body["ageMin"] = values["age_min"]
+            request_body["ageMax"] = values["age_max"]
+        if values["creative_type"] == "video":
+            request_body["video"] = {"url": media_url}
+        else:
+            request_body["imageUrl"] = media_url
+        if values["gender"] != "all" and not values["special_ad_categories"]:
+            request_body["gender"] = values["gender"]
     else:
         request_body["imageUrl"] = media_url
-    if values["gender"] != "all" and not values["special_ad_categories"]:
-        request_body["gender"] = values["gender"]
+        request_body["ageMin"] = values["age_min"]
+        request_body["ageMax"] = values["age_max"]
+        if values["gender"] != "all":
+            request_body["gender"] = values["gender"]
     if values["interests"]:
         request_body["interests"] = [
             {"id": interest["id"], "name": interest["name"]} for interest in values["interests"]
         ]
-    if values["placement_platforms"]:
+    if platform == "meta" and values["placement_platforms"]:
         request_body["placements"] = {"publisherPlatforms": values["placement_platforms"]}
     if values["special_ad_categories"]:
         request_body["specialAdCategories"] = values["special_ad_categories"]
-    if values["pixel_id"]:
+    if platform == "meta" and values["pixel_id"]:
         request_body["tracking"] = {"pixelId": values["pixel_id"]}
-    if values["url_tags"]:
+    if platform == "meta" and values["url_tags"]:
         request_body.setdefault("tracking", {})["urlTags"] = _url_tags(values["url_tags"])
     if values["objective"] == "conversions":
+        allowed_events = (
+            {"PURCHASE", "COMPLETE_REGISTRATION", "ADD_TO_CART", "INITIATE_CHECKOUT",
+             "ADD_PAYMENT_INFO", "SUBSCRIBE", "START_TRIAL", "VIEW_CONTENT", "SEARCH"}
+            if platform == "meta"
+            else {"ON_WEB_ORDER", "INITIATE_ORDER", "ON_WEB_CART", "ON_WEB_REGISTER", "ON_WEB_DETAIL",
+                  "FORM", "ON_WEB_SEARCH", "ON_WEB_ADD_TO_WISHLIST", "LANDING_PAGE_VIEW"}
+        )
+        if values["conversion_event"] not in allowed_events:
+            raise HTTPException(400, "Choose a supported conversion event for this ad platform.")
         request_body["promotedObject"] = {
             "pixelId": values["pixel_id"],
             "customEventType": values["conversion_event"],
@@ -321,7 +358,9 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
     return request_body, connection
 
 
-def _campaign_create_result(workspace_id: int, draft_id: int, request_body: dict, idempotency_key: str) -> dict:
+def _campaign_create_result(
+    workspace_id: int, draft_id: int, request_body: dict, idempotency_key: str, platform: str = "meta",
+) -> dict:
     try:
         result = latehub.create_standalone_ad(request_body, idempotency_key)
     except latehub.LateHubError as error:
@@ -351,9 +390,12 @@ def _campaign_create_result(workspace_id: int, draft_id: int, request_body: dict
         )
         raise HTTPException(502, "Meta may have created the campaign, but the provider response lacked campaign IDs. "
                                  "Check Ads Manager before retrying.")
-    if str(ad.get("configuredStatus") or "").upper() != "PAUSED":
+    if platform == "tiktok" or str(ad.get("configuredStatus") or "").upper() != "PAUSED":
         try:
-            latehub.update_ad_campaign_status(str(ad["platformCampaignId"]), "paused")
+            if platform == "meta":
+                latehub.update_ad_campaign_status(str(ad["platformCampaignId"]), "paused")
+            else:
+                latehub.update_ad_campaign_status(str(ad["platformCampaignId"]), "paused", platform)
         except latehub.LateHubError as error:
             db.execute(
                 """UPDATE ad_campaign_drafts SET status='unknown', response_json=%s,
@@ -459,7 +501,7 @@ def ads_home(ctx: Ctx = Depends(current)):
                   a.handle, a.platform
              FROM posts p JOIN accounts a ON a.id=p.account_id
             WHERE p.workspace_id=%s AND a.workspace_id=%s AND p.status IN ('posted', 'analysed')
-              AND lower(a.platform) IN ('facebook', 'instagram')
+              AND lower(a.platform) IN ('facebook', 'instagram', 'tiktok')
             ORDER BY p.post_date DESC, p.id DESC LIMIT 100""",
         (workspace_id, workspace_id),
     )
@@ -467,7 +509,7 @@ def ads_home(ctx: Ctx = Depends(current)):
         creative_type = ""
         if post["video_file"] or post["video_url"]:
             creative_type = "video"
-        else:
+        elif (post["platform"] or "").casefold() != "tiktok":
             image = db.one(
                 "SELECT id FROM post_media WHERE workspace_id=%s AND post_id=%s ORDER BY position, id LIMIT 1",
                 (workspace_id, post["id"]),
@@ -484,7 +526,7 @@ def ads_home(ctx: Ctx = Depends(current)):
                 "handle": post["handle"],
             })
     drafts = db.query(
-        """SELECT id, campaign_name, ad_account_id, status, draft_json, platform_campaign_id,
+        """SELECT id, campaign_name, ad_account_id, platform, status, draft_json, platform_campaign_id,
                   platform_ad_set_id, zernio_ad_id, pending_status, error, created_at, updated_at,
                   provider_requested_at > now() - interval '23 hours' AS retry_safe
              FROM ad_campaign_drafts WHERE workspace_id=%s ORDER BY created_at DESC LIMIT 50""",
@@ -541,7 +583,7 @@ async def upload_campaign_asset(request: Request, file: UploadFile = File(...), 
                         if kind == "webm":
                             kind = None
                     if kind is None:
-                        raise HTTPException(415, "Upload a JPEG, PNG, MP4 or MOV image/video for Meta Ads.")
+                        raise HTTPException(415, "Upload a JPEG, PNG, MP4 or MOV image/video.")
                 size += len(chunk)
                 limit = limit_image if kind in ("jpg", "png") else limit_video
                 if size > limit:
@@ -590,14 +632,14 @@ def signed_campaign_asset(ws: int, asset_id: int, exp: int, sig: str):
 @router.post("/drafts")
 def create_campaign_draft(body: CampaignDraftIn, ctx: Ctx = Depends(admin)):
     values = body.model_dump(mode="json")
-    _selected_ad_account(ctx.workspace_id, values["ad_connection_id"], values["ad_account_id"])
+    _selected_ad_account(ctx.workspace_id, values["ad_connection_id"], values["ad_account_id"], values["platform"])
     if (values["media_asset_id"] is None) == (values["post_id"] is None):
         raise HTTPException(400, "Choose exactly one uploaded asset or existing published post.")
     draft = db.one(
         """INSERT INTO ad_campaign_drafts
-               (workspace_id, campaign_name, ad_account_id, status, draft_json, idempotency_key)
-           VALUES (%s,%s,%s,'draft',%s,%s) RETURNING id, status, created_at""",
-        (ctx.workspace_id, values["campaign_name"].strip(), values["ad_account_id"],
+               (workspace_id, campaign_name, ad_account_id, platform, status, draft_json, idempotency_key)
+           VALUES (%s,%s,%s,%s,'draft',%s,%s) RETURNING id, status, created_at""",
+        (ctx.workspace_id, values["campaign_name"].strip(), values["ad_account_id"], values["platform"],
          db.Json(values), secrets.token_urlsafe(24)),
     )
     return {"id": draft["id"], "status": draft["status"], "created_at": draft["created_at"]}
@@ -606,17 +648,17 @@ def create_campaign_draft(body: CampaignDraftIn, ctx: Ctx = Depends(admin)):
 @router.put("/drafts/{draft_id}")
 def update_campaign_draft(draft_id: int, body: CampaignDraftIn, ctx: Ctx = Depends(admin)):
     values = body.model_dump(mode="json")
-    _selected_ad_account(ctx.workspace_id, values["ad_connection_id"], values["ad_account_id"])
+    _selected_ad_account(ctx.workspace_id, values["ad_connection_id"], values["ad_account_id"], values["platform"])
     if (values["media_asset_id"] is None) == (values["post_id"] is None):
         raise HTTPException(400, "Choose exactly one uploaded asset or existing published post.")
     row = db.one(
-        """UPDATE ad_campaign_drafts SET campaign_name=%s, ad_account_id=%s, draft_json=%s,
+        """UPDATE ad_campaign_drafts SET campaign_name=%s, ad_account_id=%s, platform=%s, draft_json=%s,
                   status='draft', idempotency_key=%s, request_json='{}'::jsonb,
                   response_json='{}'::jsonb, platform_campaign_id='', platform_ad_set_id='',
                   zernio_ad_id='', pending_status='', error='', updated_at=now()
             WHERE id=%s AND workspace_id=%s AND status IN ('draft', 'failed')
             RETURNING id, status""",
-        (values["campaign_name"].strip(), values["ad_account_id"], db.Json(values),
+        (values["campaign_name"].strip(), values["ad_account_id"], values["platform"], db.Json(values),
          secrets.token_urlsafe(24), draft_id, ctx.workspace_id),
     )
     if not row:
@@ -645,7 +687,7 @@ def delete_campaign_draft(draft_id: int, ctx: Ctx = Depends(admin)):
 def _submit_saved_campaign(workspace_id: int, draft_id: int, retry: bool = False) -> dict:
     if retry:
         row = db.one(
-            """SELECT id, status, draft_json, request_json, idempotency_key, provider_requested_at
+            """SELECT id, status, platform, draft_json, request_json, idempotency_key, provider_requested_at
                  FROM ad_campaign_drafts WHERE id=%s AND workspace_id=%s""",
             (draft_id, workspace_id),
         )
@@ -665,7 +707,7 @@ def _submit_saved_campaign(workspace_id: int, draft_id: int, retry: bool = False
         key = row["idempotency_key"]
     else:
         row = db.one(
-            """SELECT id, status, draft_json, idempotency_key
+            """SELECT id, status, platform, draft_json, idempotency_key
                  FROM ad_campaign_drafts WHERE id=%s AND workspace_id=%s""",
             (draft_id, workspace_id),
         )
@@ -690,7 +732,7 @@ def _submit_saved_campaign(workspace_id: int, draft_id: int, retry: bool = False
     ) if retry else True
     if not claimed:
         raise HTTPException(409, "This campaign is already being submitted.")
-    return _campaign_create_result(workspace_id, draft_id, body, key)
+    return _campaign_create_result(workspace_id, draft_id, body, key, row["platform"])
 
 
 @router.post("/drafts/{draft_id}/create")
@@ -706,7 +748,7 @@ def retry_campaign_create(draft_id: int, ctx: Ctx = Depends(admin)):
 @router.put("/drafts/{draft_id}/status")
 def update_campaign_status(draft_id: int, body: CampaignStatusIn, ctx: Ctx = Depends(admin)):
     row = db.one(
-        """SELECT id, status, platform_campaign_id, pending_status
+        """SELECT id, status, platform, platform_campaign_id, pending_status
              FROM ad_campaign_drafts WHERE id=%s AND workspace_id=%s""",
         (draft_id, ctx.workspace_id),
     )
@@ -722,7 +764,10 @@ def update_campaign_status(draft_id: int, body: CampaignStatusIn, ctx: Ctx = Dep
         (body.status, draft_id, ctx.workspace_id),
     )
     try:
-        result = latehub.update_ad_campaign_status(row["platform_campaign_id"], body.status)
+        if row["platform"] == "meta":
+            result = latehub.update_ad_campaign_status(row["platform_campaign_id"], body.status)
+        else:
+            result = latehub.update_ad_campaign_status(row["platform_campaign_id"], body.status, row["platform"])
     except latehub.LateHubError as error:
         unknown = error.status is None or error.status in (408, 409, 429) or error.status >= 500
         if unknown:
@@ -749,23 +794,32 @@ def update_campaign_status(draft_id: int, body: CampaignStatusIn, ctx: Ctx = Dep
 
 @router.get("/targeting-search")
 def targeting_search(
-    q: str, ad_connection_id: str, dimension: Literal["interest", "geo"] = "interest",
+    q: str, ad_connection_id: str, platform: Literal["meta", "tiktok"] = "meta",
+    dimension: Literal["interest", "geo", "behavior", "interestKeyword", "hashtag"] = "interest",
     ctx: Ctx = Depends(current),
 ):
     if len(q.strip()) < 2 or len(q) > 100:
         raise HTTPException(400, "Enter at least two characters to search Meta targeting.")
-    connection = _connection(ctx.workspace_id, "meta", ad_connection_id)
+    if platform == "meta" and dimension not in ("interest", "geo", "behavior"):
+        raise HTTPException(400, "That targeting search is only available for TikTok Ads.")
+    if platform == "tiktok" and dimension == "geo":
+        raise HTTPException(400, "Choose a country in the TikTok campaign country field.")
+    connection = _connection(ctx.workspace_id, platform, ad_connection_id)
     try:
-        return latehub.ad_targeting_search({
-            "accountId": connection["id"], "q": q.strip(), "dimension": dimension,
-        })
+        params = {"accountId": connection["id"], "q": q.strip(), "dimension": dimension}
+        if platform == "tiktok":
+            params["platform"] = "tiktok"
+        return latehub.ad_targeting_search(params)
     except latehub.LateHubError as error:
         raise HTTPException(502, str(error)) from error
 
 
 @router.get("/pixels")
-def list_meta_pixels(ad_connection_id: str, ad_account_id: str, ctx: Ctx = Depends(current)):
-    connection = _selected_ad_account(ctx.workspace_id, ad_connection_id, ad_account_id)
+def list_ad_pixels(
+    ad_connection_id: str, ad_account_id: str, platform: Literal["meta", "tiktok"] = "meta",
+    ctx: Ctx = Depends(current),
+):
+    connection = _selected_ad_account(ctx.workspace_id, ad_connection_id, ad_account_id, platform)
     try:
         return {"pixels": latehub.ad_tracking_tags(connection["id"], ad_account_id)}
     except latehub.LateHubError as error:
@@ -775,33 +829,43 @@ def list_meta_pixels(ad_connection_id: str, ad_account_id: str, ctx: Ctx = Depen
 @router.get("/campaigns")
 def campaign_reporting(ctx: Ctx = Depends(current)):
     connections = _connections(ctx.workspace_id)
-    account_ids = []
+    accounts_by_platform = {"meta": [], "tiktok": []}
     for connection in connections:
-        if connection["platform"] != "metaads":
+        platform = {"metaads": "meta", "tiktokads": "tiktok"}.get(connection["platform"])
+        if not platform:
             continue
         try:
-            account_ids.extend(
+            accounts_by_platform[platform].extend(
                 account["id"] for account in latehub.ad_accounts(connection["id"])
                 if account.get("selected")
             )
         except latehub.LateHubError as error:
             raise HTTPException(502, str(error)) from error
-    if not account_ids:
-        return {"campaigns": [], "from_date": (date.today() - timedelta(days=30)).isoformat(),
-                "to_date": date.today().isoformat()}
-    try:
-        result = latehub.ad_campaign_tree({
+    campaigns = []
+    for platform, account_ids in accounts_by_platform.items():
+        if not account_ids:
+            continue
+        params = {
             "profileId": latehub.ensure_profile(ctx.workspace_id),
             "adAccountId": ",".join(account_ids[:50]),
             "fromDate": (date.today() - timedelta(days=30)).isoformat(),
             "toDate": date.today().isoformat(),
             "status": "not_deleted",
-        })
-    except latehub.LateHubError as error:
-        raise HTTPException(502, str(error)) from error
-    if not isinstance(result, dict) or not isinstance(result.get("campaigns"), list):
-        raise HTTPException(502, "Zernio returned an invalid Meta campaign report.")
-    return result
+        }
+        if platform == "tiktok":
+            params["platform"] = platform
+        try:
+            result = latehub.ad_campaign_tree(params)
+        except latehub.LateHubError as error:
+            raise HTTPException(502, str(error)) from error
+        if not isinstance(result, dict) or not isinstance(result.get("campaigns"), list):
+            raise HTTPException(502, f"Zernio returned an invalid {platform.title()} campaign report.")
+        campaigns.extend(result["campaigns"])
+    return {
+        "campaigns": campaigns,
+        "from_date": (date.today() - timedelta(days=30)).isoformat(),
+        "to_date": date.today().isoformat(),
+    }
 
 
 @router.post("/connect")

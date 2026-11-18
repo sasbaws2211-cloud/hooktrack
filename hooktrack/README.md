@@ -351,15 +351,15 @@ The Ads page supports boosting an already-published, synced TikTok, Instagram, o
 - Zernio's API and ads plan must be enabled for the platform-managed key. Zernio may apply its own ads add-on and active-ad charges; those are separate from HookTrack subscriptions and the ad account's media budget.
 - The provider API must be configured by the platform operator; no live campaigns are launched during setup or deployment.
 
-### Meta campaign builder
+### Meta and TikTok campaign builders
 
-Only workspace owners/admins can create campaigns. The Meta builder supports daily budget and an end date, country/age/gender and interest targeting, automatic or selected publisher placements, special ad categories, URL tags and pixel tracking. Conversion campaigns require a selected Meta pixel and event.
+Only workspace owners/admins can create campaigns. Both builders support daily budget and an end date, country/age/gender and interest targeting, special ad categories, pixels for conversion campaigns, and explicit paused creation followed by a separate launch or pause action. Meta also supports automatic or selected publisher placements and URL tags.
 
-Campaign drafts can use an uploaded JPEG, PNG, MP4 or MOV or existing media attached to a published workspace post. Creating the campaign sends it to Meta paused; a separate explicit Launch action activates it. Pausing an active builder-created campaign is also available in HookTrack. Uploaded media is served to Zernio through a signed link, so `HOOKTRACK_PUBLIC_URL` must be a publicly reachable HTTPS address.
+Meta drafts can use uploaded JPEG, PNG, MP4 or MOV media or media attached to a published workspace post. TikTok campaigns are video-only and can use MP4/MOV uploads or video attached to a published TikTok post; TikTok's minimum daily budget is 20 in the ad-account currency. TikTok conversion campaigns require a numeric TikTok pixel ID and a TikTok event such as `ON_WEB_ORDER`; TikTok does not support URL tracking tags or manual placements in this builder. TikTok also checks the provider's video duration, dimensions and account-specific targeting/budget limits at create time. Uploaded media is served to Zernio through a signed link, so `HOOKTRACK_PUBLIC_URL` must be a publicly reachable HTTPS address.
 
-The Ads page also supports boosting an already-published, synced TikTok, Instagram or Facebook post. HookTrack asks Zernio to promote the original platform post to preserve its social proof. Boosts start immediately after confirmation; unlike builder-created campaigns, they cannot yet be paused or edited in HookTrack. Media spend is charged by Meta or TikTok to the selected ad account, not to HookTrack; Meta may review ads before delivery. Zernio usage/add-on charges are separate from HookTrack subscriptions and ad account media spend.
+The Ads page also supports boosting an already-published, synced TikTok, Instagram or Facebook post. HookTrack asks Zernio to promote the original platform post to preserve its social proof. Boosts start immediately after confirmation; unlike builder-created campaigns, they cannot yet be paused or edited in HookTrack. Media spend is charged by Meta or TikTok to the selected ad account, not to HookTrack; the platforms may review ads before delivery. Zernio usage/add-on charges are separate from HookTrack subscriptions and ad account media spend.
 
-Campaign creates use a saved Zernio idempotency key. Uncertain creates can be retried safely during the provider's idempotency window; after that, check Meta Ads Manager before retrying. Campaign status and performance are read from Zernio's campaign tree API.
+Campaign creates use a saved Zernio idempotency key. Uncertain creates can be retried safely during the provider's idempotency window; after that, check the relevant platform's Ads Manager before retrying. Campaign status and performance are read from Zernio's campaign tree API.
 
 ### Responsive layout
 

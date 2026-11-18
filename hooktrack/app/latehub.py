@@ -193,9 +193,10 @@ def create_standalone_ad(body: dict, idempotency_key: str) -> dict:
     return _call("POST", "/ads/create", json=body, idempotency_key=idempotency_key, timeout=750.0)
 
 
-def update_ad_campaign_status(campaign_id: str, status: str) -> dict:
+def update_ad_campaign_status(campaign_id: str, status: str, platform: str = "meta") -> dict:
+    provider_platform = "facebook" if platform == "meta" else platform
     return _call("PUT", f"/ads/campaigns/{campaign_id}/status",
-                 json={"status": status, "platform": "facebook"}, timeout=60.0)
+                 json={"status": status, "platform": provider_platform}, timeout=60.0)
 
 
 def ad_campaign_tree(params: dict) -> dict:
