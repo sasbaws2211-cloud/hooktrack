@@ -84,7 +84,11 @@ async function api(method, path, body) {
   }
   if (!r.ok) {
     const d = data.detail;
-    throw new Error(Array.isArray(d) ? d.map(x => `${(x.loc || []).slice(1).join('.')}: ${x.msg}`).join('; ') : d || r.statusText);
+    const error = new Error(Array.isArray(d)
+      ? d.map(x => `${(x.loc || []).slice(1).join('.')}: ${x.msg}`).join('; ')
+      : d || r.statusText);
+    error.status = r.status;
+    throw error;
   }
   return data;
 }
@@ -6303,6 +6307,53 @@ pages.ads = async app => {
           <div style="max-width:420px;margin-bottom:18px"><label class="small muted" for="meta-tools-account">Meta ad account</label>
             <select id="meta-tools-account" required style="width:100%">${metaAdAccounts.map(item =>
               `<option value="${esc(item.id)}">${esc(item.name)}${item.currency ? ` · ${esc(item.currency)}` : ''}</option>`).join('')}</select></div>
+          <section aria-labelledby="meta-conversation-ad-heading" class="card" style="margin-bottom:20px">
+            <h3 id="meta-conversation-ad-heading">Messaging and call ads</h3>
+            <p class="small muted">Create a click-to-message or click-to-call ad using a workspace-uploaded image or video. New campaigns are held paused for review. The selected Facebook Page must already be paired with the messaging destination.</p>
+            <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px">
+              <div><label class="small muted" for="meta-special-ad-type">Ad action</label>
+                <select id="meta-special-ad-type" style="width:100%">
+                  <option value="messaging">Start a conversation</option><option value="call">Call a phone number</option>
+                </select></div>
+              <div id="meta-special-destination-wrap"><label class="small muted" for="meta-special-destination">Conversation destination</label>
+                <select id="meta-special-destination" style="width:100%">
+                  <option value="messenger">Messenger</option><option value="instagram_direct">Instagram Direct</option><option value="whatsapp">WhatsApp</option>
+                </select></div>
+              <div><label class="small muted" for="meta-special-name">Campaign/ad name</label>
+                <input id="meta-special-name" maxlength="255" required style="width:100%"></div>
+              <div><label class="small muted" for="meta-special-headline">Headline</label>
+                <input id="meta-special-headline" maxlength="255" required style="width:100%"></div>
+              <div><label class="small muted" for="meta-special-budget">Daily budget (<span id="meta-special-budget-currency">${esc(metaAdAccounts[0]?.currency || 'account currency')}</span>)</label>
+                <input id="meta-special-budget" type="number" min="0.01" step="0.01" required style="width:100%"></div>
+              <div><label class="small muted" for="meta-special-countries">Target countries (ISO codes)</label>
+                <input id="meta-special-countries" value="US" placeholder="US, CA" required style="width:100%"></div>
+              <div id="meta-special-phone-wrap" hidden><label class="small muted" for="meta-special-phone">Call number (E.164)</label>
+                <input id="meta-special-phone" type="tel" maxlength="20" placeholder="+15551234567" style="width:100%"></div>
+              <div id="meta-special-link-wrap" hidden><label class="small muted" for="meta-special-link">Website URL (HTTPS)</label>
+                <input id="meta-special-link" type="url" maxlength="2048" placeholder="https://example.com/contact" style="width:100%"></div>
+              <div id="meta-special-whatsapp-wrap" hidden><label class="small muted" for="meta-special-whatsapp">Paired WhatsApp number (optional, E.164)</label>
+                <input id="meta-special-whatsapp" type="tel" maxlength="20" placeholder="+15551234567" style="width:100%"></div>
+              <div><label class="small muted" for="meta-special-media">Uploaded ad image or video</label>
+                <select id="meta-special-media" required style="width:100%">
+                  <option value="">Choose workspace media</option>${(d.campaign_assets || [])
+                    .filter(asset => ['image/jpeg', 'image/png', 'video/mp4', 'video/quicktime'].includes(String(asset.content_type).toLowerCase()))
+                    .map(asset => `<option value="${asset.id}" data-kind="${String(asset.content_type).startsWith('video/') ? 'video' : 'image'}">${esc(String(asset.content_type).startsWith('video/') ? 'Video' : 'Image')} · ${esc(asset.file_name)}</option>`).join('')}
+                </select></div>
+              <div style="grid-column:1/-1"><label class="small muted" for="meta-special-body">Primary text</label>
+                <textarea id="meta-special-body" maxlength="5000" required style="width:100%;min-height:74px"></textarea></div>
+              <div style="grid-column:1/-1"><label class="small muted" for="meta-special-description">Link description (optional)</label>
+                <input id="meta-special-description" maxlength="255" style="width:100%"></div>
+              <div id="meta-special-welcome-wrap" style="grid-column:1/-1">
+                <label class="small muted" for="meta-special-welcome">Chat welcome message (optional)</label>
+                <input id="meta-special-welcome" maxlength="1000" style="width:100%">
+                <label class="small muted" for="meta-special-prefill">Prefilled reply (required with welcome message)</label>
+                <input id="meta-special-prefill" maxlength="1000" style="width:100%">
+              </div>
+            </div>
+            <p id="meta-special-ad-note" class="small muted">Messaging CTA and optimization are selected automatically for the chosen app. WhatsApp ads require an already paired WhatsApp Business number; Instagram Direct requires a linked professional account.</p>
+            <div class="actions"><button id="meta-special-create" class="btn primary" type="button">Review and create paused ad</button></div>
+            <pre id="meta-special-result" class="card small" style="display:none;white-space:pre-wrap;overflow:auto;max-height:360px"></pre>
+          </section>
           <section aria-labelledby="meta-hierarchy-heading" style="margin-bottom:20px">
             <h3 id="meta-hierarchy-heading">Campaign and ad management</h3>
             <p class="small muted">Read the selected account's campaign → ad set → ad hierarchy and performance, then pause or activate an individual item.</p>
@@ -6457,6 +6508,58 @@ pages.ads = async app => {
             </div>
             <pre id="meta-leads-result" class="card small" style="display:none;white-space:pre-wrap;overflow:auto;max-height:360px"></pre>
           </section>
+          <section aria-labelledby="meta-rf-heading" style="margin-bottom:20px">
+            <h3 id="meta-rf-heading">Reach &amp; Frequency reservation</h3>
+            <p class="small muted">Get a non-binding Meta quote, reserve the priced inventory, then buy a scheduled RESERVED campaign. Quotes require explicit placements; Instagram placements require a linked professional account. A reservation locks inventory and may commit spend. Buying creates the first ad ACTIVE because Meta requires it; the campaign is scheduled for the quoted future window.</p>
+            <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px">
+              <div><label class="small muted" for="meta-rf-budget">Lifetime budget (<span id="meta-rf-currency">${esc(metaAdAccounts[0]?.currency || 'account currency')}</span>)</label>
+                <input id="meta-rf-budget" type="number" min="1" step="0.01" required style="width:100%"></div>
+              <div><label class="small muted" for="meta-rf-start-date">Scheduled start date (UTC, 09:00)</label>
+                <input id="meta-rf-start-date" type="date" min="${new Date(Date.now() + 86400000).toISOString().slice(0, 10)}" required style="width:100%"></div>
+              <div><label class="small muted" for="meta-rf-end-date">Scheduled end date (UTC, 09:00)</label>
+                <input id="meta-rf-end-date" type="date" min="${new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10)}" required style="width:100%"></div>
+              <div><label class="small muted" for="meta-rf-cap">Frequency cap (impressions/person, 1–90, optional)</label>
+                <input id="meta-rf-cap" type="number" min="1" max="90" step="1" style="width:100%"></div>
+              <div><label class="small muted" for="meta-rf-countries">Target countries (ISO codes)</label>
+                <input id="meta-rf-countries" value="US" placeholder="US, CA" required style="width:100%"></div>
+              <div><label class="small muted" for="meta-rf-age-min">Minimum age</label><input id="meta-rf-age-min" type="number" min="18" max="65" value="18" required style="width:100%"></div>
+              <div><label class="small muted" for="meta-rf-age-max">Maximum age</label><input id="meta-rf-age-max" type="number" min="18" max="65" value="65" required style="width:100%"></div>
+              <div><label class="small muted" for="meta-rf-placement">Explicit placement</label>
+                <select id="meta-rf-placement" style="width:100%">
+                  <option value="facebook">Facebook Feed</option><option value="instagram">Instagram Feed</option><option value="both">Facebook + Instagram feeds</option>
+                </select></div>
+            </div>
+            <div class="row" style="gap:8px;margin:10px 0;align-items:end">
+              <button type="button" class="btn primary sm" id="meta-rf-quote">Get reach &amp; frequency quote</button>
+              <button type="button" class="btn sm" id="meta-rf-refresh" disabled>Refresh quote status</button>
+              <button type="button" class="btn sm" id="meta-rf-reserve" disabled>Reserve quoted inventory</button>
+              <button type="button" class="btn sm" id="meta-rf-release" hidden>Release unused reservation</button>
+            </div>
+            <div id="meta-rf-quote-result" class="card small" aria-live="polite" style="white-space:pre-wrap;overflow:auto;max-height:260px">No quote requested.</div>
+            <div id="meta-rf-buy-fields" hidden style="margin-top:12px">
+              <h4>Buy the reserved campaign</h4>
+              <p id="meta-rf-reservation-note" class="small muted"></p>
+              <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px">
+                <div><label class="small muted" for="meta-rf-campaign-name">Campaign name</label><input id="meta-rf-campaign-name" maxlength="255" required style="width:100%"></div>
+                <div><label class="small muted" for="meta-rf-headline">Headline</label><input id="meta-rf-headline" maxlength="255" required style="width:100%"></div>
+                <div><label class="small muted" for="meta-rf-link">Landing page URL (HTTPS)</label><input id="meta-rf-link" type="url" required placeholder="https://example.com" style="width:100%"></div>
+                <div><label class="small muted" for="meta-rf-cta">Call to action</label><select id="meta-rf-cta" style="width:100%">
+                  ${[['LEARN_MORE','Learn more'],['SHOP_NOW','Shop now'],['SIGN_UP','Sign up'],['CONTACT_US','Contact us'],['GET_OFFER','Get offer']].map(([value,label]) =>
+                    `<option value="${value}">${label}</option>`).join('')}
+                </select></div>
+                <div><label class="small muted" for="meta-rf-media">Workspace image or video</label>
+                  <select id="meta-rf-media" required style="width:100%">
+                    <option value="">Choose workspace media</option>${(d.campaign_assets || [])
+                      .filter(asset => ['image/jpeg', 'image/png', 'video/mp4', 'video/quicktime'].includes(String(asset.content_type).toLowerCase()))
+                      .map(asset => `<option value="${asset.id}" data-kind="${String(asset.content_type).startsWith('video/') ? 'video' : 'image'}">${esc(String(asset.content_type).startsWith('video/') ? 'Video' : 'Image')} · ${esc(asset.file_name)}</option>`).join('')}
+                  </select></div>
+                <div style="grid-column:1/-1"><label class="small muted" for="meta-rf-body">Primary text</label>
+                  <textarea id="meta-rf-body" maxlength="5000" required style="width:100%;min-height:74px"></textarea></div>
+              </div>
+              <div class="actions"><button type="button" class="btn primary" id="meta-rf-buy" disabled>Buy scheduled RESERVED campaign</button></div>
+            </div>
+            <pre id="meta-rf-buy-result" class="card small" aria-live="polite" style="display:none;white-space:pre-wrap;overflow:auto;max-height:300px"></pre>
+          </section>
           <details>
           <summary class="small muted">Advanced Zernio API request (for operations without a guided workflow)</summary>
           <p class="small muted">Use Zernio's documentation for the required request fields. Writes may create or change ads; verify the selected ad account before submitting.</p>
@@ -6574,7 +6677,303 @@ pages.ads = async app => {
       renderMetaPreviews(target, response);
     } finally { if (button.isConnected) busy(button, false); }
   };
+  const metaRfWorkflow = {
+    quote: null, reservation: null, config: null, created: false,
+    reserveUncertain: false, buyUncertain: false,
+  };
+  let metaRfAccountId = $('#meta-tools-account', app).value;
+  const metaRfResult = $('#meta-rf-quote-result', app);
+  const metaRfBuyResult = $('#meta-rf-buy-result', app);
+  const resetMetaRfWorkflow = () => {
+    metaRfWorkflow.quote = null;
+    metaRfWorkflow.reservation = null;
+    metaRfWorkflow.config = null;
+    metaRfWorkflow.created = false;
+    metaRfWorkflow.reserveUncertain = false;
+    metaRfWorkflow.buyUncertain = false;
+    $('#meta-rf-refresh', app).disabled = true;
+    $('#meta-rf-reserve', app).disabled = true;
+    $('#meta-rf-release', app).hidden = true;
+    $('#meta-rf-buy-fields', app).hidden = true;
+    $('#meta-rf-buy', app).disabled = true;
+    metaRfResult.textContent = 'No quote requested.';
+    metaRfBuyResult.style.display = 'none';
+    metaRfBuyResult.textContent = '';
+  };
+  const metaRfRequest = (method, path, { query = {}, body = {} } = {}) => api(
+    'POST', '/api/ads/meta/request', {
+      ad_connection_id: metaConnection.id,
+      ad_account_id: $('#meta-tools-account', app).value,
+      method, path, query, body,
+    },
+  );
+  const metaRfDisplayPrediction = (label, response) => {
+    const prediction = response && (response.prediction || response);
+    if (!prediction || typeof prediction !== 'object') throw new Error('Zernio returned an invalid Reach & Frequency prediction.');
+    const id = prediction.predictionId || prediction.id;
+    if (!id) throw new Error('Zernio did not return a prediction ID.');
+    return {
+      ...prediction,
+      predictionId: String(id),
+      label,
+    };
+  };
+  const renderMetaRfPrediction = prediction => {
+    const display = {
+      step: prediction.label,
+      predictionId: prediction.predictionId,
+      status: prediction.status,
+      budget: prediction.budget,
+      reach: prediction.reach,
+      impressions: prediction.impressions,
+      frequencyCap: prediction.frequencyCap,
+      minBudget: prediction.minBudget,
+      maxBudget: prediction.maxBudget,
+      minReach: prediction.minReach,
+      maxReach: prediction.maxReach,
+      expiresAt: prediction.expiresAt,
+    };
+    metaRfResult.textContent = JSON.stringify(display, null, 2);
+  };
+  const updateMetaRfControls = () => {
+    const ready = metaRfWorkflow.quote?.status === 'ready';
+    $('#meta-rf-refresh', app).disabled = !metaRfWorkflow.quote || Boolean(metaRfWorkflow.reservation);
+    $('#meta-rf-reserve', app).disabled = !ready || Boolean(metaRfWorkflow.reservation) || metaRfWorkflow.reserveUncertain;
+    $('#meta-rf-release', app).hidden = !metaRfWorkflow.reservation || metaRfWorkflow.created || metaRfWorkflow.buyUncertain;
+    $('#meta-rf-buy-fields', app).hidden = !metaRfWorkflow.reservation || metaRfWorkflow.created;
+    $('#meta-rf-buy', app).disabled = metaRfWorkflow.reservation?.status !== 'ready'
+      || metaRfWorkflow.created || metaRfWorkflow.buyUncertain;
+  };
+  const buildMetaRfConfig = () => {
+    const startDateValue = $('#meta-rf-start-date', app).value;
+    const endDateValue = $('#meta-rf-end-date', app).value;
+    const countryValues = $('#meta-rf-countries', app).value.split(',').map(country => country.trim().toUpperCase()).filter(Boolean);
+    const ageMin = Number($('#meta-rf-age-min', app).value);
+    const ageMax = Number($('#meta-rf-age-max', app).value);
+    const placementChoice = $('#meta-rf-placement', app).value;
+    if (!startDateValue || !endDateValue || endDateValue <= startDateValue) {
+      throw new Error('Choose a campaign end date after its start date.');
+    }
+    if (new Date(`${startDateValue}T09:00:00Z`) <= new Date()) {
+      throw new Error('Choose a future start date; reservation campaigns need a scheduled window.');
+    }
+    if (!countryValues.length || countryValues.some(country => !/^[A-Z]{2}$/.test(country))) {
+      throw new Error('Enter target countries as ISO two-letter country codes.');
+    }
+    if (new Set(countryValues).size !== countryValues.length) {
+      throw new Error('Choose each target country only once.');
+    }
+    if (!Number.isInteger(ageMin) || !Number.isInteger(ageMax) || ageMin < 18 || ageMax > 65 || ageMax < ageMin) {
+      throw new Error('Choose a valid age range between 18 and 65.');
+    }
+    const placements = {
+      publisherPlatforms: placementChoice === 'both' ? ['facebook', 'instagram'] : [placementChoice],
+      devicePlatforms: ['mobile', 'desktop'],
+    };
+    if (placementChoice === 'facebook' || placementChoice === 'both') placements.facebookPositions = ['feed'];
+    if (placementChoice === 'instagram' || placementChoice === 'both') placements.instagramPositions = ['stream'];
+    const frequencyValue = $('#meta-rf-cap', app).value.trim();
+    const frequencyCap = frequencyValue ? Number(frequencyValue) : null;
+    if (frequencyCap !== null && (!Number.isInteger(frequencyCap) || frequencyCap < 1 || frequencyCap > 90)) {
+      throw new Error('Frequency cap must be a whole number from 1 to 90.');
+    }
+    const budgetAmount = Number($('#meta-rf-budget', app).value);
+    if (!Number.isFinite(budgetAmount) || budgetAmount <= 0) throw new Error('Enter a positive lifetime budget.');
+    return {
+      budgetAmount,
+      startDate: `${startDateValue}T09:00:00Z`,
+      endDate: `${endDateValue}T09:00:00Z`,
+      placement: placementChoice,
+      ...(frequencyCap === null ? {} : { frequencyCap }),
+      targeting: { countries: countryValues, ageMin, ageMax },
+      placements,
+    };
+  };
+  if ($('#meta-rf-start-date', app)) $('#meta-rf-start-date', app).onchange = () => {
+    const startDate = $('#meta-rf-start-date', app).value;
+    const endDate = $('#meta-rf-end-date', app);
+    if (startDate) endDate.min = new Date(new Date(`${startDate}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
+  };
+  if ($('#meta-rf-quote', app)) $('#meta-rf-quote', app).onclick = guard(async () => {
+    if ((metaRfWorkflow.reservation && !metaRfWorkflow.created) || metaRfWorkflow.reserveUncertain) {
+      toast('Resolve the current reservation before requesting another quote. Check the provider if its result was uncertain.', true);
+      return;
+    }
+    const button = $('#meta-rf-quote', app);
+    let config;
+    try { config = buildMetaRfConfig(); } catch (error) { toast(error.message, true); return; }
+    if (!$('#meta-rf-budget', app).checkValidity()) { $('#meta-rf-budget', app).reportValidity(); return; }
+    resetMetaRfWorkflow();
+    metaRfResult.textContent = 'Requesting a non-binding Meta quote…';
+    busy(button, true, 'Requesting…');
+    try {
+      const response = await metaRfRequest('POST', '/ads/rf-predictions', { body: config });
+      metaRfWorkflow.quote = metaRfDisplayPrediction('quote', response);
+      metaRfWorkflow.config = config;
+      renderMetaRfPrediction(metaRfWorkflow.quote);
+      updateMetaRfControls();
+    } catch (error) {
+      metaRfResult.textContent = error.message;
+      throw error;
+    } finally {
+      if (button.isConnected) {
+        busy(button, false);
+        updateMetaRfControls();
+      }
+    }
+  });
+  if ($('#meta-rf-refresh', app)) $('#meta-rf-refresh', app).onclick = guard(async () => {
+    const predictionId = metaRfWorkflow.quote && metaRfWorkflow.quote.predictionId;
+    if (!predictionId) return;
+    const button = $('#meta-rf-refresh', app);
+    busy(button, true, 'Refreshing…');
+    try {
+      const response = await metaRfRequest('GET', `/ads/rf-predictions/${encodeURIComponent(predictionId)}`);
+      metaRfWorkflow.quote = metaRfDisplayPrediction('quote', response);
+      renderMetaRfPrediction(metaRfWorkflow.quote);
+      updateMetaRfControls();
+    } catch (error) {
+      metaRfResult.textContent = error.message;
+      throw error;
+    } finally {
+      if (button.isConnected) {
+        busy(button, false);
+        updateMetaRfControls();
+      }
+    }
+  });
+  if ($('#meta-rf-reserve', app)) $('#meta-rf-reserve', app).onclick = guard(async () => {
+    const quote = metaRfWorkflow.quote;
+    if (!quote || quote.status !== 'ready') { toast('Refresh until Meta returns a ready quote before reserving.', true); return; }
+    if (!await askConfirm(
+      `Reserve Meta inventory for the quoted budget of ${quote.budget ?? 'the quoted amount'} ${$('#meta-rf-currency', app).textContent}? This locks the price and inventory until the provider's reservation expiry and may create a financial commitment.`,
+      { title: 'Reserve Meta inventory', ok: 'Reserve inventory', danger: true },
+    )) return;
+    const button = $('#meta-rf-reserve', app);
+    busy(button, true, 'Reserving…');
+    try {
+      const response = await metaRfRequest(
+        'POST', `/ads/rf-predictions/${encodeURIComponent(quote.predictionId)}/reserve`,
+        { body: { accountId: metaConnection.id, adAccountId: $('#meta-tools-account', app).value } },
+      );
+      metaRfWorkflow.reservation = metaRfDisplayPrediction('reservation', response);
+      metaRfWorkflow.quote = null;
+      renderMetaRfPrediction(metaRfWorkflow.reservation);
+      $('#meta-rf-reservation-note', app).textContent =
+        `Reserved prediction ${metaRfWorkflow.reservation.predictionId}. Create the campaign before this reservation expires. Its schedule, targeting, placements, and budget are fixed by the quote.`;
+      updateMetaRfControls();
+    } catch (error) {
+      if (!error.status || error.status >= 500 || error.status === 408 || error.status === 429) {
+        metaRfWorkflow.reserveUncertain = true;
+        metaRfResult.textContent = `${error.message}\n\nThe reservation result may be uncertain. Do not retry this reservation request; check the Zernio/Meta account or contact the provider before proceeding.`;
+        updateMetaRfControls();
+      } else {
+        metaRfResult.textContent = error.message;
+      }
+      throw error;
+    } finally {
+      if (button.isConnected) {
+        busy(button, false);
+        updateMetaRfControls();
+      }
+    }
+  });
+  if ($('#meta-rf-release', app)) $('#meta-rf-release', app).onclick = guard(async () => {
+    const reservation = metaRfWorkflow.reservation;
+    if (!reservation || metaRfWorkflow.created) return;
+    if (!await askConfirm(
+      'Release this unused Reach & Frequency reservation? Meta will return the reserved inventory, and it cannot be used to create the campaign.',
+      { title: 'Release reservation', ok: 'Release reservation', danger: true },
+    )) return;
+    const button = $('#meta-rf-release', app);
+    busy(button, true, 'Releasing…');
+    try {
+      await metaRfRequest('DELETE', `/ads/rf-predictions/${encodeURIComponent(reservation.predictionId)}`);
+      metaRfWorkflow.reservation = null;
+      metaRfWorkflow.quote = null;
+      metaRfWorkflow.config = null;
+      metaRfResult.textContent = 'Unused reservation released.';
+      updateMetaRfControls();
+    } catch (error) {
+      metaRfResult.textContent = error.message;
+      throw error;
+    } finally { if (button.isConnected) busy(button, false); }
+  });
+  if ($('#meta-rf-buy', app)) $('#meta-rf-buy', app).onclick = guard(async () => {
+    const reservation = metaRfWorkflow.reservation;
+    const config = metaRfWorkflow.config;
+    if (!reservation || !config || metaRfWorkflow.created) return;
+    const fields = ['#meta-rf-campaign-name', '#meta-rf-headline', '#meta-rf-link', '#meta-rf-media', '#meta-rf-body']
+      .map(selector => $(selector, app));
+    const invalidField = fields.find(field => !field.checkValidity());
+    if (invalidField) { invalidField.reportValidity(); return; }
+    const linkUrl = $('#meta-rf-link', app).value.trim();
+    let parsedLink;
+    try { parsedLink = new URL(linkUrl); } catch { parsedLink = null; }
+    if (!parsedLink || parsedLink.protocol !== 'https:' || parsedLink.username || parsedLink.password) {
+      toast('Enter a complete HTTPS landing page URL.', true);
+      return;
+    }
+    if (!await askConfirm(
+      `Buy this scheduled RESERVED campaign using the selected Meta account? The quoted lifetime budget is ${reservation.budget ?? config.budgetAmount} ${$('#meta-rf-currency', app).textContent}. Meta requires the first ad to be ACTIVE; it is scheduled for ${config.startDate} through ${config.endDate}. Verify the price, creative, and schedule before continuing.`,
+      { title: 'Buy Reach & Frequency campaign', ok: 'Buy scheduled campaign', danger: true },
+    )) return;
+    const button = $('#meta-rf-buy', app);
+    metaRfBuyResult.style.display = 'block';
+    metaRfBuyResult.textContent = 'Buying scheduled campaign…';
+    busy(button, true, 'Buying…');
+    const selectedMedia = $('#meta-rf-media', app).selectedOptions[0];
+    try {
+      const response = await api('POST', '/api/ads/meta/reach-frequency/buy', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        prediction_id: reservation.predictionId,
+        campaign_name: $('#meta-rf-campaign-name', app).value.trim(),
+        headline: $('#meta-rf-headline', app).value.trim(),
+        body: $('#meta-rf-body', app).value.trim(),
+        link_url: linkUrl,
+        call_to_action: $('#meta-rf-cta', app).value,
+        media_asset_id: Number(selectedMedia.value),
+        countries: config.targeting.countries,
+        age_min: config.targeting.ageMin,
+        age_max: config.targeting.ageMax,
+        placement: config.placement,
+      });
+      metaRfWorkflow.created = true;
+      metaRfBuyResult.textContent = JSON.stringify(response, null, 2);
+      metaRfResult.textContent = 'Reserved campaign created. Confirm its delivery status and schedule in the campaign hierarchy or Meta Ads Manager.';
+      updateMetaRfControls();
+      toast('Scheduled Reach & Frequency campaign created.');
+    } catch (error) {
+      if (!error.status || error.status >= 500 || error.status === 408 || error.status === 429) {
+        metaRfWorkflow.buyUncertain = true;
+        metaRfBuyResult.textContent = `${error.message}\n\nThe result may be uncertain. Check the Meta campaign hierarchy or Ads Manager before taking further action; this screen will not retry or release this reservation.`;
+        updateMetaRfControls();
+      } else {
+        metaRfBuyResult.textContent = error.message;
+      }
+      throw error;
+    } finally {
+      if (button.isConnected) {
+        busy(button, false);
+        updateMetaRfControls();
+      }
+    }
+  });
   if ($('#meta-tools-account', app)) $('#meta-tools-account', app).onchange = () => {
+    const accountSelect = $('#meta-tools-account', app);
+    if (((metaRfWorkflow.reservation && !metaRfWorkflow.created) || metaRfWorkflow.reserveUncertain)
+        && accountSelect.value !== metaRfAccountId) {
+      accountSelect.value = metaRfAccountId;
+      toast('Release or buy the current reservation before changing ad accounts.', true);
+      return;
+    }
+    metaRfAccountId = accountSelect.value;
+    const selectedAccount = metaAdAccounts.find(account => account.id === $('#meta-tools-account', app).value);
+    $('#meta-special-budget-currency', app).textContent =
+      selectedAccount && selectedAccount.currency || 'account currency';
+    $('#meta-rf-currency', app).textContent = selectedAccount && selectedAccount.currency || 'account currency';
+    resetMetaRfWorkflow();
     ['#meta-audience-pixel', '#meta-capi-pixel'].forEach(selector => {
       const select = $(selector, app);
       if (select) select.innerHTML = '<option value="">Load pixels to choose</option>';
@@ -7335,6 +7734,77 @@ pages.ads = async app => {
     const postingWrap = $('#ads-parent-wrap-meta', app);
     if (postingWrap) postingWrap.hidden = $('#ads-meta-login-mode', app).value === 'business';
   };
+  const specialAdType = $('#meta-special-ad-type', app);
+  const specialAdFields = $('#meta-special-name', app)?.closest('section');
+  if (specialAdFields) specialAdFields.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && event.target.tagName === 'INPUT') event.preventDefault();
+  });
+  const updateSpecialAdFields = () => {
+    if (!specialAdType) return;
+    const messaging = specialAdType.value === 'messaging';
+    const destination = $('#meta-special-destination', app).value;
+    $('#meta-special-destination-wrap', app).hidden = !messaging;
+    $('#meta-special-phone-wrap', app).hidden = messaging;
+    $('#meta-special-link-wrap', app).hidden = messaging;
+    $('#meta-special-whatsapp-wrap', app).hidden = !messaging || destination !== 'whatsapp';
+    $('#meta-special-welcome-wrap', app).hidden = !messaging;
+    $('#meta-special-phone', app).required = !messaging;
+    $('#meta-special-link', app).required = !messaging;
+    $('#meta-special-whatsapp', app).required = false;
+    $('#meta-special-ad-note', app).textContent = messaging
+      ? 'Messaging CTA and optimization are selected automatically for the chosen app. WhatsApp ads require an already paired WhatsApp Business number; Instagram Direct requires a linked professional account.'
+      : 'The phone number is the call destination, while the HTTPS website URL is the required Meta ad destination. Campaign and ad stay paused for review.';
+  };
+  if (specialAdType) specialAdType.onchange = updateSpecialAdFields;
+  if ($('#meta-special-destination', app)) $('#meta-special-destination', app).onchange = updateSpecialAdFields;
+  updateSpecialAdFields();
+  if ($('#meta-special-create', app)) $('#meta-special-create', app).onclick = guard(async () => {
+    const adType = $('#meta-special-ad-type', app).value;
+    const requiredFields = [
+      $('#meta-special-name', app), $('#meta-special-headline', app),
+      $('#meta-special-budget', app), $('#meta-special-countries', app),
+      $('#meta-special-media', app), $('#meta-special-body', app),
+    ];
+    if (adType === 'call') requiredFields.push($('#meta-special-phone', app), $('#meta-special-link', app));
+    const invalidField = requiredFields.find(field => !field.checkValidity());
+    if (invalidField) { invalidField.reportValidity(); return; }
+    if (!await askConfirm(
+      'Create this Meta campaign and ad using the selected account and workspace media? The new campaign and ad will be PAUSED for review. Media spend is charged by Meta to the selected ad account.',
+      { title: 'Review Meta messaging/call ad', ok: 'Create paused ad', danger: true },
+    )) return;
+    const button = $('#meta-special-create', app);
+    const result = $('#meta-special-result', app);
+    result.style.display = 'block';
+    result.textContent = 'Creating paused ad…';
+    busy(button, true, 'Creating…');
+    const selectedMedia = $('#meta-special-media', app).selectedOptions[0];
+    const payload = {
+      ad_connection_id: metaConnection.id,
+      ad_account_id: $('#meta-tools-account', app).value,
+      ad_type: adType,
+      destination: $('#meta-special-destination', app).value,
+      campaign_name: $('#meta-special-name', app).value.trim(),
+      headline: $('#meta-special-headline', app).value.trim(),
+      body: $('#meta-special-body', app).value.trim(),
+      description: $('#meta-special-description', app).value.trim(),
+      media_asset_id: Number(selectedMedia.value),
+      daily_budget: $('#meta-special-budget', app).value,
+      countries: $('#meta-special-countries', app).value.split(',').map(country => country.trim()).filter(Boolean),
+      phone_number: $('#meta-special-phone', app).value.trim(),
+      link_url: $('#meta-special-link', app).value.trim(),
+      whatsapp_phone_number: $('#meta-special-whatsapp', app).value.trim(),
+      welcome_text: $('#meta-special-welcome', app).value.trim(),
+      welcome_prefill_text: $('#meta-special-prefill', app).value.trim(),
+    };
+    try {
+      const response = await api('POST', '/api/ads/meta/messaging-call', payload);
+      result.textContent = JSON.stringify(response, null, 2);
+      toast('Paused Meta ad created; review it in Ads Manager before activation.');
+    } catch (error) {
+      result.textContent = error.message;
+      throw error;
+    } finally { if (button.isConnected) busy(button, false); }
+  });
   if ($('#meta-tools-preset', app)) $('#meta-tools-preset', app).onchange = () => {
     const preset = metaToolsPresets[Number($('#meta-tools-preset', app).value)];
     if (!preset) return;

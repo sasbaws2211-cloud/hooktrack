@@ -212,6 +212,41 @@ class MetaAdsRequestIn(BaseModel):
     body: dict = Field(default_factory=dict)
 
 
+class MetaMessagingCallAdIn(BaseModel):
+    ad_connection_id: str = Field(min_length=1, max_length=200)
+    ad_account_id: str = Field(min_length=1, max_length=200)
+    ad_type: Literal["messaging", "call"]
+    destination: Literal["whatsapp", "messenger", "instagram_direct"] = "messenger"
+    campaign_name: str = Field(min_length=1, max_length=255)
+    headline: str = Field(min_length=1, max_length=255)
+    body: str = Field(min_length=1, max_length=5000)
+    description: str = Field(default="", max_length=255)
+    media_asset_id: int = Field(gt=0)
+    daily_budget: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    countries: list[str] = Field(min_length=1, max_length=25)
+    link_url: str = Field(default="", max_length=2048)
+    phone_number: str = Field(default="", max_length=20)
+    whatsapp_phone_number: str = Field(default="", max_length=20)
+    welcome_text: str = Field(default="", max_length=1000)
+    welcome_prefill_text: str = Field(default="", max_length=1000)
+
+
+class MetaRfBuyIn(BaseModel):
+    ad_connection_id: str = Field(min_length=1, max_length=200)
+    ad_account_id: str = Field(min_length=1, max_length=200)
+    prediction_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    campaign_name: str = Field(min_length=1, max_length=255)
+    headline: str = Field(min_length=1, max_length=255)
+    body: str = Field(min_length=1, max_length=5000)
+    link_url: str = Field(min_length=1, max_length=2048)
+    call_to_action: Literal["LEARN_MORE", "SHOP_NOW", "SIGN_UP", "CONTACT_US", "GET_OFFER"] = "LEARN_MORE"
+    media_asset_id: int = Field(gt=0)
+    countries: list[str] = Field(min_length=1, max_length=25)
+    age_min: int = Field(ge=18, le=65)
+    age_max: int = Field(ge=18, le=65)
+    placement: Literal["facebook", "instagram", "both"]
+
+
 def _handle(value: str, platform: str) -> str:
     normalized, _ = sociavault.normalize_handle(value, platform)
     return normalized.casefold()
@@ -300,6 +335,82 @@ def _asset_url(workspace_id: int, asset_id: int) -> str:
     exp = int(time.time()) + media.SIGNED_TTL_S
     sig = media._sign(workspace_id, asset_id, row["file_path"], exp)
     return f"{base}/api/ads/media/ads/{workspace_id}/{asset_id}/{exp}/{sig}"
+
+
+def _messaging_call_payload(workspace_id: int, values: dict, account_id: str) -> tuple[str, dict]:
+    name = values["campaign_name"].strip()
+    headline = values["headline"].strip()
+    body = values["body"].strip()
+    if not name or not headline or not body:
+        raise HTTPException(400, "Enter a campaign name, headline, and primary text.")
+    if Decimal(str(values["daily_budget"])) <= 0:
+        raise HTTPException(400, "Enter a positive daily budget.")
+    countries = [str(country).strip().upper() for country in values["countries"]]
+    if not countries or any(len(country) != 2 or not country.isalpha() for country in countries):
+        raise HTTPException(400, "Choose target countries using ISO two-letter country codes.")
+    if len(set(countries)) != len(countries):
+        raise HTTPException(400, "Choose each target country only once.")
+    asset = db.one(
+        """SELECT content_type FROM ad_campaign_assets
+            WHERE id=%s AND workspace_id=%s""",
+        (values["media_asset_id"], workspace_id),
+    )
+    if not asset:
+        raise HTTPException(404, "Campaign media was not found in this workspace.")
+    content_type = asset["content_type"]
+    if content_type not in ("image/jpeg", "image/png", "video/mp4", "video/quicktime"):
+        raise HTTPException(400, "Messaging and call ads require an uploaded JPEG, PNG, MP4, or MOV asset.")
+
+    request_body = {
+        "accountId": account_id,
+        "adAccountId": values["ad_account_id"],
+        "name": name,
+        "headline": headline,
+        "body": body,
+        "budgetAmount": float(values["daily_budget"]),
+        "budgetType": "daily",
+        "status": "PAUSED",
+        "campaignStatus": "PAUSED",
+        "countries": countries,
+    }
+    if content_type.startswith("video/"):
+        request_body["video"] = {"url": _asset_url(workspace_id, values["media_asset_id"])}
+    else:
+        request_body["imageUrl"] = _asset_url(workspace_id, values["media_asset_id"])
+    description = values["description"].strip()
+    if description:
+        request_body["description"] = description
+    if values["ad_type"] == "messaging":
+        request_body["destination"] = values["destination"]
+        whatsapp_phone = values["whatsapp_phone_number"].strip()
+        if whatsapp_phone and values["destination"] != "whatsapp":
+            raise HTTPException(400, "A WhatsApp phone number can only be set for WhatsApp messaging ads.")
+        if whatsapp_phone:
+            if not re.fullmatch(r"\+[1-9]\d{6,14}", whatsapp_phone):
+                raise HTTPException(400, "Enter the WhatsApp number in E.164 format, such as +15551234567.")
+            request_body["whatsappPhoneNumber"] = whatsapp_phone
+        welcome_text = values["welcome_text"].strip()
+        welcome_prefill = values["welcome_prefill_text"].strip()
+        if bool(welcome_text) != bool(welcome_prefill):
+            raise HTTPException(400, "Enter both welcome message text and prefilled reply, or leave both blank.")
+        if welcome_text:
+            request_body["welcomeMessage"] = {
+                "text": welcome_text,
+                "prefillText": welcome_prefill,
+            }
+        path = "/ads/messaging"
+    else:
+        if not re.fullmatch(r"\+[1-9]\d{6,14}", values["phone_number"].strip()):
+            raise HTTPException(400, "Enter the call ad number in E.164 format, such as +15551234567.")
+        link_url = values["link_url"].strip()
+        parsed_link = urlparse(link_url)
+        if (parsed_link.scheme != "https" or not parsed_link.hostname
+                or parsed_link.username or parsed_link.password):
+            raise HTTPException(400, "Call ads need a complete HTTPS website URL; do not use a tel: link.")
+        request_body["phoneNumber"] = values["phone_number"].strip()
+        request_body["linkUrl"] = link_url
+        path = "/ads/call"
+    return path, request_body
 
 
 def _image_dimensions(path: Path) -> tuple[int, int] | None:
@@ -1634,6 +1745,82 @@ def meta_ads_request(body: MetaAdsRequestIn, ctx: Ctx = Depends(admin)):
             body.method, path, params=params,
             body=request_body if body.method != "GET" else None,
         )
+    except latehub.LateHubError as error:
+        raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 409, 422, 429) else 502,
+                            str(error)) from error
+
+
+@router.post("/meta/messaging-call")
+def create_meta_messaging_call_ad(body: MetaMessagingCallAdIn, ctx: Ctx = Depends(admin)):
+    connection = _selected_ad_account(
+        ctx.workspace_id, body.ad_connection_id, body.ad_account_id, "meta")
+    path, request_body = _messaging_call_payload(
+        ctx.workspace_id, body.model_dump(mode="json"), connection["id"])
+    try:
+        return latehub.meta_ads_request("POST", path, body=request_body)
+    except latehub.LateHubError as error:
+        raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 409, 422, 429) else 502,
+                            str(error)) from error
+
+
+@router.post("/meta/reach-frequency/buy")
+def buy_meta_reach_frequency_campaign(body: MetaRfBuyIn, ctx: Ctx = Depends(admin)):
+    connection = _selected_ad_account(
+        ctx.workspace_id, body.ad_connection_id, body.ad_account_id, "meta")
+    countries = [country.strip().upper() for country in body.countries]
+    if any(not re.fullmatch(r"[A-Z]{2}", country) for country in countries):
+        raise HTTPException(400, "Choose target countries using ISO two-letter country codes.")
+    if len(set(countries)) != len(countries):
+        raise HTTPException(400, "Choose each target country only once.")
+    if body.age_max < body.age_min:
+        raise HTTPException(400, "Maximum age must be equal to or above minimum age.")
+    if not body.campaign_name.strip() or not body.headline.strip() or not body.body.strip():
+        raise HTTPException(400, "Enter a campaign name, headline, and primary text.")
+    parsed_link = urlparse(body.link_url.strip())
+    if (parsed_link.scheme != "https" or not parsed_link.hostname
+            or parsed_link.username or parsed_link.password):
+        raise HTTPException(400, "Enter a complete HTTPS landing page URL.")
+    asset = db.one(
+        """SELECT content_type FROM ad_campaign_assets
+            WHERE id=%s AND workspace_id=%s""",
+        (body.media_asset_id, ctx.workspace_id),
+    )
+    if not asset:
+        raise HTTPException(404, "Campaign media was not found in this workspace.")
+    content_type = asset["content_type"]
+    if content_type not in ("image/jpeg", "image/png", "video/mp4", "video/quicktime"):
+        raise HTTPException(400, "Reach & Frequency ads require an uploaded JPEG, PNG, MP4, or MOV asset.")
+    placements = {
+        "publisherPlatforms": ["facebook", "instagram"] if body.placement == "both" else [body.placement],
+        "devicePlatforms": ["mobile", "desktop"],
+    }
+    if body.placement in ("facebook", "both"):
+        placements["facebookPositions"] = ["feed"]
+    if body.placement in ("instagram", "both"):
+        placements["instagramPositions"] = ["stream"]
+    request_body = {
+        "accountId": connection["id"],
+        "adAccountId": body.ad_account_id,
+        "name": body.campaign_name.strip(),
+        "goal": "awareness",
+        "buyingType": "RESERVED",
+        "rfPredictionId": body.prediction_id,
+        "headline": body.headline.strip(),
+        "body": body.body.strip(),
+        "callToAction": body.call_to_action,
+        "linkUrl": body.link_url.strip(),
+        "countries": countries,
+        "ageMin": body.age_min,
+        "ageMax": body.age_max,
+        "placements": placements,
+    }
+    media_url = _asset_url(ctx.workspace_id, body.media_asset_id)
+    if content_type.startswith("video/"):
+        request_body["video"] = {"url": media_url}
+    else:
+        request_body["imageUrl"] = media_url
+    try:
+        return latehub.meta_ads_request("POST", "/ads/create", body=request_body)
     except latehub.LateHubError as error:
         raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 409, 422, 429) else 502,
                             str(error)) from error

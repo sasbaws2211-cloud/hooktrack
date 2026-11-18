@@ -62,6 +62,49 @@ def test_meta_ads_tool_binds_requests_to_selected_connection_and_account(monkeyp
     })
 
 
+def test_meta_reach_frequency_requests_keep_quote_reserve_and_read_account_scoped(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(
+        ads.latehub, "meta_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"ok": True},
+    )
+    quote = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="POST", path="/ads/rf-predictions",
+        body={"budgetAmount": 500, "targeting": {"countries": ["US"]}},
+    )
+    reserve = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="POST", path="/ads/rf-predictions/quote-1/reserve",
+        body={"accountId": "meta-connection", "adAccountId": "act-1"},
+    )
+    read = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="GET", path="/ads/rf-predictions/reserved-1",
+    )
+
+    assert ads.meta_ads_request(quote, _ctx()) == {"ok": True}
+    assert ads.meta_ads_request(reserve, _ctx()) == {"ok": True}
+    assert ads.meta_ads_request(read, _ctx()) == {"ok": True}
+
+    assert calls == [
+        ("POST", "/ads/rf-predictions", {
+            "params": {"accountId": "meta-connection", "adAccountId": "act-1"},
+            "body": {"budgetAmount": 500, "targeting": {"countries": ["US"]},
+                     "accountId": "meta-connection", "adAccountId": "act-1"},
+        }),
+        ("POST", "/ads/rf-predictions/quote-1/reserve", {
+            "params": {"accountId": "meta-connection", "adAccountId": "act-1"},
+            "body": {"accountId": "meta-connection", "adAccountId": "act-1"},
+        }),
+        ("GET", "/ads/rf-predictions/reserved-1", {
+            "params": {"accountId": "meta-connection", "adAccountId": "act-1"},
+            "body": None,
+        }),
+    ]
+
+
 def test_meta_draft_preview_injects_selected_workspace_and_ad_account(monkeypatch):
     seen = []
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
@@ -1736,3 +1779,225 @@ def test_campaign_reporting_merges_selected_accounts_for_all_builder_platforms(m
     assert not any(call["adAccountId"].endswith("meta-connection") and "platform" in call for call in calls)
     assert next(call for call in calls if call["adAccountId"].endswith("google-connection"))["platform"] == "google"
     assert next(call for call in calls if call["adAccountId"].endswith("linkedin-connection"))["platform"] == "linkedin"
+
+
+def _messaging_call_values(**overrides):
+    values = {
+        "ad_connection_id": "meta-connection",
+        "ad_account_id": "act-1",
+        "ad_type": "messaging",
+        "destination": "messenger",
+        "campaign_name": "Spring conversations",
+        "headline": "Talk to our team",
+        "body": "Get help choosing the right product.",
+        "description": "Chat with us",
+        "media_asset_id": 41,
+        "daily_budget": Decimal("25.00"),
+        "countries": ["US", "CA"],
+        "link_url": "",
+        "phone_number": "",
+        "whatsapp_phone_number": "",
+        "welcome_text": "",
+        "welcome_prefill_text": "",
+    }
+    values.update(overrides)
+    return ads.MetaMessagingCallAdIn(**values).model_dump(mode="json")
+
+
+def test_meta_messaging_payload_is_account_scoped_and_paused(monkeypatch):
+    asset_queries = []
+    monkeypatch.setattr(ads.db, "one", lambda query, params: (
+        asset_queries.append((query, params)) or {"content_type": "image/png"}
+    ))
+    monkeypatch.setattr(ads, "_asset_url", lambda workspace_id, asset_id:
+                        f"https://hooktrack.example/{workspace_id}/{asset_id}.png")
+
+    path, payload = ads._messaging_call_payload(7, _messaging_call_values(
+        destination="whatsapp",
+        whatsapp_phone_number="+15551234567",
+        welcome_text="How can we help?",
+        welcome_prefill_text="I have a question",
+    ), "meta-connection")
+
+    assert path == "/ads/messaging"
+    assert payload == {
+        "accountId": "meta-connection",
+        "adAccountId": "act-1",
+        "name": "Spring conversations",
+        "headline": "Talk to our team",
+        "body": "Get help choosing the right product.",
+        "budgetAmount": 25.0,
+        "budgetType": "daily",
+        "status": "PAUSED",
+        "campaignStatus": "PAUSED",
+        "countries": ["US", "CA"],
+        "imageUrl": "https://hooktrack.example/7/41.png",
+        "description": "Chat with us",
+        "destination": "whatsapp",
+        "whatsappPhoneNumber": "+15551234567",
+        "welcomeMessage": {"text": "How can we help?", "prefillText": "I have a question"},
+    }
+    assert asset_queries[0][1] == (41, 7)
+
+
+def test_meta_call_payload_uses_video_and_requires_https_destination(monkeypatch):
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "video/mp4"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/ad.mp4")
+
+    path, payload = ads._messaging_call_payload(7, _messaging_call_values(
+        ad_type="call",
+        phone_number="+15551234567",
+        link_url="https://example.com/contact",
+        welcome_text="ignored when not provided",
+        welcome_prefill_text="",
+    ), "meta-connection")
+
+    assert path == "/ads/call"
+    assert payload["video"] == {"url": "https://hooktrack.example/ad.mp4"}
+    assert payload["phoneNumber"] == "+15551234567"
+    assert payload["linkUrl"] == "https://example.com/contact"
+    assert payload["status"] == payload["campaignStatus"] == "PAUSED"
+    assert "destination" not in payload
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"countries": ["U"]}, "ISO two-letter"),
+        ({"countries": ["US", "US"]}, "only once"),
+        ({"destination": "messenger", "whatsapp_phone_number": "+15551234567"}, "only be set for WhatsApp"),
+        ({"destination": "whatsapp", "whatsapp_phone_number": "5551234567"}, "E.164"),
+        ({"welcome_text": "Welcome"}, "both welcome message text and prefilled reply"),
+        ({"ad_type": "call", "phone_number": "5551234567", "link_url": "tel:+15551234567"}, "E.164"),
+        ({"ad_type": "call", "phone_number": "+15551234567", "link_url": "http://example.com"}, "HTTPS"),
+    ],
+)
+def test_meta_messaging_and_call_payload_rejects_invalid_fields(monkeypatch, overrides, message):
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "image/jpeg"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/ad.jpg")
+
+    with pytest.raises(HTTPException, match=message):
+        ads._messaging_call_payload(7, _messaging_call_values(**overrides), "meta-connection")
+
+
+def test_meta_messaging_call_route_uses_selected_account_and_surfaces_provider_error(monkeypatch):
+    selected = []
+    requests = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *args: selected.append(args) or {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "image/png"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/ad.png")
+
+    def fail_provider(method, path, **kwargs):
+        requests.append((method, path, kwargs))
+        raise latehub.LateHubError("Meta rejected the ad", 422)
+
+    monkeypatch.setattr(ads.latehub, "meta_ads_request", fail_provider)
+    request = ads.MetaMessagingCallAdIn(**_messaging_call_values())
+
+    with pytest.raises(HTTPException) as error:
+        ads.create_meta_messaging_call_ad(request, _ctx())
+
+    assert error.value.status_code == 422
+    assert error.value.detail == "Meta rejected the ad"
+    assert selected == [(7, "meta-connection", "act-1", "meta")]
+    assert requests[0][0:2] == ("POST", "/ads/messaging")
+    assert requests[0][2]["body"]["status"] == requests[0][2]["body"]["campaignStatus"] == "PAUSED"
+
+
+def _meta_rf_buy_request(**overrides):
+    values = {
+        "ad_connection_id": "meta-connection",
+        "ad_account_id": "act-1",
+        "prediction_id": "6234567890456",
+        "campaign_name": "Spring reserved campaign",
+        "headline": "The new collection",
+        "body": "See what's new.",
+        "link_url": "https://example.com/spring",
+        "call_to_action": "LEARN_MORE",
+        "media_asset_id": 41,
+        "countries": ["US"],
+        "age_min": 18,
+        "age_max": 65,
+        "placement": "both",
+    }
+    values.update(overrides)
+    return ads.MetaRfBuyIn(**values)
+
+
+def test_meta_reach_frequency_buy_uses_selected_account_signed_asset_and_reserved_shape(monkeypatch):
+    selected = []
+    asset_queries = []
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *args: selected.append(args) or {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda query, params: (
+        asset_queries.append((query, params)) or {"content_type": "image/png"}
+    ))
+    monkeypatch.setattr(ads, "_asset_url", lambda workspace_id, asset_id:
+                        f"https://hooktrack.example/signed/{workspace_id}/{asset_id}")
+    monkeypatch.setattr(
+        ads.latehub, "meta_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"ad": {"status": "pending_review"}},
+    )
+
+    result = ads.buy_meta_reach_frequency_campaign(_meta_rf_buy_request(), _ctx())
+
+    assert result == {"ad": {"status": "pending_review"}}
+    assert selected == [(7, "meta-connection", "act-1", "meta")]
+    assert asset_queries[0][1] == (41, 7)
+    assert calls == [("POST", "/ads/create", {"body": {
+        "accountId": "meta-connection",
+        "adAccountId": "act-1",
+        "name": "Spring reserved campaign",
+        "goal": "awareness",
+        "buyingType": "RESERVED",
+        "rfPredictionId": "6234567890456",
+        "headline": "The new collection",
+        "body": "See what's new.",
+        "callToAction": "LEARN_MORE",
+        "linkUrl": "https://example.com/spring",
+        "countries": ["US"],
+        "ageMin": 18,
+        "ageMax": 65,
+        "placements": {
+            "publisherPlatforms": ["facebook", "instagram"],
+            "devicePlatforms": ["mobile", "desktop"],
+            "facebookPositions": ["feed"],
+            "instagramPositions": ["stream"],
+        },
+        "imageUrl": "https://hooktrack.example/signed/7/41",
+    }})]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "content_type", "message"),
+    [
+        ({"link_url": "http://example.com"}, "image/png", "complete HTTPS"),
+        ({"countries": ["US", "US"]}, "image/png", "only once"),
+        ({"countries": ["USA"]}, "image/png", "ISO two-letter"),
+        ({"age_min": 50, "age_max": 25}, "image/png", "Maximum age"),
+        ({}, "application/pdf", "require an uploaded"),
+    ],
+)
+def test_meta_reach_frequency_buy_rejects_invalid_input(monkeypatch, overrides, content_type, message):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": content_type})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/ad.png")
+
+    with pytest.raises(HTTPException, match=message):
+        ads.buy_meta_reach_frequency_campaign(_meta_rf_buy_request(**overrides), _ctx())
+
+
+def test_meta_reach_frequency_buy_surfaces_provider_error(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "video/mp4"})
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/ad.mp4")
+
+    def fail_provider(*_args, **_kwargs):
+        raise latehub.LateHubError("Reservation expired", 409)
+
+    monkeypatch.setattr(ads.latehub, "meta_ads_request", fail_provider)
+    with pytest.raises(HTTPException) as error:
+        ads.buy_meta_reach_frequency_campaign(_meta_rf_buy_request(placement="facebook"), _ctx())
+
+    assert error.value.status_code == 409
+    assert error.value.detail == "Reservation expired"
