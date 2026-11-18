@@ -70,6 +70,18 @@ def _provider_error(response: httpx.Response) -> WaveSpeedError:
                           response.status_code)
 
 
+def _output_urls(outputs: object) -> list[str]:
+    if not isinstance(outputs, list):
+        return []
+    urls = []
+    for output in outputs:
+        parsed = urlparse(output) if isinstance(output, str) else None
+        if (parsed and parsed.scheme == "https" and parsed.hostname
+                and not parsed.username and not parsed.password):
+            urls.append(output)
+    return urls
+
+
 def submit_generation(workspace_id: int, post_id: Optional[int], asset: dict) -> dict:
     asset_type = asset.get("type")
     if asset_type not in ("image", "video"):
@@ -84,10 +96,13 @@ def submit_generation(workspace_id: int, post_id: Optional[int], asset: dict) ->
         raise WaveSpeedError("Choose a supported WaveSpeedAI model for this asset type.")
     body = {"prompt": prompt.strip()}
     if asset_type == "image":
-        body.update({"size": "1024*1024", "num_images": 1, "output_format": "jpeg"})
+        num_images = asset.get("num_images", 1)
+        if isinstance(num_images, bool) or not isinstance(num_images, int) or num_images not in (1, 2, 3, 4):
+            raise WaveSpeedError("Choose between 1 and 4 image variations.", 400)
+        body.update({"size": "1024*1024", "num_images": num_images, "output_format": "jpeg"})
     else:
         duration = asset.get("duration", 5)
-        if duration not in (5, 10):
+        if isinstance(duration, bool) or not isinstance(duration, int) or duration not in (5, 10):
             raise WaveSpeedError("Video duration must be 5 or 10 seconds.", 400)
         size = asset.get("size", "832*480")
         if size not in ("832*480", "480*832"):
@@ -122,15 +137,15 @@ def submit_generation(workspace_id: int, post_id: Optional[int], asset: dict) ->
     if not PREDICTION_ID_RE.fullmatch(prediction_id):
         raise WaveSpeedError("WaveSpeedAI returned an invalid prediction id.")
     provider_status = str(task.get("status") or "created").lower()
-    outputs = task.get("outputs") or []
-    output_url = outputs[0] if isinstance(outputs, list) and outputs and isinstance(outputs[0], str) else ""
+    output_urls = _output_urls(task.get("outputs"))
+    output_url = output_urls[0] if output_urls else ""
     row = db.one(
         """INSERT INTO wavespeed_generations
                (workspace_id, post_id, prediction_id, model, asset_type, prompt, status, output_url, error)
            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
         (workspace_id, post_id, prediction_id, model, asset_type, prompt.strip(), provider_status,
          output_url, str(task.get("error") or task.get("message") or "")[:500]))
-    return row
+    return {**row, "output_urls": output_urls}
 
 
 async def _upload_image_to_wavespeed(filename: str, content_type: str, content: bytes) -> str:
@@ -195,8 +210,8 @@ def sync_generation(workspace_id: int, prediction_id: str) -> dict:
         raise WaveSpeedError("Unknown generation id for this workspace.", 404)
     task = _fetch_prediction(prediction_id)
     provider_status = str(task.get("status") or row["status"]).lower()
-    outputs = task.get("outputs") or []
-    output_url = outputs[0] if isinstance(outputs, list) and outputs and isinstance(outputs[0], str) else ""
+    output_urls = _output_urls(task.get("outputs"))
+    output_url = output_urls[0] if output_urls else ""
     error = str(task.get("error") or task.get("message") or "")[:500]
     if provider_status == "completed" and not output_url:
         provider_status = "failed"
@@ -206,7 +221,7 @@ def sync_generation(workspace_id: int, prediction_id: str) -> dict:
               SET status=%s, output_url=%s, error=%s, updated_at=now()
             WHERE prediction_id=%s AND workspace_id=%s RETURNING *""",
         (provider_status, output_url, error, prediction_id, workspace_id))
-    return updated
+    return {**updated, "output_urls": output_urls}
 
 
 class GenerateIn(BaseModel):

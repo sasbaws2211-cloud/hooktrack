@@ -57,7 +57,7 @@ with a Test connection button. Server-wide defaults: `ANTHROPIC_API_KEY`, `OPENA
 ## Studio image and video generation
 Studio's **AI clip** generator uses WaveSpeedAI; set `WAVESPEED_API_KEY` in the server process environment (or use
 `HOOKTRACK_WAVESPEED_API_KEY`) and restart HookTrack. The key stays server-side. Studio offers FLUX Dev and FLUX Schnell
-for images, and Wan 2.1 text-to-video and image-to-video at 480p; image-to-video can animate a still already on the
+for images, with 1–4 selectable image variations, and Wan 2.1 text-to-video and image-to-video at 480p; image-to-video can animate a still already on the
 timeline. Video generation supports 5- or 10-second clips in landscape or portrait with an optional negative prompt.
 Generation usage is billed to the WaveSpeedAI account, so check its
 current pricing and account credits before generating. WaveSpeedAI trial credits, if offered, depend on account eligibility.

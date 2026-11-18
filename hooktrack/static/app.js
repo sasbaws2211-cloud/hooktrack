@@ -3043,6 +3043,47 @@ pages.studio = async app => {
     el.textContent = includeTimeline && summary ? `${text} · ${summary}` : text;
     el.title = summary ? `Timeline: ${summary}` : '';
   };
+  async function chooseGeneratedImage(urls) {
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = value => {
+        if (settled) return;
+        settled = true;
+        observer.disconnect();
+        resolve(value);
+      };
+      const modal = openModal(`<h2>Choose an image variation</h2>
+        <p class="small muted">Select the result to add to your timeline. Other generated results won’t be added.</p>
+        <div id="ai-image-variations" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px"></div>
+        <div class="actions"><span class="spacer"></span><button class="btn" type="button" data-close>Cancel</button></div>`, true);
+      const observer = new MutationObserver(() => {
+        if (!document.body.contains(modal)) finish(null);
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      const gallery = $('#ai-image-variations', modal);
+      urls.forEach((url, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn';
+        button.setAttribute('aria-label', `Choose image variation ${index + 1}`);
+        button.style.cssText = 'padding:6px;min-width:0;overflow:hidden';
+        const image = document.createElement('img');
+        image.src = url;
+        image.alt = `Generated image variation ${index + 1}`;
+        image.loading = 'lazy';
+        image.style.cssText = 'display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px';
+        const label = document.createElement('span');
+        label.className = 'small';
+        label.textContent = `Variation ${index + 1}`;
+        button.append(image, label);
+        button.addEventListener('click', () => {
+          finish(url);
+          modal.close();
+        });
+        gallery.appendChild(button);
+      });
+    });
+  }
   // The track actually holding the image/video clips, wherever it ended up - text overlays insert a new
   // track at index 0 (so they render on top), which shifts this one down, so its index can't be assumed.
   const baseTrackIndex = () => {
@@ -3989,6 +4030,7 @@ pages.studio = async app => {
           { asset: {
             type: request.asset.type, prompt: request.asset.prompt, model: request.asset.model,
             duration: request.asset.duration, size: request.asset.size, negative_prompt: request.asset.negative_prompt,
+            num_images: request.asset.num_images,
           },
             post_id: post.id });
       }
@@ -4004,7 +4046,11 @@ pages.studio = async app => {
       if (String(row.status).toLowerCase() !== 'completed' || !row.output_url) {
         throw new Error(row.error || `WaveSpeedAI generation ended with status "${row.status}".`);
       }
-      return { url: row.output_url };
+      const outputUrls = Array.isArray(row.output_urls) && row.output_urls.length
+        ? row.output_urls : [row.output_url];
+      const selectedUrl = outputUrls.length > 1 ? await chooseGeneratedImage(outputUrls) : outputUrls[0];
+      if (!selectedUrl) throw new Error('Image selection cancelled; generated results were not added to the timeline.');
+      return { url: selectedUrl };
     });
   } catch (e) {
     setStatus('');
@@ -4117,6 +4163,14 @@ pages.studio = async app => {
         </select>
         <label class="small muted" id="ai-source-image-label" hidden>Starting image</label>
         <select id="ai-source-image" style="width:100%;margin-bottom:10px" hidden></select>
+        <div id="ai-image-options">
+          <label class="small muted">Variations</label>
+          <select id="ai-image-count" style="width:100%;margin-bottom:10px">
+            <option value="1">1 image</option><option value="2">2 images</option>
+            <option value="3">3 images</option><option value="4">4 images</option>
+          </select>
+          <p class="small muted" style="margin:0 0 10px">More variations use more WaveSpeedAI credits.</p>
+        </div>
         <div id="ai-video-options" hidden>
           <label class="small muted">Aspect ratio</label>
           <select id="ai-video-size" style="width:100%;margin-bottom:10px">
@@ -4148,6 +4202,7 @@ pages.studio = async app => {
       const syncModels = () => {
         const imageToVideo = typeInput.value === 'video' && videoModeInput.value === 'image';
         const imageGeneration = typeInput.value === 'image';
+        $('#ai-image-options', m).hidden = !imageGeneration;
         $('#ai-video-options', m).hidden = imageGeneration;
         $('#ai-video-mode-label', m).hidden = imageGeneration;
         videoModeInput.hidden = imageGeneration;
@@ -4179,13 +4234,15 @@ pages.studio = async app => {
           type: typeInput.value, prompt, model: modelInput.value, image_src: source && source.src,
           duration, size: $('#ai-video-size', m).value,
           negative_prompt: $('#ai-negative-prompt', m).value.trim(),
+          num_images: typeInput.value === 'image' ? Number($('#ai-image-count', m).value) : 1,
         });
         m.close();
       };
       $('#ai-prompt', m).focus();
     });
     if (!picked) return;
-    const clip = { asset: { type: picked.type, prompt: picked.prompt, model: picked.model, image_src: picked.image_src },
+    const clip = { asset: { type: picked.type, prompt: picked.prompt, model: picked.model, image_src: picked.image_src,
+      num_images: picked.num_images },
       start: 0, length: picked.type === 'image' ? 3 : picked.duration };
     Object.assign(clip.asset, { duration: picked.duration, size: picked.size, negative_prompt: picked.negative_prompt });
     await edit.addClip(baseTrackIndex(), clip);
