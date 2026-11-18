@@ -132,12 +132,14 @@ def _profile_accounts(ws: int) -> list[dict]:
 
 def accounts(ws: int) -> list[dict]:
     """The publishing accounts connected under this workspace's profile only."""
-    return [a for a in _profile_accounts(ws) if a["platform"] not in ("metaads", "tiktokads")]
+    return [a for a in _profile_accounts(ws)
+            if a["platform"] not in ("metaads", "tiktokads", "googleads", "linkedinads")]
 
 
 def ads_connections(ws: int) -> list[dict]:
-    """The Meta and TikTok Ads connections connected under this workspace's profile only."""
-    return [a for a in _profile_accounts(ws) if a["platform"] in ("metaads", "tiktokads")]
+    """The supported Ads connections under this workspace's profile only."""
+    return [a for a in _profile_accounts(ws)
+            if a["platform"] in ("metaads", "tiktokads", "googleads", "linkedinads")]
 
 
 def ad_accounts(connection_id: str) -> list[dict]:
@@ -163,17 +165,30 @@ def ad_accounts(connection_id: str) -> list[dict]:
 
 
 def connect_ads_url(ws: int, platform: str, redirect_url: str, posting_account_id: str) -> dict:
-    """Start a workspace-scoped Meta or TikTok Ads authorization."""
-    if platform not in ("meta", "tiktok"):
-        raise LateHubError("Choose Meta or TikTok Ads.")
+    """Start a workspace-scoped Ads authorization."""
+    if platform not in ("meta", "tiktok", "google", "linkedin"):
+        raise LateHubError("Choose Meta, TikTok, Google or LinkedIn Ads.")
+    if platform == "google":
+        data = _call("GET", "/connect/googleads/ads", params={
+            "profileId": ensure_profile(ws),
+            "redirect_url": redirect_url,
+        })
+        auth_url = data.get("authUrl") or ""
+        if not data.get("alreadyConnected") and (not isinstance(auth_url, str) or not auth_url.startswith("https://")):
+            raise LateHubError("Zernio did not return a valid Ads authorization link.")
+        return {"auth_url": auth_url, "already_connected": bool(data.get("alreadyConnected"))}
     posting = {a["id"]: a for a in accounts(ws)}
     selected = posting.get(posting_account_id)
     if not selected:
         raise LateHubError("Choose a publishing account connected to this workspace.", 404)
-    allowed = ("facebook", "instagram") if platform == "meta" else ("tiktok",)
+    allowed = {
+        "meta": ("facebook", "instagram"),
+        "tiktok": ("tiktok",),
+        "linkedin": ("linkedin",),
+    }[platform]
     if selected["platform"] not in allowed:
         raise LateHubError("The selected publishing account does not match this ads platform.", 400)
-    provider_platform = selected["platform"] if platform == "meta" else "tiktok"
+    provider_platform = selected["platform"] if platform == "meta" else platform
     data = _call("GET", f"/connect/{provider_platform}/ads", params={
         "profileId": ensure_profile(ws),
         "accountId": posting_account_id,
@@ -197,6 +212,16 @@ def update_ad_campaign_status(campaign_id: str, status: str, platform: str = "me
     provider_platform = "facebook" if platform == "meta" else platform
     return _call("PUT", f"/ads/campaigns/{campaign_id}/status",
                  json={"status": status, "platform": provider_platform}, timeout=60.0)
+
+
+def update_ad_set_status(ad_set_id: str, status: str, platform: str) -> dict:
+    return _call("PUT", f"/ads/ad-sets/{ad_set_id}/status",
+                 json={"status": status, "platform": platform}, timeout=60.0)
+
+
+def update_ad_status(ad_id: str, status: str, platform: str) -> dict:
+    return _call("PUT", f"/ads/{ad_id}/status",
+                 json={"status": status, "platform": platform}, timeout=60.0)
 
 
 def ad_campaign_tree(params: dict) -> dict:

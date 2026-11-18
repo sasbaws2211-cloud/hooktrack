@@ -1,9 +1,10 @@
-"""Workspace-scoped Meta and TikTok post boosting through Zernio."""
+"""Workspace-scoped Meta, TikTok, Google and LinkedIn ads through Zernio."""
 from __future__ import annotations
 
 import logging
 import hmac
 import os
+import re
 import secrets
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -23,8 +24,8 @@ router = APIRouter(prefix="/api/ads", tags=["ads"])
 
 
 class ConnectAdsIn(BaseModel):
-    platform: Literal["meta", "tiktok"]
-    posting_account_id: str = Field(min_length=1, max_length=200)
+    platform: Literal["meta", "tiktok", "google", "linkedin"]
+    posting_account_id: str = Field(default="", max_length=200)
 
 
 class BoostIn(BaseModel):
@@ -47,19 +48,28 @@ class InterestIn(BaseModel):
 
 
 class CampaignDraftIn(BaseModel):
-    platform: Literal["meta", "tiktok"] = "meta"
+    platform: Literal["meta", "tiktok", "google", "linkedin"] = "meta"
     ad_connection_id: str = Field(min_length=1, max_length=200)
     ad_account_id: str = Field(min_length=1, max_length=200)
     campaign_name: str = Field(min_length=1, max_length=100)
-    objective: Literal["awareness", "traffic", "video_views", "conversions"] = "traffic"
+    objective: Literal["awareness", "traffic", "video_views", "conversions", "engagement"] = "traffic"
     daily_budget: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     end_date: date
-    creative_type: Literal["image", "video"]
+    creative_type: Literal["image", "video", "text"] = "image"
     media_asset_id: int | None = Field(default=None, gt=0)
     post_id: int | None = Field(default=None, gt=0)
+    brand_logo_asset_id: int | None = Field(default=None, gt=0)
     headline: str = Field(default="", max_length=255)
     body: str = Field(min_length=1, max_length=5000)
     link_url: str = Field(min_length=1, max_length=2048)
+    google_campaign_type: Literal["search", "demand_gen"] = "search"
+    google_keywords: list[str] = Field(default_factory=list, max_length=30)
+    google_extra_headlines: list[str] = Field(default_factory=list, max_length=14)
+    google_extra_description: str = Field(default="", max_length=90)
+    google_business_name: str = Field(default="", max_length=25)
+    google_long_headline: str = Field(default="", max_length=90)
+    youtube_video_id: str = Field(default="", max_length=20)
+    linkedin_organization_id: str = Field(default="", max_length=100)
     call_to_action: Literal[
         "LEARN_MORE", "SHOP_NOW", "SIGN_UP", "CONTACT_US", "DOWNLOAD", "GET_OFFER", "GET_QUOTE",
         "SUBSCRIBE", "WATCH_MORE", "ADD_TO_CART", "APPLY_NOW", "BOOK_NOW", "BUY_TICKETS",
@@ -132,7 +142,12 @@ def _connections(workspace_id: int) -> list[dict]:
 
 
 def _connection(workspace_id: int, platform: str, account_id: str) -> dict:
-    expected = "metaads" if platform == "meta" else "tiktokads"
+    expected = {
+        "meta": "metaads",
+        "tiktok": "tiktokads",
+        "google": "googleads",
+        "linkedin": "linkedinads",
+    }[platform]
     connection = next(
         (a for a in _connections(workspace_id) if a["platform"] == expected and a["id"] == account_id), None)
     if not connection:
@@ -172,7 +187,11 @@ def _asset_url(workspace_id: int, asset_id: int) -> str:
 
 
 def _post_media_url(workspace_id: int, post_id: int, creative_type: str, platform: str = "meta") -> str:
-    allowed_platforms = ("facebook", "instagram") if platform == "meta" else ("tiktok",)
+    allowed_platforms = {
+        "meta": ("facebook", "instagram"),
+        "tiktok": ("tiktok",),
+        "linkedin": ("linkedin",),
+    }[platform]
     post = db.one(
         """SELECT p.id, p.video_file, p.video_url FROM posts p
              JOIN accounts a ON a.id=p.account_id
@@ -225,21 +244,44 @@ def _url_tags(value: str) -> list[dict]:
 
 def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
     platform = values.get("platform", "meta")
+    values = {
+        "google_campaign_type": "search",
+        "google_keywords": [],
+        "google_extra_headlines": [],
+        "google_extra_description": "",
+        "google_business_name": "",
+        "google_long_headline": "",
+        "youtube_video_id": "",
+        "brand_logo_asset_id": None,
+        "linkedin_organization_id": "",
+        **values,
+    }
     connection = _selected_ad_account(
         workspace_id, values["ad_connection_id"], values["ad_account_id"], platform)
     end_date = values["end_date"]
     if isinstance(end_date, str):
         end_date = date.fromisoformat(end_date)
-    if (values["media_asset_id"] is None) == (values["post_id"] is None):
+    is_google_search = platform == "google" and values["google_campaign_type"] == "search"
+    is_google_demand_gen = platform == "google" and values["google_campaign_type"] == "demand_gen"
+    needs_media = platform in ("meta", "tiktok", "linkedin")
+    if needs_media and (values["media_asset_id"] is None) == (values["post_id"] is None):
         raise HTTPException(400, "Choose exactly one uploaded asset or existing published post.")
+    if is_google_demand_gen and not values["brand_logo_asset_id"]:
+        raise HTTPException(400, "Google Demand Gen requires a square logo image.")
     if values["age_max"] < values["age_min"]:
         raise HTTPException(400, "Maximum age must be equal to or above minimum age.")
-    if not values["campaign_name"].strip() or not values["body"].strip():
-        raise HTTPException(400, "Enter a campaign name and primary text.")
-    if platform == "meta" and not values["headline"].strip():
+    if not values["campaign_name"].strip():
+        raise HTTPException(400, "Enter a campaign name.")
+    if not values["body"].strip():
+        raise HTTPException(400, "Enter primary text.")
+    if platform in ("meta", "google", "linkedin") and not values["headline"].strip():
         raise HTTPException(400, "Enter a campaign headline.")
     if platform == "tiktok" and Decimal(str(values["daily_budget"])) < Decimal("20"):
         raise HTTPException(400, "TikTok's minimum daily budget is 20 in the ad account's currency.")
+    if platform == "linkedin" and Decimal(str(values["daily_budget"])) < Decimal("10"):
+        raise HTTPException(400, "LinkedIn's minimum daily budget is 10 in the ad account's currency.")
+    if platform == "google" and Decimal(str(values["daily_budget"])) % 1:
+        raise HTTPException(400, "Google Ads daily budgets must be whole units of the ad account's currency.")
     countries = [str(code).strip().upper() for code in values["countries"]]
     if not countries:
         raise HTTPException(400, "Choose at least one target country.")
@@ -254,12 +296,68 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         raise HTTPException(400, "Choose a campaign end date after today.")
     if values["objective"] == "video_views" and values["creative_type"] != "video":
         raise HTTPException(400, "The video views objective requires a video creative.")
-    if values["objective"] == "conversions" and not values["pixel_id"]:
+    if platform in ("meta", "tiktok") and values["objective"] == "conversions" and not values["pixel_id"]:
         raise HTTPException(400, f"Choose a {platform.title()} pixel for a conversions campaign.")
+    if platform == "google" and values["objective"] not in ("traffic", "awareness", "engagement"):
+        raise HTTPException(400, "Google Ads campaigns support Traffic, Awareness, or Engagement objectives.")
+    if platform == "linkedin" and values["objective"] not in (
+        "traffic", "awareness", "engagement", "video_views",
+    ):
+        raise HTTPException(400, "LinkedIn campaigns support Traffic, Awareness, Engagement, or Video views.")
+    if platform == "google" and values["google_campaign_type"] == "search" and values["objective"] == "video_views":
+        raise HTTPException(400, "Google Search does not support a video views objective.")
+    if platform == "google" and values["google_campaign_type"] == "demand_gen":
+        if not values["google_business_name"].strip():
+            raise HTTPException(400, "Enter a business name for the Google Demand Gen video ad.")
+        if not values["headline"].strip() or len(values["headline"].strip()) > 40:
+            raise HTTPException(400, "Google Demand Gen headlines must be 1–40 characters.")
+        if not values["google_long_headline"].strip():
+            raise HTTPException(400, "Enter a long headline for the Google Demand Gen video ad.")
+        if len(values["body"].strip()) > 90 or len(values["google_long_headline"].strip()) > 90:
+            raise HTTPException(400, "Google Demand Gen descriptions and long headlines must be at most 90 characters.")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", values["youtube_video_id"].strip()):
+            raise HTTPException(400, "Enter an 11-character YouTube video ID for the video ad.")
+        if not values["brand_logo_asset_id"]:
+            raise HTTPException(400, "Upload a square logo image for the Google Demand Gen video ad.")
+        if values["objective"] == "conversions":
+            raise HTTPException(400, "Google Ads campaign creation does not support conversion objectives.")
+    if platform == "google" and values["google_campaign_type"] == "search":
+        keywords = [str(item).strip() for item in values["google_keywords"] if str(item).strip()]
+        if not keywords:
+            raise HTTPException(400, "Add at least one keyword for the Google Search campaign.")
+        if any(len(keyword) > 80 for keyword in keywords):
+            raise HTTPException(400, "Google Search keywords must be 80 characters or fewer.")
+        if len(values["headline"].strip()) > 30 or any(
+            len(str(item).strip()) > 30 for item in values["google_extra_headlines"]
+        ):
+            raise HTTPException(400, "Google Search headlines must be 30 characters or fewer.")
+        if len(values["body"].strip()) > 90 or len(values["google_extra_description"].strip()) > 90:
+            raise HTTPException(400, "Google Search descriptions must be 90 characters or fewer.")
+        headlines = [values["headline"].strip(), *[
+            str(item).strip() for item in values["google_extra_headlines"] if str(item).strip()
+        ]]
+        if len(set(headlines)) < 3:
+            raise HTTPException(400, "Google Search needs at least three different headlines.")
+        if len({values["body"].strip(), values["google_extra_description"].strip()} - {""}) < 2:
+            raise HTTPException(400, "Google Search needs two different descriptions.")
+    if platform == "linkedin":
+        if values["creative_type"] not in ("image", "video"):
+            raise HTTPException(400, "LinkedIn ads require a single image or video creative.")
+        if values["objective"] == "video_views" and values["creative_type"] != "video":
+            raise HTTPException(400, "LinkedIn video views campaigns require a video creative.")
+        allowed_ctas = {
+            "LEARN_MORE", "SIGN_UP", "DOWNLOAD", "SUBSCRIBE", "REGISTER", "JOIN", "ATTEND",
+            "REQUEST_DEMO", "VIEW_QUOTE", "APPLY", "SEE_MORE", "SHOP_NOW", "BUY_NOW",
+        }
+        if values["call_to_action"] not in allowed_ctas:
+            raise HTTPException(400, "Choose a LinkedIn-supported call to action.")
+        organization_id = values["linkedin_organization_id"].strip()
+        if organization_id and not re.fullmatch(r"(?:\d+|urn:li:organization:\d+)", organization_id):
+            raise HTTPException(400, "Enter a numeric LinkedIn Company Page ID or urn:li:organization ID.")
+    if platform in ("meta", "tiktok") and values["special_ad_categories"] and values["interests"]:
+        raise HTTPException(400, "Remove interest targeting for ads with a special ad category.")
     if platform == "tiktok" and values["creative_type"] != "video":
         raise HTTPException(400, "TikTok campaigns require a video creative.")
-    if values["special_ad_categories"] and values["interests"]:
-        raise HTTPException(400, "Remove interest targeting for ads with a special ad category.")
     if values["special_ad_categories"] and platform == "meta" and (
         values["age_min"] != 18 or values["age_max"] != 65 or values["gender"] != "all"
     ):
@@ -271,7 +369,7 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
         raise HTTPException(400, "TikTok restricts gender targeting for special ad categories.")
     if platform == "tiktok" and values["url_tags"]:
         raise HTTPException(400, "TikTok Ads does not support URL tracking tags.")
-    if values["pixel_id"] and not values["pixel_id"].isdigit():
+    if platform in ("meta", "tiktok") and values["pixel_id"] and not values["pixel_id"].isdigit():
         raise HTTPException(400, f"Choose a valid numeric {platform.title()} pixel ID.")
     if platform == "tiktok" and values["placement_platforms"]:
         raise HTTPException(400, "TikTok campaigns use automatic TikTok placements.")
@@ -280,9 +378,9 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
     }:
         raise HTTPException(400, "Choose supported Meta placement platforms.")
 
-    if values["media_asset_id"] is not None:
+    if needs_media and values["media_asset_id"] is not None:
         asset = db.one(
-            """SELECT content_type FROM ad_campaign_assets
+            """SELECT content_type, file_size FROM ad_campaign_assets
                 WHERE id=%s AND workspace_id=%s""",
             (values["media_asset_id"], workspace_id),
         )
@@ -293,25 +391,32 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
             raise HTTPException(400, "The selected campaign media type does not match the creative.")
         if platform == "tiktok" and not is_video:
             raise HTTPException(400, "TikTok campaigns require a video creative.")
+        if platform == "linkedin" and not is_video and (
+            asset["content_type"] not in ("image/jpeg", "image/png") or asset["file_size"] > 5 * 1024 * 1024
+        ):
+            raise HTTPException(400, "LinkedIn image ads require JPEG or PNG media no larger than 5 MB.")
         media_url = _asset_url(workspace_id, values["media_asset_id"])
-    else:
+    elif needs_media:
         media_url = _post_media_url(workspace_id, values["post_id"], values["creative_type"], platform)
+    else:
+        media_url = ""
 
     request_body = {
         "accountId": connection["id"],
         "adAccountId": values["ad_account_id"],
         "name": values["campaign_name"].strip(),
-        "goal": values["objective"],
         "budgetAmount": float(values["daily_budget"]),
         "budgetType": "daily",
         "endDate": f"{end_date.isoformat()}T23:59:59Z",
-        "body": values["body"].strip(),
-        "linkUrl": values["link_url"].strip(),
-        "callToAction": values["call_to_action"],
         "status": "PAUSED",
         "countries": countries,
     }
+    if not is_google_demand_gen:
+        request_body["goal"] = values["objective"]
     if platform == "meta":
+        request_body["body"] = values["body"].strip()
+        request_body["linkUrl"] = values["link_url"].strip()
+        request_body["callToAction"] = values["call_to_action"]
         request_body["headline"] = values["headline"].strip()
         request_body["advantageAudience"] = 0
         if not values["special_ad_categories"]:
@@ -323,34 +428,82 @@ def _campaign_request(workspace_id: int, values: dict) -> tuple[dict, dict]:
             request_body["imageUrl"] = media_url
         if values["gender"] != "all" and not values["special_ad_categories"]:
             request_body["gender"] = values["gender"]
-    else:
+    elif platform == "tiktok":
+        request_body["body"] = values["body"].strip()
+        request_body["linkUrl"] = values["link_url"].strip()
+        request_body["callToAction"] = values["call_to_action"]
         request_body["imageUrl"] = media_url
         request_body["ageMin"] = values["age_min"]
         request_body["ageMax"] = values["age_max"]
         if values["gender"] != "all":
             request_body["gender"] = values["gender"]
-    if values["interests"]:
+    if platform in ("meta", "tiktok") and values["interests"]:
         request_body["interests"] = [
             {"id": interest["id"], "name": interest["name"]} for interest in values["interests"]
         ]
+    if platform == "linkedin":
+        request_body["body"] = values["body"].strip()
+        request_body["linkUrl"] = values["link_url"].strip()
+        request_body["callToAction"] = values["call_to_action"]
+        request_body["headline"] = values["headline"].strip()
+        request_body["ageMin"] = values["age_min"]
+        request_body["ageMax"] = values["age_max"]
+        if values["gender"] != "all":
+            request_body["gender"] = values["gender"]
+        request_body["targeting"] = {"countries": countries}
+        if values["linkedin_organization_id"].strip():
+            request_body["organizationId"] = values["linkedin_organization_id"].strip()
+        if values["creative_type"] == "video":
+            request_body["video"] = {"url": media_url}
+        else:
+            request_body["imageUrl"] = media_url
+    if is_google_search:
+        request_body["campaignType"] = "search"
+        request_body["headline"] = values["headline"].strip()
+        request_body["body"] = values["body"].strip()
+        request_body["linkUrl"] = values["link_url"].strip()
+        request_body["keywords"] = [str(item).strip() for item in values["google_keywords"] if str(item).strip()]
+        request_body["additionalHeadlines"] = [
+            str(item).strip() for item in values["google_extra_headlines"] if str(item).strip()
+        ]
+        request_body["additionalDescriptions"] = [values["google_extra_description"].strip()]
+    if is_google_demand_gen:
+        logo = db.one(
+            """SELECT content_type, file_size FROM ad_campaign_assets
+                WHERE id=%s AND workspace_id=%s""",
+            (values["brand_logo_asset_id"], workspace_id),
+        )
+        if (not logo or logo["content_type"] not in ("image/jpeg", "image/png")
+                or logo["file_size"] > 5 * 1024 * 1024):
+            raise HTTPException(400, "Upload a JPEG or PNG logo image for Google Demand Gen.")
+        logo_url = _asset_url(workspace_id, values["brand_logo_asset_id"])
+        request_body["campaignType"] = "demand_gen"
+        request_body["demandGen"] = {
+            "finalUrl": values["link_url"].strip(),
+            "businessName": values["google_business_name"].strip(),
+            "headlines": [values["headline"].strip()],
+            "longHeadlines": [values["google_long_headline"].strip()],
+            "descriptions": [values["body"].strip()],
+            "youtubeVideoIds": [values["youtube_video_id"].strip()],
+            "images": {"logo": [logo_url]},
+            "channels": ["youtube_in_stream", "youtube_in_feed", "youtube_shorts"],
+        }
     if platform == "meta" and values["placement_platforms"]:
         request_body["placements"] = {"publisherPlatforms": values["placement_platforms"]}
-    if values["special_ad_categories"]:
+    if platform in ("meta", "tiktok") and values["special_ad_categories"]:
         request_body["specialAdCategories"] = values["special_ad_categories"]
     if platform == "meta" and values["pixel_id"]:
         request_body["tracking"] = {"pixelId": values["pixel_id"]}
     if platform == "meta" and values["url_tags"]:
         request_body.setdefault("tracking", {})["urlTags"] = _url_tags(values["url_tags"])
-    if values["objective"] == "conversions":
-        allowed_events = (
-            {"PURCHASE", "COMPLETE_REGISTRATION", "ADD_TO_CART", "INITIATE_CHECKOUT",
-             "ADD_PAYMENT_INFO", "SUBSCRIBE", "START_TRIAL", "VIEW_CONTENT", "SEARCH"}
-            if platform == "meta"
-            else {"ON_WEB_ORDER", "INITIATE_ORDER", "ON_WEB_CART", "ON_WEB_REGISTER", "ON_WEB_DETAIL",
-                  "FORM", "ON_WEB_SEARCH", "ON_WEB_ADD_TO_WISHLIST", "LANDING_PAGE_VIEW"}
-        )
+    if platform in ("meta", "tiktok") and values["objective"] == "conversions":
+        allowed_events = {"PURCHASE", "COMPLETE_REGISTRATION", "ADD_TO_CART", "INITIATE_CHECKOUT",
+                          "ADD_PAYMENT_INFO", "SUBSCRIBE", "START_TRIAL", "VIEW_CONTENT", "SEARCH"}
+        if platform == "tiktok":
+            allowed_events = {"ON_WEB_ORDER", "INITIATE_ORDER", "ON_WEB_CART", "ON_WEB_REGISTER", "ON_WEB_DETAIL",
+                              "FORM", "ON_WEB_SEARCH", "ON_WEB_ADD_TO_WISHLIST", "LANDING_PAGE_VIEW"}
         if values["conversion_event"] not in allowed_events:
-            raise HTTPException(400, "Choose a supported conversion event for this ad platform.")
+            raise HTTPException(400, f"Choose a supported conversion event for {platform.title()} Ads.")
         request_body["promotedObject"] = {
             "pixelId": values["pixel_id"],
             "customEventType": values["conversion_event"],
@@ -388,9 +541,10 @@ def _campaign_create_result(
             (db.Json(result or {}), "Provider created the request but returned no campaign identifiers.",
              draft_id, workspace_id),
         )
-        raise HTTPException(502, "Meta may have created the campaign, but the provider response lacked campaign IDs. "
-                                 "Check Ads Manager before retrying.")
-    if platform == "tiktok" or str(ad.get("configuredStatus") or "").upper() != "PAUSED":
+        raise HTTPException(
+            502, f"{platform.title()} may have created the campaign, but the provider response lacked campaign IDs. "
+                 "Check the platform's Ads Manager before retrying.")
+    if platform != "meta" or str(ad.get("configuredStatus") or "").upper() != "PAUSED":
         try:
             if platform == "meta":
                 latehub.update_ad_campaign_status(str(ad["platformCampaignId"]), "paused")
@@ -406,7 +560,7 @@ def _campaign_create_result(
                  str(ad["_id"]), str(error)[:1000], draft_id, workspace_id),
             )
             raise HTTPException(
-                502, "Meta created the campaign, but HookTrack could not confirm it is paused. "
+                502, f"{platform.title()} created the campaign, but HookTrack could not confirm it is paused. "
                      "Check Ads Manager and pause it there before retrying."
             ) from error
     db.execute(
@@ -501,7 +655,7 @@ def ads_home(ctx: Ctx = Depends(current)):
                   a.handle, a.platform
              FROM posts p JOIN accounts a ON a.id=p.account_id
             WHERE p.workspace_id=%s AND a.workspace_id=%s AND p.status IN ('posted', 'analysed')
-              AND lower(a.platform) IN ('facebook', 'instagram', 'tiktok')
+              AND lower(a.platform) IN ('facebook', 'instagram', 'tiktok', 'linkedin')
             ORDER BY p.post_date DESC, p.id DESC LIMIT 100""",
         (workspace_id, workspace_id),
     )
@@ -701,8 +855,9 @@ def _submit_saved_campaign(workspace_id: int, draft_id: int, retry: bool = False
             (draft_id, workspace_id),
         )
         if not fresh:
-            raise HTTPException(409, "The provider's idempotency window may have expired. Check Meta Ads Manager "
-                                     "before creating another campaign.")
+            raise HTTPException(
+                409, f"The provider's idempotency window may have expired. Check {row['platform'].title()} Ads "
+                     "Manager before creating another campaign.")
         body = row["request_json"]
         key = row["idempotency_key"]
     else:
@@ -748,7 +903,7 @@ def retry_campaign_create(draft_id: int, ctx: Ctx = Depends(admin)):
 @router.put("/drafts/{draft_id}/status")
 def update_campaign_status(draft_id: int, body: CampaignStatusIn, ctx: Ctx = Depends(admin)):
     row = db.one(
-        """SELECT id, status, platform, platform_campaign_id, pending_status
+        """SELECT id, status, platform, platform_campaign_id, platform_ad_set_id, zernio_ad_id, pending_status
              FROM ad_campaign_drafts WHERE id=%s AND workspace_id=%s""",
         (draft_id, ctx.workspace_id),
     )
@@ -764,10 +919,13 @@ def update_campaign_status(draft_id: int, body: CampaignStatusIn, ctx: Ctx = Dep
         (body.status, draft_id, ctx.workspace_id),
     )
     try:
-        if row["platform"] == "meta":
-            result = latehub.update_ad_campaign_status(row["platform_campaign_id"], body.status)
+        if row["platform"] == "linkedin" and body.status == "active":
+            latehub.update_ad_campaign_status(row["platform_campaign_id"], "active", "linkedin")
+            latehub.update_ad_set_status(row["platform_ad_set_id"], "active", "linkedin")
+            result = latehub.update_ad_status(row["zernio_ad_id"], "active", "linkedin")
         else:
-            result = latehub.update_ad_campaign_status(row["platform_campaign_id"], body.status, row["platform"])
+            result = latehub.update_ad_campaign_status(
+                row["platform_campaign_id"], body.status, row["platform"])
     except latehub.LateHubError as error:
         unknown = error.status is None or error.status in (408, 409, 429) or error.status >= 500
         if unknown:
@@ -829,9 +987,12 @@ def list_ad_pixels(
 @router.get("/campaigns")
 def campaign_reporting(ctx: Ctx = Depends(current)):
     connections = _connections(ctx.workspace_id)
-    accounts_by_platform = {"meta": [], "tiktok": []}
+    accounts_by_platform = {"meta": [], "tiktok": [], "google": [], "linkedin": []}
     for connection in connections:
-        platform = {"metaads": "meta", "tiktokads": "tiktok"}.get(connection["platform"])
+        platform = {
+            "metaads": "meta", "tiktokads": "tiktok",
+            "googleads": "google", "linkedinads": "linkedin",
+        }.get(connection["platform"])
         if not platform:
             continue
         try:
@@ -852,7 +1013,7 @@ def campaign_reporting(ctx: Ctx = Depends(current)):
             "toDate": date.today().isoformat(),
             "status": "not_deleted",
         }
-        if platform == "tiktok":
+        if platform != "meta":
             params["platform"] = platform
         try:
             result = latehub.ad_campaign_tree(params)

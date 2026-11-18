@@ -42,11 +42,13 @@ def test_workspace_account_lists_separate_publishing_and_ads_accounts(monkeypatc
     monkeypatch.setattr(latehub, "_call", lambda *_args, **_kwargs: {"accounts": [
         {"_id": "fb-own", "platform": "facebook", "profileId": "own-profile", "isActive": True},
         {"_id": "meta-own", "platform": "metaads", "profileId": "own-profile", "isActive": True},
+        {"_id": "google-own", "platform": "googleads", "profileId": "own-profile", "isActive": True},
+        {"_id": "linkedin-own", "platform": "linkedinads", "profileId": "own-profile", "isActive": True},
         {"_id": "tt-other", "platform": "tiktokads", "profileId": "another-profile", "isActive": True},
     ]})
 
     assert [a["id"] for a in latehub.accounts(7)] == ["fb-own"]
-    assert [a["id"] for a in latehub.ads_connections(7)] == ["meta-own"]
+    assert [a["id"] for a in latehub.ads_connections(7)] == ["meta-own", "google-own", "linkedin-own"]
 
 
 def test_ads_connection_is_workspace_scoped_and_links_selected_posting_account(monkeypatch):
@@ -81,6 +83,37 @@ def test_meta_ads_uses_the_selected_facebook_or_instagram_connection_path(monkey
 
     assert calls[0][1] == "/connect/instagram/ads"
     assert calls[0][2]["params"]["accountId"] == "ig-posting"
+
+
+def test_google_ads_connection_starts_standalone_oauth(monkeypatch):
+    monkeypatch.setattr(latehub, "ensure_profile", lambda _workspace_id: "profile-7")
+    calls = []
+    monkeypatch.setattr(latehub, "_call", lambda method, path, **kwargs:
+                        calls.append((method, path, kwargs)) or {"authUrl": "https://accounts.google.com/oauth"})
+
+    result = latehub.connect_ads_url(7, "google", "https://hooktrack.example/#/ads", "")
+
+    assert result == {"auth_url": "https://accounts.google.com/oauth", "already_connected": False}
+    assert calls == [("GET", "/connect/googleads/ads", {"params": {
+        "profileId": "profile-7",
+        "redirect_url": "https://hooktrack.example/#/ads",
+    }})]
+
+
+def test_linkedin_ads_connection_uses_the_linkedin_publishing_identity(monkeypatch):
+    monkeypatch.setattr(latehub, "ensure_profile", lambda _workspace_id: "profile-7")
+    monkeypatch.setattr(latehub, "accounts", lambda _workspace_id: [
+        {"id": "linkedin-posting", "platform": "linkedin"},
+    ])
+    calls = []
+    monkeypatch.setattr(latehub, "_call", lambda method, path, **kwargs:
+                        calls.append((method, path, kwargs)) or {"alreadyConnected": True})
+
+    result = latehub.connect_ads_url(7, "linkedin", "https://hooktrack.example/#/ads", "linkedin-posting")
+
+    assert result == {"auth_url": "", "already_connected": True}
+    assert calls[0][1] == "/connect/linkedin/ads"
+    assert calls[0][2]["params"]["accountId"] == "linkedin-posting"
 
 
 def test_meta_boost_uses_verified_connection_and_selected_ad_account(monkeypatch):
@@ -239,6 +272,15 @@ def _campaign_values(**overrides):
         "pixel_id": "1729525464415281",
         "conversion_event": "PURCHASE",
         "url_tags": "utm_source=meta&utm_medium=paid_social",
+        "brand_logo_asset_id": None,
+        "google_campaign_type": "search",
+        "google_keywords": [],
+        "google_extra_headlines": [],
+        "google_extra_description": "",
+        "google_business_name": "",
+        "google_long_headline": "",
+        "youtube_video_id": "",
+        "linkedin_organization_id": "",
     }
     values.update(overrides)
     return ads.CampaignDraftIn(**values).model_dump(mode="json")
@@ -315,6 +357,110 @@ def test_tiktok_campaign_maps_video_targeting_and_pixel_to_create_payload(monkey
     assert "placements" not in request
     assert "tracking" not in request
     assert "advantageAudience" not in request
+
+
+def test_google_search_campaign_maps_keywords_and_rsa_text(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "google-connection"})
+    values = _campaign_values(
+        platform="google",
+        ad_connection_id="google-connection",
+        ad_account_id="customer-123",
+        headline="Find better tools",
+        body="Find software for your work.",
+        daily_budget="35",
+        google_keywords=["project software", "team planning"],
+        google_extra_headlines=["Plan work together", "Start your free trial"],
+        google_extra_description="Make project planning simple.",
+        media_asset_id=None,
+        creative_type="text",
+        interests=[],
+        placement_platforms=[],
+        special_ad_categories=[],
+        pixel_id="",
+        url_tags="",
+    )
+
+    request, connection = ads._campaign_request(7, values)
+
+    assert connection["id"] == "google-connection"
+    assert request["status"] == "PAUSED"
+    assert request["campaignType"] == "search"
+    assert request["keywords"] == ["project software", "team planning"]
+    assert request["additionalHeadlines"] == ["Plan work together", "Start your free trial"]
+    assert request["additionalDescriptions"] == ["Make project planning simple."]
+    assert request["budgetAmount"] == 35
+    assert "imageUrl" not in request
+    assert "goal" in request
+
+
+def test_google_youtube_demand_gen_campaign_uses_video_id_and_uploaded_logo(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "google-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {
+        "content_type": "image/png", "file_size": 1024,
+    })
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/logo.png")
+    values = _campaign_values(
+        platform="google",
+        ad_connection_id="google-connection",
+        ad_account_id="customer-123",
+        google_campaign_type="demand_gen",
+        headline="Watch us work",
+        body="Social marketing made easier.",
+        google_business_name="HookTrack",
+        google_long_headline="Make every social campaign easier to manage",
+        youtube_video_id="abcdefghijk",
+        brand_logo_asset_id=42,
+        media_asset_id=None,
+        creative_type="video",
+        objective="traffic",
+        interests=[],
+        placement_platforms=[],
+        special_ad_categories=[],
+        pixel_id="",
+        url_tags="",
+    )
+
+    request, _ = ads._campaign_request(7, values)
+
+    assert request["campaignType"] == "demand_gen"
+    assert request["demandGen"]["youtubeVideoIds"] == ["abcdefghijk"]
+    assert request["demandGen"]["channels"] == ["youtube_in_stream", "youtube_in_feed", "youtube_shorts"]
+    assert request["demandGen"]["images"] == {"logo": ["https://hooktrack.example/logo.png"]}
+    assert request["demandGen"]["businessName"] == "HookTrack"
+    assert "goal" not in request
+    assert "imageUrl" not in request
+
+
+def test_linkedin_campaign_maps_single_image_and_company_page(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "linkedin-connection"})
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {
+        "content_type": "image/jpeg", "file_size": 1024,
+    })
+    monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/ad.jpg")
+    values = _campaign_values(
+        platform="linkedin",
+        ad_connection_id="linkedin-connection",
+        ad_account_id="sponsored-123",
+        daily_budget="10",
+        creative_type="image",
+        linkedin_organization_id="urn:li:organization:1234",
+        call_to_action="LEARN_MORE",
+        interests=[],
+        placement_platforms=[],
+        special_ad_categories=[],
+        pixel_id="",
+        url_tags="",
+    )
+
+    request, _ = ads._campaign_request(7, values)
+
+    assert request["accountId"] == "linkedin-connection"
+    assert request["organizationId"] == "urn:li:organization:1234"
+    assert request["status"] == "PAUSED"
+    assert request["imageUrl"] == "https://hooktrack.example/ad.jpg"
+    assert request["targeting"]["countries"] == ["US", "CA"]
+    assert request["budgetAmount"] == 10
+    assert "video" not in request
 
 
 def test_tiktok_campaign_requires_minimum_daily_budget(monkeypatch):
@@ -447,10 +593,54 @@ def test_tiktok_campaign_create_explicitly_confirms_paused_status(monkeypatch):
     assert updates[-1][1][1:5] == ("campaign-1", "adgroup-1", "zernio-ad", 42)
 
 
-def test_campaign_reporting_merges_selected_meta_and_tiktok_accounts(monkeypatch):
+def test_google_campaign_create_explicitly_confirms_paused_status(monkeypatch):
+    pause_calls = []
+    monkeypatch.setattr(ads.latehub, "create_standalone_ad", lambda *_args: {
+        "ad": {"_id": "zernio-ad", "platformCampaignId": "google-campaign"},
+    })
+    monkeypatch.setattr(ads.latehub, "update_ad_campaign_status",
+                        lambda campaign_id, status, platform: pause_calls.append(
+                            (campaign_id, status, platform)) or {"status": "paused"})
+    monkeypatch.setattr(ads.db, "execute", lambda *_args: None)
+
+    result = ads._campaign_create_result(
+        7, 42, {"campaignType": "search"}, "google-key", "google",
+    )
+
+    assert result["status"] == "paused"
+    assert pause_calls == [("google-campaign", "paused", "google")]
+
+
+def test_linkedin_campaign_launch_enables_group_campaign_and_ad_in_order(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {
+        "id": 42, "status": "paused", "platform": "linkedin", "platform_campaign_id": "group-1",
+        "platform_ad_set_id": "campaign-1", "zernio_ad_id": "ad-1", "pending_status": "",
+    })
+    monkeypatch.setattr(ads.db, "execute", lambda *_args: None)
+    monkeypatch.setattr(ads.latehub, "update_ad_campaign_status",
+                        lambda *args: calls.append(("group", args)) or {"status": "active"})
+    monkeypatch.setattr(ads.latehub, "update_ad_set_status",
+                        lambda *args: calls.append(("campaign", args)) or {"status": "active"})
+    monkeypatch.setattr(ads.latehub, "update_ad_status",
+                        lambda *args: calls.append(("ad", args)) or {"status": "active"})
+
+    result = ads.update_campaign_status(42, ads.CampaignStatusIn(status="active"), _ctx())
+
+    assert result["status"] == "active"
+    assert calls == [
+        ("group", ("group-1", "active", "linkedin")),
+        ("campaign", ("campaign-1", "active", "linkedin")),
+        ("ad", ("ad-1", "active", "linkedin")),
+    ]
+
+
+def test_campaign_reporting_merges_selected_accounts_for_all_builder_platforms(monkeypatch):
     monkeypatch.setattr(ads, "_connections", lambda _workspace_id: [
         {"id": "meta-connection", "platform": "metaads"},
         {"id": "tiktok-connection", "platform": "tiktokads"},
+        {"id": "google-connection", "platform": "googleads"},
+        {"id": "linkedin-connection", "platform": "linkedinads"},
     ])
     monkeypatch.setattr(ads.latehub, "ad_accounts", lambda connection_id: [
         {"id": f"advertiser-{connection_id}", "selected": True},
@@ -467,7 +657,11 @@ def test_campaign_reporting_merges_selected_meta_and_tiktok_accounts(monkeypatch
 
     result = ads.campaign_reporting(_ctx())
 
-    assert {campaign["platform"] for campaign in result["campaigns"]} == {"meta", "tiktok"}
+    assert {campaign["platform"] for campaign in result["campaigns"]} == {
+        "meta", "tiktok", "google", "linkedin",
+    }
     assert all(call["profileId"] == "profile-7" for call in calls)
     assert next(call for call in calls if call["adAccountId"].endswith("tiktok-connection"))["platform"] == "tiktok"
     assert not any(call["adAccountId"].endswith("meta-connection") and "platform" in call for call in calls)
+    assert next(call for call in calls if call["adAccountId"].endswith("google-connection"))["platform"] == "google"
+    assert next(call for call in calls if call["adAccountId"].endswith("linkedin-connection"))["platform"] == "linkedin"
