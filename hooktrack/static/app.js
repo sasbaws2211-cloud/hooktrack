@@ -2876,6 +2876,17 @@ pages.studio = async app => {
               <button class="btn sm" id="studio-properties-toggle" type="button" aria-expanded="false" aria-controls="studio-properties" disabled>Properties</button>
             </div>
           </section>
+          <section class="studio-tool-group" aria-label="Captions">
+            <div class="studio-tool-label">Captions</div>
+            <div class="studio-tool-buttons">
+              <select id="studio-caption-style" aria-label="Caption animation" title="Caption word animation">
+                <option value="highlight">Highlight words</option><option value="karaoke">Karaoke</option>
+                <option value="pop">Pop words</option><option value="typewriter">Typewriter</option>
+                <option value="none">No animation</option>
+              </select>
+              <button class="btn sm" id="studio-add-captions" type="button" disabled title="Select a video clip to add auto-captions">Add auto-captions</button>
+            </div>
+          </section>
         </div>
         <section id="studio-properties" class="studio-properties" aria-label="Selected clip properties" hidden>
           <div class="studio-properties-heading">
@@ -2953,6 +2964,9 @@ pages.studio = async app => {
           <span class="studio-start-hint">You can add media, audio, text, or AI clips before selecting anything.</span>
           <span class="small muted" id="studio-status" role="status" aria-live="polite">Loading editor…</span>
         </div>
+        <p id="studio-captions-note" class="studio-effects-note">
+          Auto-captions are transcribed by Shotstack during Cloud render, which uses render credits. The editor preview shows placeholder words until then.
+        </p>
       </div>
       <div data-shotstack-studio style="width:100%;background:#000"></div>
       <div data-shotstack-timeline style="width:100%;overflow:hidden;background:#0d1117"></div>
@@ -3002,6 +3016,9 @@ pages.studio = async app => {
       !(clip.asset.type === 'text' && clip.asset.text === 'Add your media above to get started')));
   const hasStudioImage = () => edit.getEdit().timeline.tracks.some(track =>
     (track.clips || []).some(clip => clip.asset && clip.asset.type === 'image'));
+  const hasAutoTranscribedCaptions = () => edit.getEdit().timeline.tracks.some(track =>
+    (track.clips || []).some(clip => clip.asset && clip.asset.type === 'rich-caption' &&
+      typeof clip.asset.src === 'string' && clip.asset.src.startsWith('alias://')));
 
   let edit, canvas, timeline, controls, ui, StudioSdk, draftDirty = !!sessionDraft, draftRevision = sessionDraft ? 1 : 0;
   let draftSaveTimer = null, draftSaveInFlight = null, scheduleDraftSave = () => {}, selectedClipLocation = null, selectedClipId = null;
@@ -3060,10 +3077,12 @@ pages.studio = async app => {
       const hasContent = hasStudioContent();
       const canFinish = isImageFormat(post.content_type) ? hasStudioImage() : hasContent;
       const finish = $('#studio-finish', app);
-      finish.disabled = locked || !canFinish;
+      const needsCloudRender = hasAutoTranscribedCaptions();
+      finish.disabled = locked || !canFinish || needsCloudRender;
       finish.title = locked
         ? 'Move this card back to Scripted first'
-        : canFinish ? '' : isImageFormat(post.content_type)
+        : needsCloudRender ? 'Auto-transcribed captions require Shotstack Cloud render'
+          : canFinish ? '' : isImageFormat(post.content_type)
           ? 'Add at least one image to the timeline before finishing'
           : 'Add content to the timeline before finishing';
       if ($('#studio-render-cloud', app)) $('#studio-render-cloud', app).disabled = locked || !hasContent;
@@ -3091,6 +3110,7 @@ pages.studio = async app => {
       syncHistoryButtons();
       syncStudioOutputButtons();
       syncStudioProperties();
+      syncStudioClipActions();
       scheduleDraftSave();
     };
     edit.events.on('edit:changed', markEditChanged);
@@ -3103,6 +3123,7 @@ pages.studio = async app => {
     const duplicateButton = $('#studio-duplicate-clip', app), deleteButton = $('#studio-delete-clip', app);
     const trimStartButton = $('#studio-trim-start', app), trimEndButton = $('#studio-trim-end', app);
     const propertiesToggle = $('#studio-properties-toggle', app), propertiesPanel = $('#studio-properties', app);
+    const captionsButton = $('#studio-add-captions', app);
     const getSelectedLocation = () => {
       if (selectedClipId) {
         const location = edit.getClipPositionById(selectedClipId);
@@ -3135,6 +3156,19 @@ pages.studio = async app => {
       splitButton.title = selected ? 'Split the selected video at the playhead' : 'Select a video clip to split it';
       trimStartButton.title = selected ? 'Remove the selected video from its start to the playhead' : 'Select a video clip to trim';
       trimEndButton.title = selected ? 'Remove the selected video from the playhead to its end' : 'Select a video clip to trim';
+      const selectedVideo = getSelectedVideo();
+      const cloudConfigured = !!(state.shotstack && state.shotstack.configured && !isImageFormat(post.content_type));
+      const alreadyCaptioned = selectedVideo && selectedVideo.alias &&
+        edit.getEdit().timeline.tracks.some(track => (track.clips || []).some(clip =>
+          clip.asset && clip.asset.type === 'rich-caption' && clip.asset.src === `alias://${selectedVideo.alias}`));
+      captionsButton.disabled = !selectedVideo || !cloudConfigured || !!alreadyCaptioned;
+      captionsButton.title = !selectedVideo ? 'Select a video clip to generate captions'
+        : !cloudConfigured ? 'Configure Shotstack Cloud render for this video post first'
+          : alreadyCaptioned ? 'This video already has an auto-caption clip; remove it before generating another'
+            : 'Transcribe the selected video and add timed captions';
+      $('#studio-captions-note', app).textContent = cloudConfigured
+        ? 'Auto-captions are transcribed by Shotstack during Cloud render, which uses render credits. The editor preview shows placeholder words until then.'
+        : 'Auto-captions require a video post and Shotstack Cloud render configured in Settings.';
       syncStudioProperties();
     };
     const propertyField = id => $(`#studio-${id}-field`, app);
@@ -3287,6 +3321,49 @@ pages.studio = async app => {
       selectedClipId = null;
       syncStudioClipActions();
       syncStudioProperties();
+    });
+    captionsButton.onclick = guard(async () => {
+      const clip = getSelectedVideo();
+      if (!clip) throw new Error('Select a video clip before generating captions.');
+      if (!(state.shotstack && state.shotstack.configured) || isImageFormat(post.content_type)) {
+        throw new Error('Configure Shotstack Cloud render for a video post before generating captions.');
+      }
+      if (typeof clip.start !== 'number' || clip.start < 0) {
+        throw new Error('This video has an unsupported start time; set its start time to a number first.');
+      }
+      if (clip.alias && edit.getEdit().timeline.tracks.some(track => (track.clips || []).some(c =>
+        c.asset && c.asset.type === 'rich-caption' && c.asset.src === `alias://${clip.alias}`))) {
+        throw new Error('This video already has auto-transcribed captions. Remove that caption clip before generating another.');
+      }
+      const alias = clip.alias || `hooktrack_video_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      if (!clip.alias) await updateSelectedClip({ alias });
+      const caption = {
+        asset: {
+          type: 'rich-caption',
+          src: `alias://${alias}`,
+          font: { family: 'Roboto', size: 44, weight: 700, color: '#ffffff' },
+          stroke: { width: 2, color: '#000000' },
+          align: { horizontal: 'center', vertical: 'bottom' },
+          active: { font: { color: '#ffe15a' } },
+          animation: { style: $('#studio-caption-style', app).value },
+        },
+        start: clip.start,
+        length: clip.length,
+        position: 'bottom',
+      };
+      const result = await edit.addTrack(0, { clips: [caption] });
+      if (result.status !== 'success') throw new Error(result.message || 'Could not add the caption clip.');
+      // addTrack may auto-link to another source, so restore the explicitly selected video alias afterward.
+      const addedCaption = edit.getClip(0, 0);
+      if (!addedCaption) throw new Error('The caption clip was added but could not be found in the timeline.');
+      const captionUpdates = { asset: { ...addedCaption.asset, src: `alias://${alias}` } };
+      const linked = addedCaption.id
+        ? await edit.updateClipById(addedCaption.id, captionUpdates)
+        : await edit.updateClip(0, 0, captionUpdates);
+      if (linked.status !== 'success') throw new Error(linked.message || 'Could not link captions to the selected video.');
+      syncStudioClipActions();
+      setStatus('Caption clip added — use Cloud render to transcribe it', true);
+      toast('Caption clip added. Shotstack will transcribe the video during Cloud render.');
     });
     duplicateButton.onclick = guard(async () => {
       const clip = getSelectedClip();

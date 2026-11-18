@@ -1605,6 +1605,12 @@ th { font-size: 10.5px; letter-spacing: .075em; }
   font-size: 12px;
   white-space: nowrap;
 }
+.studio-tool-buttons #studio-caption-style {
+  width: auto;
+  min-height: 32px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
 .studio-tool-buttons .btn.primary { color: var(--accent-text); }
 .studio-tool-buttons .btn.danger:not(:disabled) {
   color: var(--bad);
