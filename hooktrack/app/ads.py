@@ -234,6 +234,7 @@ class MetaMessagingCallAdIn(BaseModel):
 class MetaRfBuyIn(BaseModel):
     ad_connection_id: str = Field(min_length=1, max_length=200)
     ad_account_id: str = Field(min_length=1, max_length=200)
+    workflow_id: str = Field(min_length=32, max_length=32, pattern=r"^[a-f0-9]{32}$")
     prediction_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
     campaign_name: str = Field(min_length=1, max_length=255)
     headline: str = Field(min_length=1, max_length=255)
@@ -245,6 +246,14 @@ class MetaRfBuyIn(BaseModel):
     age_min: int = Field(ge=18, le=65)
     age_max: int = Field(ge=18, le=65)
     placement: Literal["facebook", "instagram", "both"]
+
+
+class MetaRfWorkflowCreateIn(BaseModel):
+    ad_connection_id: str = Field(min_length=1, max_length=200)
+    ad_account_id: str = Field(min_length=1, max_length=200)
+    quote_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    config: dict = Field(max_length=30)
+    quote: dict = Field(max_length=60)
 
 
 def _handle(value: str, platform: str) -> str:
@@ -289,7 +298,7 @@ def _connections(workspace_id: int) -> list[dict]:
     try:
         return latehub.ads_connections(workspace_id)
     except latehub.LateHubError as error:
-        raise HTTPException(502 if unknown else error.status or 502, str(error)) from error
+        raise HTTPException(error.status or 502, str(error)) from error
 
 
 def _connection(workspace_id: int, platform: str, account_id: str) -> dict:
@@ -313,7 +322,7 @@ def _selected_ad_account(
     try:
         accounts = latehub.ad_accounts(connection["id"])
     except latehub.LateHubError as error:
-        raise HTTPException(502 if unknown else error.status or 502, str(error)) from error
+        raise HTTPException(error.status or 502, str(error)) from error
     account = next((item for item in accounts
                     if item["id"] == ad_account_id and item.get("selected")), None)
     if not account:
@@ -1705,7 +1714,7 @@ def meta_ads_request(body: MetaAdsRequestIn, ctx: Ctx = Depends(admin)):
     account_scoped_create_paths = {
         "/ads/create", "/ads/campaigns", "/ads/boost", "/ads/messaging", "/ads/call",
         "/ads/creatives", "/ads/audiences", "/ads/lead-forms", "/ads/rf-predictions",
-        "/ads/images", "/ads/videos", "/ads/preview",
+        "/ads/images", "/ads/videos", "/ads/preview", "/ads/insights/reports",
     }
     if path in account_scoped_create_paths and body.method == "POST":
         request_body.setdefault("accountId", connection["id"])
@@ -1767,13 +1776,38 @@ def create_meta_messaging_call_ad(body: MetaMessagingCallAdIn, ctx: Ctx = Depend
 def buy_meta_reach_frequency_campaign(body: MetaRfBuyIn, ctx: Ctx = Depends(admin)):
     connection = _selected_ad_account(
         ctx.workspace_id, body.ad_connection_id, body.ad_account_id, "meta")
+    workflow = db.one(
+        """SELECT workflow_id, ad_connection_id, ad_account_id, status, reserved_id, config_json
+             FROM meta_reach_frequency_workflows
+            WHERE workflow_id=%s AND workspace_id=%s""",
+        (body.workflow_id, ctx.workspace_id),
+    )
+    if not workflow or workflow["ad_connection_id"] != body.ad_connection_id \
+            or workflow["ad_account_id"] != body.ad_account_id:
+        raise HTTPException(404, "Saved Reach & Frequency reservation was not found for this account.")
+    if workflow["status"] != "reserved" or workflow["reserved_id"] != body.prediction_id:
+        raise HTTPException(409, "This Reach & Frequency reservation is not available for a new campaign.")
+    saved_targeting = workflow["config_json"].get("targeting") or {}
+    saved_placements = workflow["config_json"].get("placements") or {}
     countries = [country.strip().upper() for country in body.countries]
+    saved_countries = [str(country).strip().upper() for country in saved_targeting.get("countries", [])]
     if any(not re.fullmatch(r"[A-Z]{2}", country) for country in countries):
         raise HTTPException(400, "Choose target countries using ISO two-letter country codes.")
     if len(set(countries)) != len(countries):
         raise HTTPException(400, "Choose each target country only once.")
     if body.age_max < body.age_min:
         raise HTTPException(400, "Maximum age must be equal to or above minimum age.")
+    requested_placements = {
+        "publisherPlatforms": ["facebook", "instagram"] if body.placement == "both" else [body.placement],
+        "devicePlatforms": ["mobile", "desktop"],
+    }
+    if body.placement in ("facebook", "both"):
+        requested_placements["facebookPositions"] = ["feed"]
+    if body.placement in ("instagram", "both"):
+        requested_placements["instagramPositions"] = ["stream"]
+    if (countries != saved_countries or body.age_min != saved_targeting.get("ageMin")
+            or body.age_max != saved_targeting.get("ageMax") or requested_placements != saved_placements):
+        raise HTTPException(400, "Campaign targeting and placements must match the saved Reach & Frequency quote.")
     if not body.campaign_name.strip() or not body.headline.strip() or not body.body.strip():
         raise HTTPException(400, "Enter a campaign name, headline, and primary text.")
     parsed_link = urlparse(body.link_url.strip())
@@ -1790,14 +1824,7 @@ def buy_meta_reach_frequency_campaign(body: MetaRfBuyIn, ctx: Ctx = Depends(admi
     content_type = asset["content_type"]
     if content_type not in ("image/jpeg", "image/png", "video/mp4", "video/quicktime"):
         raise HTTPException(400, "Reach & Frequency ads require an uploaded JPEG, PNG, MP4, or MOV asset.")
-    placements = {
-        "publisherPlatforms": ["facebook", "instagram"] if body.placement == "both" else [body.placement],
-        "devicePlatforms": ["mobile", "desktop"],
-    }
-    if body.placement in ("facebook", "both"):
-        placements["facebookPositions"] = ["feed"]
-    if body.placement in ("instagram", "both"):
-        placements["instagramPositions"] = ["stream"]
+    placements = requested_placements
     request_body = {
         "accountId": connection["id"],
         "adAccountId": body.ad_account_id,
@@ -1819,11 +1846,226 @@ def buy_meta_reach_frequency_campaign(body: MetaRfBuyIn, ctx: Ctx = Depends(admi
         request_body["video"] = {"url": media_url}
     else:
         request_body["imageUrl"] = media_url
+    if not db.execute(
+        """UPDATE meta_reach_frequency_workflows
+              SET status='buy_pending', buy_json=%s, error='', updated_at=now()
+            WHERE workflow_id=%s AND workspace_id=%s AND status='reserved' AND reserved_id=%s""",
+        (db.Json(request_body), body.workflow_id, ctx.workspace_id, body.prediction_id),
+    ):
+        raise HTTPException(409, "This reservation is already being used or is no longer available.")
     try:
-        return latehub.meta_ads_request("POST", "/ads/create", body=request_body)
+        response = latehub.meta_ads_request("POST", "/ads/create", body=request_body)
+    except latehub.LateHubError as error:
+        uncertain = error.status is None or error.status in (408, 409, 429) or error.status >= 500
+        db.execute(
+            """UPDATE meta_reach_frequency_workflows
+                  SET status=%s, error=%s, updated_at=now()
+                WHERE workflow_id=%s AND workspace_id=%s AND status='buy_pending'""",
+            ("unknown" if uncertain else "reserved", str(error), body.workflow_id, ctx.workspace_id),
+        )
+        raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 409, 422, 429) else 502,
+                            str(error)) from error
+    db.execute(
+        """UPDATE meta_reach_frequency_workflows
+              SET status='bought', buy_json=%s, error='', updated_at=now()
+            WHERE workflow_id=%s AND workspace_id=%s AND status='buy_pending'""",
+        (db.Json(response), body.workflow_id, ctx.workspace_id),
+    )
+    return response
+
+
+@router.get("/meta/reach-frequency/workflows")
+def list_meta_reach_frequency_workflows(
+    ad_connection_id: str, ad_account_id: str, ctx: Ctx = Depends(admin),
+):
+    _selected_ad_account(ctx.workspace_id, ad_connection_id, ad_account_id, "meta")
+    workflows = db.query(
+        """SELECT workflow_id, ad_connection_id, ad_account_id, status, quote_id, reserved_id,
+                  config_json, quote_json, reservation_json, buy_json, error, created_at, updated_at
+             FROM meta_reach_frequency_workflows
+            WHERE workspace_id=%s AND ad_connection_id=%s AND ad_account_id=%s
+            ORDER BY updated_at DESC LIMIT 25""",
+        (ctx.workspace_id, ad_connection_id, ad_account_id),
+    )
+    return {"workflows": workflows}
+
+
+@router.post("/meta/reach-frequency/workflows")
+def create_meta_reach_frequency_workflow(body: MetaRfWorkflowCreateIn, ctx: Ctx = Depends(admin)):
+    _selected_ad_account(ctx.workspace_id, body.ad_connection_id, body.ad_account_id, "meta")
+    quote_id = str(body.quote.get("predictionId") or body.quote_id)
+    if quote_id != body.quote_id:
+        raise HTTPException(400, "The quote response ID must match the saved prediction ID.")
+    if body.quote.get("status") not in ("ready", "pending"):
+        raise HTTPException(400, "Only a ready or pending Meta quote can be saved.")
+    workflow_id = secrets.token_hex(16)
+    row = db.one(
+        """INSERT INTO meta_reach_frequency_workflows
+               (workflow_id, workspace_id, ad_connection_id, ad_account_id, status,
+                quote_id, config_json, quote_json)
+           VALUES (%s,%s,%s,%s,'quote_ready',%s,%s,%s)
+           RETURNING workflow_id, status, quote_id, reserved_id, config_json, quote_json,
+                     reservation_json, buy_json, error, created_at, updated_at""",
+        (workflow_id, ctx.workspace_id, body.ad_connection_id, body.ad_account_id,
+         quote_id, db.Json(body.config), db.Json(body.quote)),
+    )
+    return row
+
+
+@router.post("/meta/reach-frequency/workflows/{workflow_id}/refresh")
+def refresh_meta_reach_frequency_workflow(workflow_id: str, ctx: Ctx = Depends(admin)):
+    if not re.fullmatch(r"[a-f0-9]{32}", workflow_id):
+        raise HTTPException(404, "Reach & Frequency workflow not found.")
+    row = db.one(
+        """SELECT * FROM meta_reach_frequency_workflows
+            WHERE workflow_id=%s AND workspace_id=%s""",
+        (workflow_id, ctx.workspace_id),
+    )
+    if not row:
+        raise HTTPException(404, "Reach & Frequency workflow not found.")
+    connection = _selected_ad_account(ctx.workspace_id, row["ad_connection_id"], row["ad_account_id"], "meta")
+    if row["status"] not in ("quote_ready", "reserved"):
+        raise HTTPException(409, "This workflow is mid-operation or terminal; inspect the saved state before retrying.")
+    prediction_id = row["reserved_id"] if row["status"] == "reserved" else row["quote_id"]
+    try:
+        response = latehub.meta_ads_request(
+            "GET", f"/ads/rf-predictions/{prediction_id}",
+            params={"accountId": connection["id"], "adAccountId": row["ad_account_id"]},
+        )
     except latehub.LateHubError as error:
         raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 409, 422, 429) else 502,
                             str(error)) from error
+    prediction = response.get("prediction") if isinstance(response, dict) else None
+    if not isinstance(prediction, dict) or str(prediction.get("predictionId") or "") != prediction_id:
+        raise HTTPException(502, "Zernio returned an invalid Reach & Frequency prediction.")
+    if row["status"] == "reserved":
+        if prediction.get("status") != "ready":
+            raise HTTPException(409, "The saved reservation is no longer ready; inspect its provider status before continuing.")
+        db.execute(
+            """UPDATE meta_reach_frequency_workflows
+                  SET reservation_json=%s, updated_at=now()
+                WHERE workflow_id=%s AND workspace_id=%s""",
+            (db.Json(prediction), workflow_id, ctx.workspace_id),
+        )
+    else:
+        db.execute(
+            """UPDATE meta_reach_frequency_workflows
+                  SET quote_json=%s, updated_at=now()
+                WHERE workflow_id=%s AND workspace_id=%s""",
+            (db.Json(prediction), workflow_id, ctx.workspace_id),
+        )
+    return {"workflow_id": workflow_id, "status": row["status"], "prediction": prediction}
+
+
+@router.post("/meta/reach-frequency/workflows/{workflow_id}/reserve")
+def reserve_meta_reach_frequency_workflow(workflow_id: str, ctx: Ctx = Depends(admin)):
+    if not re.fullmatch(r"[a-f0-9]{32}", workflow_id):
+        raise HTTPException(404, "Reach & Frequency workflow not found.")
+    row = db.one(
+        """SELECT * FROM meta_reach_frequency_workflows
+            WHERE workflow_id=%s AND workspace_id=%s""",
+        (workflow_id, ctx.workspace_id),
+    )
+    if not row:
+        raise HTTPException(404, "Reach & Frequency workflow not found.")
+    connection = _selected_ad_account(ctx.workspace_id, row["ad_connection_id"], row["ad_account_id"], "meta")
+    if row["status"] != "quote_ready" or row["quote_json"].get("status") != "ready":
+        raise HTTPException(409, "Only a saved ready quote can be reserved.")
+    if not db.execute(
+        """UPDATE meta_reach_frequency_workflows
+              SET status='reserve_pending', error='', updated_at=now()
+            WHERE workflow_id=%s AND workspace_id=%s AND status='quote_ready'""",
+        (workflow_id, ctx.workspace_id),
+    ):
+        raise HTTPException(409, "This quote is already being reserved or is no longer available.")
+    try:
+        response = latehub.meta_ads_request(
+            "POST", f"/ads/rf-predictions/{row['quote_id']}/reserve",
+            body={"accountId": connection["id"], "adAccountId": row["ad_account_id"]},
+        )
+        prediction = response.get("prediction") if isinstance(response, dict) else None
+        reservation_id = str((prediction or {}).get("predictionId") or "")
+        if not isinstance(prediction, dict) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", reservation_id):
+            db.execute(
+                """UPDATE meta_reach_frequency_workflows
+                      SET status='unknown', error=%s, updated_at=now()
+                    WHERE workflow_id=%s AND workspace_id=%s AND status='reserve_pending'""",
+                ("Zernio returned an invalid reservation response; check the provider before retrying.",
+                 workflow_id, ctx.workspace_id),
+            )
+            raise HTTPException(502, "Zernio returned an invalid Reach & Frequency reservation response.")
+        if prediction.get("status") != "ready":
+            db.execute(
+                """UPDATE meta_reach_frequency_workflows
+                      SET status='unknown', reserved_id=%s, reservation_json=%s, error=%s, updated_at=now()
+                    WHERE workflow_id=%s AND workspace_id=%s AND status='reserve_pending'""",
+                (reservation_id, db.Json(prediction),
+                 "Provider returned a reservation that is not ready; inspect before continuing.",
+                 workflow_id, ctx.workspace_id),
+            )
+            raise HTTPException(409, "The provider returned a non-ready reservation; inspect it before continuing.")
+        db.execute(
+            """UPDATE meta_reach_frequency_workflows
+                  SET status='reserved', reserved_id=%s, reservation_json=%s, error='', updated_at=now()
+                WHERE workflow_id=%s AND workspace_id=%s AND status='reserve_pending'""",
+            (reservation_id, db.Json(prediction), workflow_id, ctx.workspace_id),
+        )
+        return {"workflow_id": workflow_id, "status": "reserved", "prediction": prediction}
+    except latehub.LateHubError as error:
+        uncertain = error.status is None or error.status in (408, 429) or error.status >= 500
+        db.execute(
+            """UPDATE meta_reach_frequency_workflows
+                  SET status=%s, error=%s, updated_at=now()
+                WHERE workflow_id=%s AND workspace_id=%s AND status='reserve_pending'""",
+            ("unknown" if uncertain else "quote_ready", str(error), workflow_id, ctx.workspace_id),
+        )
+        raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 409, 422, 429) else 502,
+                            str(error)) from error
+
+
+@router.post("/meta/reach-frequency/workflows/{workflow_id}/release")
+def release_meta_reach_frequency_workflow(workflow_id: str, ctx: Ctx = Depends(admin)):
+    if not re.fullmatch(r"[a-f0-9]{32}", workflow_id):
+        raise HTTPException(404, "Reach & Frequency workflow not found.")
+    row = db.one(
+        """SELECT * FROM meta_reach_frequency_workflows
+            WHERE workflow_id=%s AND workspace_id=%s""",
+        (workflow_id, ctx.workspace_id),
+    )
+    if not row:
+        raise HTTPException(404, "Reach & Frequency workflow not found.")
+    connection = _selected_ad_account(ctx.workspace_id, row["ad_connection_id"], row["ad_account_id"], "meta")
+    if row["status"] != "reserved" or not row["reserved_id"]:
+        raise HTTPException(409, "Only an unused saved reservation can be released.")
+    if not db.execute(
+        """UPDATE meta_reach_frequency_workflows
+              SET status='release_pending', error='', updated_at=now()
+            WHERE workflow_id=%s AND workspace_id=%s AND status='reserved'""",
+        (workflow_id, ctx.workspace_id),
+    ):
+        raise HTTPException(409, "This reservation is already being changed.")
+    try:
+        response = latehub.meta_ads_request(
+            "DELETE", f"/ads/rf-predictions/{row['reserved_id']}",
+            params={"accountId": connection["id"], "adAccountId": row["ad_account_id"]},
+        )
+    except latehub.LateHubError as error:
+        uncertain = error.status is None or error.status in (408, 429) or error.status >= 500
+        db.execute(
+            """UPDATE meta_reach_frequency_workflows
+                  SET status=%s, error=%s, updated_at=now()
+                WHERE workflow_id=%s AND workspace_id=%s AND status='release_pending'""",
+            ("unknown" if uncertain else "reserved", str(error), workflow_id, ctx.workspace_id),
+        )
+        raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 409, 422, 429) else 502,
+                            str(error)) from error
+    db.execute(
+        """UPDATE meta_reach_frequency_workflows
+              SET status='released', error='', updated_at=now()
+            WHERE workflow_id=%s AND workspace_id=%s AND status='release_pending'""",
+        (workflow_id, ctx.workspace_id),
+    )
+    return {"workflow_id": workflow_id, "status": "released", "response": response}
 
 
 @router.get("/campaigns")

@@ -6396,10 +6396,42 @@ pages.ads = async app => {
                   </select></div>
                 <div><label class="small muted" for="meta-insights-from">From</label><input id="meta-insights-from" type="date" value="${metaMonthAgo}"></div>
                 <div><label class="small muted" for="meta-insights-to">To</label><input id="meta-insights-to" type="date" value="${metaToday}"></div>
+                <div><label class="small muted" for="meta-insights-time-increment">Time increment</label>
+                  <select id="meta-insights-time-increment" style="width:100%">
+                    <option value="">Provider default</option><option value="1">Daily</option><option value="7">Weekly</option>
+                    <option value="30">30 days</option><option value="monthly">Monthly</option><option value="all_days">All days</option>
+                  </select></div>
+                <div><label class="small muted" for="meta-insights-fields">Fields (comma-separated)</label>
+                  <input id="meta-insights-fields" value="spend,impressions,reach,clicks,ctr,cpc,cpm,frequency,actions,conversions,website_purchase_roas" style="width:100%"></div>
+                <div><label class="small muted" for="meta-insights-filter-field">Optional numeric filter</label>
+                  <select id="meta-insights-filter-field" style="width:100%">
+                    <option value="">No filter</option><option value="spend">Spend</option><option value="impressions">Impressions</option>
+                    <option value="clicks">Clicks</option><option value="reach">Reach</option><option value="frequency">Frequency</option>
+                  </select></div>
+                <div><label class="small muted" for="meta-insights-filter-operator">Filter operator</label>
+                  <select id="meta-insights-filter-operator" style="width:100%">
+                    <option value="GREATER_THAN">Greater than</option><option value="GREATER_THAN_OR_EQUAL">At least</option>
+                    <option value="LESS_THAN">Less than</option><option value="LESS_THAN_OR_EQUAL">At most</option>
+                    <option value="EQUAL">Equal to</option>
+                  </select></div>
+                <div><label class="small muted" for="meta-insights-filter-value">Filter value</label><input id="meta-insights-filter-value" type="number" min="0" step="any" style="width:100%"></div>
+                <div><label class="small muted" for="meta-insights-action-breakdowns">Action breakdowns (comma-separated, optional)</label>
+                  <input id="meta-insights-action-breakdowns" placeholder="action_type,action_destination" style="width:100%"></div>
+                <div><label class="small muted" for="meta-insights-attribution-windows">Attribution windows (comma-separated, optional)</label>
+                  <input id="meta-insights-attribution-windows" placeholder="7d_click,1d_view" style="width:100%"></div>
+                <div><label class="small muted" for="meta-insights-report-time">Action report time</label>
+                  <select id="meta-insights-report-time" style="width:100%">
+                    <option value="">Provider default</option><option value="impression">Impression</option>
+                    <option value="conversion">Conversion</option><option value="mixed">Mixed</option>
+                  </select></div>
+                <label class="check" style="align-self:end"><input id="meta-insights-unified-attribution" type="checkbox"> Use each ad set's unified attribution setting</label>
               </div>
               <div class="row" style="gap:8px;margin-top:8px">
                 <button class="btn primary sm" type="button" id="meta-insights-load">Run Meta insights query</button>
                 <button class="btn sm" type="button" id="meta-insights-next" hidden>Load next page</button>
+                <button class="btn sm" type="button" id="meta-insights-report">Create async report</button>
+                <input id="meta-insights-report-id" maxlength="100" placeholder="Report run ID" aria-label="Report run ID" style="max-width:180px">
+                <button class="btn sm" type="button" id="meta-insights-report-poll">Poll report</button>
               </div>
               <div id="meta-insights-result" aria-live="polite" style="margin-top:10px"></div>
             </div>
@@ -6576,6 +6608,7 @@ pages.ads = async app => {
               <button type="button" class="btn sm" id="meta-rf-release" hidden>Release unused reservation</button>
             </div>
             <div id="meta-rf-quote-result" class="card small" aria-live="polite" style="white-space:pre-wrap;overflow:auto;max-height:260px">No quote requested.</div>
+            <div id="meta-rf-saved-workflows" aria-live="polite" style="margin-top:8px"></div>
             <div id="meta-rf-buy-fields" hidden style="margin-top:12px">
               <h4>Buy the reserved campaign</h4>
               <p id="meta-rf-reservation-note" class="small muted"></p>
@@ -6719,7 +6752,7 @@ pages.ads = async app => {
   };
   const metaRfWorkflow = {
     quote: null, reservation: null, config: null, created: false,
-    reserveUncertain: false, buyUncertain: false,
+    reserveUncertain: false, buyUncertain: false, workflowId: '', persisted: false, persistedStatus: '',
   };
   const metaToolsAccount = $('#meta-tools-account', app);
   let metaRfAccountId = metaToolsAccount?.value || '';
@@ -6732,6 +6765,9 @@ pages.ads = async app => {
     metaRfWorkflow.created = false;
     metaRfWorkflow.reserveUncertain = false;
     metaRfWorkflow.buyUncertain = false;
+    metaRfWorkflow.workflowId = '';
+    metaRfWorkflow.persisted = false;
+    metaRfWorkflow.persistedStatus = '';
     $('#meta-rf-refresh', app).disabled = true;
     $('#meta-rf-reserve', app).disabled = true;
     $('#meta-rf-release', app).hidden = true;
@@ -6778,12 +6814,111 @@ pages.ads = async app => {
   };
   const updateMetaRfControls = () => {
     const ready = metaRfWorkflow.quote?.status === 'ready';
-    $('#meta-rf-refresh', app).disabled = !metaRfWorkflow.quote || Boolean(metaRfWorkflow.reservation);
-    $('#meta-rf-reserve', app).disabled = !ready || Boolean(metaRfWorkflow.reservation) || metaRfWorkflow.reserveUncertain;
-    $('#meta-rf-release', app).hidden = !metaRfWorkflow.reservation || metaRfWorkflow.created || metaRfWorkflow.buyUncertain;
+    $('#meta-rf-refresh', app).disabled = !metaRfWorkflow.workflowId
+      || (!metaRfWorkflow.quote && !metaRfWorkflow.reservation)
+      || !['quote_ready', 'reserved'].includes(metaRfWorkflow.persistedStatus);
+    $('#meta-rf-reserve', app).disabled = !ready || !metaRfWorkflow.persisted
+      || metaRfWorkflow.persistedStatus !== 'quote_ready'
+      || Boolean(metaRfWorkflow.reservation) || metaRfWorkflow.reserveUncertain;
+    $('#meta-rf-release', app).hidden = !metaRfWorkflow.reservation || metaRfWorkflow.created
+      || metaRfWorkflow.buyUncertain || metaRfWorkflow.persistedStatus !== 'reserved';
     $('#meta-rf-buy-fields', app).hidden = !metaRfWorkflow.reservation || metaRfWorkflow.created;
     $('#meta-rf-buy', app).disabled = metaRfWorkflow.reservation?.status !== 'ready'
+      || !metaRfWorkflow.persisted || metaRfWorkflow.persistedStatus !== 'reserved'
       || metaRfWorkflow.created || metaRfWorkflow.buyUncertain;
+  };
+  const loadMetaRfWorkflows = async () => {
+    const target = $('#meta-rf-saved-workflows', app);
+    if (!metaToolsAccount) return;
+    const accountId = metaToolsAccount.value;
+    target.textContent = 'Loading saved Reach & Frequency workflows…';
+    const response = await api('GET',
+      `/api/ads/meta/reach-frequency/workflows?ad_connection_id=${encodeURIComponent(metaConnection.id)}&ad_account_id=${encodeURIComponent(accountId)}`);
+    if (metaToolsAccount.value !== accountId) return;
+    const workflows = Array.isArray(response.workflows) ? response.workflows : [];
+    target.replaceChildren();
+    const heading = document.createElement('h4');
+    heading.textContent = 'Saved quotes and reservations';
+    target.append(heading);
+    if (!workflows.length) {
+      const empty = document.createElement('p');
+      empty.className = 'small muted';
+      empty.textContent = 'No saved Reach & Frequency workflows for this ad account.';
+      target.append(empty);
+      return;
+    }
+    workflows.forEach(workflow => {
+      const card = document.createElement('article');
+      card.className = 'card';
+      card.style.cssText = 'margin:8px 0;padding:10px';
+      const status = document.createElement('span');
+      status.className = 'small muted';
+      status.textContent = `${workflow.status.replaceAll('_', ' ')} · ${workflow.updated_at || ''}`;
+      const resume = document.createElement('button');
+      resume.type = 'button';
+      resume.className = 'btn sm';
+      resume.textContent = 'Resume';
+      resume.dataset.metaRfResume = workflow.workflow_id;
+      const error = document.createElement('p');
+      error.className = 'small';
+      error.textContent = workflow.error || '';
+      card.append(status, resume, error);
+      target.append(card);
+    });
+    $$('[data-meta-rf-resume]', target).forEach(button => button.onclick = guard(async () => {
+      const saved = workflows.find(item => item.workflow_id === button.dataset.metaRfResume);
+      if (!saved) return;
+      resetMetaRfWorkflow();
+      metaRfWorkflow.workflowId = saved.workflow_id;
+      metaRfWorkflow.persisted = true;
+      metaRfWorkflow.persistedStatus = saved.status;
+      metaRfWorkflow.config = saved.config_json;
+      const quote = saved.quote_json || {};
+      const reservation = saved.reservation_json || {};
+      if (['quote_ready', 'reserve_pending', 'released', 'unknown'].includes(saved.status)) {
+        metaRfWorkflow.quote = metaRfDisplayPrediction('quote', quote);
+      }
+      if (['reserved', 'release_pending', 'buy_pending', 'bought'].includes(saved.status)
+        || (saved.status === 'unknown' && reservation.predictionId)) {
+        metaRfWorkflow.reservation = metaRfDisplayPrediction('reservation', reservation);
+      }
+      metaRfWorkflow.created = saved.status === 'bought';
+      metaRfWorkflow.reserveUncertain = saved.status === 'unknown'
+        || ['reserve_pending', 'release_pending', 'buy_pending'].includes(saved.status);
+      metaRfWorkflow.buyUncertain = ['unknown', 'buy_pending'].includes(saved.status);
+      const config = metaRfWorkflow.config || {};
+      const targeting = config.targeting || {};
+      const placements = config.placements || {};
+      const publisherPlatforms = placements.publisherPlatforms || [];
+      const placementChoice = publisherPlatforms.includes('instagram') && publisherPlatforms.includes('facebook')
+        ? 'both' : publisherPlatforms[0] || 'facebook';
+      $('#meta-rf-budget', app).value = config.budgetAmount || '';
+      $('#meta-rf-start-date', app).value = config.startDate ? new Date(config.startDate).toISOString().slice(0, 10) : '';
+      $('#meta-rf-end-date', app).value = config.endDate ? new Date(config.endDate).toISOString().slice(0, 10) : '';
+      $('#meta-rf-cap', app).value = config.frequencyCap || '';
+      $('#meta-rf-countries', app).value = (targeting.countries || []).join(', ');
+      $('#meta-rf-age-min', app).value = targeting.ageMin || 18;
+      $('#meta-rf-age-max', app).value = targeting.ageMax || 65;
+      $('#meta-rf-placement', app).value = placementChoice;
+      $('#meta-rf-reservation-note', app).textContent = saved.status === 'unknown'
+        || ['reserve_pending', 'release_pending', 'buy_pending'].includes(saved.status)
+        ? `Saved state: ${saved.status.replaceAll('_', ' ')}. The provider result may be uncertain. Check Meta Ads Manager/Zernio before retrying or releasing.`
+        : reservation.expiresAt ? `Reservation expires at ${reservation.expiresAt}.` : 'Reservation saved. Confirm its expiry with the provider before buying.';
+      if (saved.status === 'bought') {
+        metaRfBuyResult.style.display = 'block';
+        metaRfBuyResult.textContent = JSON.stringify(saved.buy_json || {}, null, 2);
+      }
+      if (saved.status === 'released') {
+        metaRfResult.textContent = 'This reservation was released and cannot be reused. Request a new quote to continue.';
+      } else {
+        renderMetaRfPrediction(metaRfWorkflow.reservation || metaRfWorkflow.quote);
+      }
+      updateMetaRfControls();
+    }));
+  };
+  const refreshMetaRfWorkflowList = async () => {
+    try { await loadMetaRfWorkflows(); }
+    catch (error) { toast(`Saved workflow list could not be refreshed: ${error.message}`, true); }
   };
   const buildMetaRfConfig = () => {
     const startDateValue = $('#meta-rf-start-date', app).value;
@@ -6836,7 +6971,8 @@ pages.ads = async app => {
     if (startDate) endDate.min = new Date(new Date(`${startDate}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
   };
   if ($('#meta-rf-quote', app)) $('#meta-rf-quote', app).onclick = guard(async () => {
-    if ((metaRfWorkflow.reservation && !metaRfWorkflow.created) || metaRfWorkflow.reserveUncertain) {
+    if (['reserved', 'reserve_pending', 'release_pending', 'buy_pending', 'unknown'].includes(metaRfWorkflow.persistedStatus)
+      || (metaRfWorkflow.reservation && !metaRfWorkflow.created) || metaRfWorkflow.reserveUncertain) {
       toast('Resolve the current reservation before requesting another quote. Check the provider if its result was uncertain.', true);
       return;
     }
@@ -6852,6 +6988,22 @@ pages.ads = async app => {
       metaRfWorkflow.quote = metaRfDisplayPrediction('quote', response);
       metaRfWorkflow.config = config;
       renderMetaRfPrediction(metaRfWorkflow.quote);
+      try {
+        const saved = await api('POST', '/api/ads/meta/reach-frequency/workflows', {
+          ad_connection_id: metaConnection.id,
+          ad_account_id: $('#meta-tools-account', app).value,
+          quote_id: metaRfWorkflow.quote.predictionId,
+          config,
+          quote: metaRfWorkflow.quote,
+        });
+        metaRfWorkflow.workflowId = saved.workflow_id;
+        metaRfWorkflow.persisted = true;
+        metaRfWorkflow.persistedStatus = saved.status;
+      } catch (error) {
+        metaRfResult.textContent = `${metaRfResult.textContent}\n\nCould not save this quote for recovery: ${error.message}. Reservation is disabled; do not reserve until the quote is saved.`;
+        throw error;
+      }
+      await refreshMetaRfWorkflowList();
       updateMetaRfControls();
     } catch (error) {
       metaRfResult.textContent = error.message;
@@ -6864,14 +7016,19 @@ pages.ads = async app => {
     }
   });
   if ($('#meta-rf-refresh', app)) $('#meta-rf-refresh', app).onclick = guard(async () => {
-    const predictionId = metaRfWorkflow.quote && metaRfWorkflow.quote.predictionId;
-    if (!predictionId) return;
+    if (!metaRfWorkflow.workflowId) return;
     const button = $('#meta-rf-refresh', app);
     busy(button, true, 'Refreshing…');
     try {
-      const response = await metaRfRequest('GET', `/ads/rf-predictions/${encodeURIComponent(predictionId)}`);
-      metaRfWorkflow.quote = metaRfDisplayPrediction('quote', response);
-      renderMetaRfPrediction(metaRfWorkflow.quote);
+      const response = await api('POST',
+        `/api/ads/meta/reach-frequency/workflows/${encodeURIComponent(metaRfWorkflow.workflowId)}/refresh`);
+      const prediction = metaRfDisplayPrediction(
+        response.status === 'reserved' ? 'reservation' : 'quote',
+        response.prediction,
+      );
+      if (response.status === 'reserved') metaRfWorkflow.reservation = prediction;
+      else metaRfWorkflow.quote = prediction;
+      renderMetaRfPrediction(prediction);
       updateMetaRfControls();
     } catch (error) {
       metaRfResult.textContent = error.message;
@@ -6885,7 +7042,11 @@ pages.ads = async app => {
   });
   if ($('#meta-rf-reserve', app)) $('#meta-rf-reserve', app).onclick = guard(async () => {
     const quote = metaRfWorkflow.quote;
-    if (!quote || quote.status !== 'ready') { toast('Refresh until Meta returns a ready quote before reserving.', true); return; }
+    if (!quote || quote.status !== 'ready' || !metaRfWorkflow.workflowId
+      || metaRfWorkflow.persistedStatus !== 'quote_ready') {
+      toast('Refresh until a saved Meta quote is ready before reserving.', true);
+      return;
+    }
     if (!await askConfirm(
       `Reserve Meta inventory for the quoted budget of ${quote.budget ?? 'the quoted amount'} ${$('#meta-rf-currency', app).textContent}? This locks the price and inventory until the provider's reservation expiry and may create a financial commitment.`,
       { title: 'Reserve Meta inventory', ok: 'Reserve inventory', danger: true },
@@ -6893,24 +7054,23 @@ pages.ads = async app => {
     const button = $('#meta-rf-reserve', app);
     busy(button, true, 'Reserving…');
     try {
-      const response = await metaRfRequest(
-        'POST', `/ads/rf-predictions/${encodeURIComponent(quote.predictionId)}/reserve`,
-        { body: { accountId: metaConnection.id, adAccountId: $('#meta-tools-account', app).value } },
-      );
-      metaRfWorkflow.reservation = metaRfDisplayPrediction('reservation', response);
+      const response = await api('POST',
+        `/api/ads/meta/reach-frequency/workflows/${encodeURIComponent(metaRfWorkflow.workflowId)}/reserve`);
+      metaRfWorkflow.reservation = metaRfDisplayPrediction('reservation', response.prediction);
       metaRfWorkflow.quote = null;
+      metaRfWorkflow.persistedStatus = 'reserved';
       renderMetaRfPrediction(metaRfWorkflow.reservation);
       $('#meta-rf-reservation-note', app).textContent =
         `Reserved prediction ${metaRfWorkflow.reservation.predictionId}. Create the campaign before this reservation expires. Its schedule, targeting, placements, and budget are fixed by the quote.`;
       updateMetaRfControls();
+      await refreshMetaRfWorkflowList();
     } catch (error) {
-      if (!error.status || error.status >= 500 || error.status === 408 || error.status === 429) {
-        metaRfWorkflow.reserveUncertain = true;
-        metaRfResult.textContent = `${error.message}\n\nThe reservation result may be uncertain. Do not retry this reservation request; check the Zernio/Meta account or contact the provider before proceeding.`;
-        updateMetaRfControls();
-      } else {
-        metaRfResult.textContent = error.message;
-      }
+      if (!error.status || error.status >= 500 || error.status === 408 || error.status === 429) metaRfWorkflow.reserveUncertain = true;
+      metaRfWorkflow.persistedStatus = metaRfWorkflow.reserveUncertain ? 'unknown' : 'quote_ready';
+      metaRfResult.textContent = `${error.message}${metaRfWorkflow.reserveUncertain
+        ? '\n\nThe reservation result may be uncertain. Do not retry; check the saved workflow and Meta Ads Manager.' : ''}`;
+      updateMetaRfControls();
+      await refreshMetaRfWorkflowList();
       throw error;
     } finally {
       if (button.isConnected) {
@@ -6921,7 +7081,8 @@ pages.ads = async app => {
   });
   if ($('#meta-rf-release', app)) $('#meta-rf-release', app).onclick = guard(async () => {
     const reservation = metaRfWorkflow.reservation;
-    if (!reservation || metaRfWorkflow.created) return;
+    if (!reservation || metaRfWorkflow.created || !metaRfWorkflow.workflowId
+      || metaRfWorkflow.persistedStatus !== 'reserved') return;
     if (!await askConfirm(
       'Release this unused Reach & Frequency reservation? Meta will return the reserved inventory, and it cannot be used to create the campaign.',
       { title: 'Release reservation', ok: 'Release reservation', danger: true },
@@ -6929,14 +7090,24 @@ pages.ads = async app => {
     const button = $('#meta-rf-release', app);
     busy(button, true, 'Releasing…');
     try {
-      await metaRfRequest('DELETE', `/ads/rf-predictions/${encodeURIComponent(reservation.predictionId)}`);
+      await api('POST',
+        `/api/ads/meta/reach-frequency/workflows/${encodeURIComponent(metaRfWorkflow.workflowId)}/release`);
       metaRfWorkflow.reservation = null;
       metaRfWorkflow.quote = null;
       metaRfWorkflow.config = null;
+      metaRfWorkflow.persistedStatus = 'released';
       metaRfResult.textContent = 'Unused reservation released.';
       updateMetaRfControls();
+      await refreshMetaRfWorkflowList();
     } catch (error) {
+      if (!error.status || error.status >= 500 || error.status === 408 || error.status === 429) {
+        metaRfWorkflow.persistedStatus = 'unknown';
+        metaRfWorkflow.buyUncertain = true;
+      } else {
+        metaRfWorkflow.persistedStatus = 'reserved';
+      }
       metaRfResult.textContent = error.message;
+      updateMetaRfControls();
       throw error;
     } finally { if (button.isConnected) busy(button, false); }
   });
@@ -6968,6 +7139,7 @@ pages.ads = async app => {
       const response = await api('POST', '/api/ads/meta/reach-frequency/buy', {
         ad_connection_id: metaConnection.id,
         ad_account_id: $('#meta-tools-account', app).value,
+        workflow_id: metaRfWorkflow.workflowId,
         prediction_id: reservation.predictionId,
         campaign_name: $('#meta-rf-campaign-name', app).value.trim(),
         headline: $('#meta-rf-headline', app).value.trim(),
@@ -6981,18 +7153,22 @@ pages.ads = async app => {
         placement: config.placement,
       });
       metaRfWorkflow.created = true;
+      metaRfWorkflow.persistedStatus = 'bought';
       metaRfBuyResult.textContent = JSON.stringify(response, null, 2);
       metaRfResult.textContent = 'Reserved campaign created. Confirm its delivery status and schedule in the campaign hierarchy or Meta Ads Manager.';
       updateMetaRfControls();
       toast('Scheduled Reach & Frequency campaign created.');
     } catch (error) {
-      if (!error.status || error.status >= 500 || error.status === 408 || error.status === 429) {
+      if (!error.status || error.status >= 500 || error.status === 408 || error.status === 409 || error.status === 429) {
         metaRfWorkflow.buyUncertain = true;
+        metaRfWorkflow.persistedStatus = 'unknown';
         metaRfBuyResult.textContent = `${error.message}\n\nThe result may be uncertain. Check the Meta campaign hierarchy or Ads Manager before taking further action; this screen will not retry or release this reservation.`;
         updateMetaRfControls();
       } else {
+        metaRfWorkflow.persistedStatus = 'reserved';
         metaRfBuyResult.textContent = error.message;
       }
+      await refreshMetaRfWorkflowList();
       throw error;
     } finally {
       if (button.isConnected) {
@@ -7003,13 +7179,15 @@ pages.ads = async app => {
   });
   if ($('#meta-tools-account', app)) $('#meta-tools-account', app).onchange = () => {
     const accountSelect = $('#meta-tools-account', app);
-    if (((metaRfWorkflow.reservation && !metaRfWorkflow.created) || metaRfWorkflow.reserveUncertain)
+    if ((['reserved', 'reserve_pending', 'release_pending', 'buy_pending', 'unknown'].includes(metaRfWorkflow.persistedStatus)
+        || (metaRfWorkflow.reservation && !metaRfWorkflow.created) || metaRfWorkflow.reserveUncertain)
         && accountSelect.value !== metaRfAccountId) {
       accountSelect.value = metaRfAccountId;
       toast('Release or buy the current reservation before changing ad accounts.', true);
       return;
     }
     metaRfAccountId = accountSelect.value;
+    restoreMetaInsightsReportId();
     const selectedAccount = metaAdAccounts.find(account => account.id === $('#meta-tools-account', app).value);
     $('#meta-special-budget-currency', app).textContent =
       selectedAccount && selectedAccount.currency || 'account currency';
@@ -7028,7 +7206,9 @@ pages.ads = async app => {
     $('#meta-lead-form-id', app).value = '';
     $('#meta-leads-result', app).style.display = 'none';
     $('#meta-capi-result', app).style.display = 'none';
+    loadMetaRfWorkflows().catch(error => toast(error.message, true));
   };
+  if ($('#meta-tools-account', app)) loadMetaRfWorkflows().catch(error => toast(error.message, true));
   const renderCampaignAdvancedTargets = () => {
     const target = $('#camp-advanced-targeting', app);
     if (!target) return;
@@ -7806,34 +7986,89 @@ pages.ads = async app => {
   });
   let metaInsightsQuery = null;
   let metaInsightsAfter = '';
+  const metaInsightsReportStorageKey = () =>
+    `hooktrack_meta_insights_report:${metaConnection.id}:${$('#meta-tools-account', app).value}`;
+  const restoreMetaInsightsReportId = () => {
+    try { $('#meta-insights-report-id', app).value = localStorage.getItem(metaInsightsReportStorageKey()) || ''; }
+    catch (error) { console.warn('Could not restore the saved Meta insights report ID.', error); }
+  };
+  const saveMetaInsightsReportId = reportRunId => {
+    try { localStorage.setItem(metaInsightsReportStorageKey(), reportRunId); }
+    catch (error) { console.warn('Could not save the Meta insights report ID in this browser.', error); }
+  };
+  restoreMetaInsightsReportId();
+  const buildMetaInsightsQuery = (report = false) => {
+    const level = $('#meta-insights-level', app).value;
+    const fields = $('#meta-insights-fields', app).value.split(',').map(field => field.trim()).filter(Boolean);
+    if (!fields.length || fields.some(field => !/^[A-Za-z][A-Za-z0-9_]*$/.test(field))) {
+      throw new Error('Enter comma-separated Meta insights field names using letters, numbers, and underscores.');
+    }
+    const levelFields = [
+      ...(['campaign', 'adset', 'ad'].includes(level) ? ['campaign_id', 'campaign_name'] : []),
+      ...(['adset', 'ad'].includes(level) ? ['adset_id', 'adset_name'] : []),
+      ...(level === 'ad' ? ['ad_id', 'ad_name'] : []),
+    ];
+    const selectedFields = [...new Set([...levelFields, ...fields])];
+    const actionBreakdowns = $('#meta-insights-action-breakdowns', app).value
+      .split(',').map(value => value.trim()).filter(Boolean);
+    if (actionBreakdowns.some(value => !/^[A-Za-z][A-Za-z0-9_]*$/.test(value))) {
+      throw new Error('Action breakdowns must be comma-separated field names.');
+    }
+    const attributionWindows = $('#meta-insights-attribution-windows', app).value
+      .split(',').map(value => value.trim()).filter(Boolean);
+    const supportedAttributionWindows = new Set([
+      '1d_click', '7d_click', '28d_click', '1d_view', '7d_view', '28d_view', 'dda', 'default',
+    ]);
+    if (attributionWindows.some(value => !supportedAttributionWindows.has(value))) {
+      throw new Error('Use supported attribution windows: 1d_click, 7d_click, 28d_click, 1d_view, 7d_view, 28d_view, dda, or default.');
+    }
+    const filterField = $('#meta-insights-filter-field', app).value;
+    const filterValueText = $('#meta-insights-filter-value', app).value.trim();
+    const filters = [];
+    if (filterField || filterValueText) {
+      const filterValue = Number(filterValueText);
+      if (!filterField || !filterValueText || !Number.isFinite(filterValue) || filterValue < 0) {
+        throw new Error('Choose a numeric filter field and enter a non-negative filter value.');
+      }
+      filters.push({
+        field: filterField,
+        operator: $('#meta-insights-filter-operator', app).value,
+        value: filterValue,
+      });
+    }
+    const query = {
+      objectId: $('#meta-tools-account', app).value,
+      level,
+      fields: selectedFields.join(','),
+      fromDate: $('#meta-insights-from', app).value,
+      toDate: $('#meta-insights-to', app).value,
+      limit: 100,
+      ...(($('#meta-insights-breakdown', app).value)
+        ? { breakdowns: $('#meta-insights-breakdown', app).value } : {}),
+      ...($('#meta-insights-time-increment', app).value
+        ? { timeIncrement: $('#meta-insights-time-increment', app).value } : {}),
+      ...(filters.length ? { filtering: report ? filters : JSON.stringify(filters) } : {}),
+      ...(actionBreakdowns.length ? { actionBreakdowns: actionBreakdowns.join(',') } : {}),
+      ...(attributionWindows.length
+        ? { actionAttributionWindows: report ? attributionWindows : attributionWindows.join(',') } : {}),
+      ...($('#meta-insights-report-time', app).value
+        ? { actionReportTime: $('#meta-insights-report-time', app).value } : {}),
+      ...($('#meta-insights-unified-attribution', app).checked
+        ? { useUnifiedAttributionSetting: true } : {}),
+    };
+    if (!query.fromDate || !query.toDate || query.fromDate > query.toDate
+      || (new Date(`${query.toDate}T00:00:00Z`) - new Date(`${query.fromDate}T00:00:00Z`)) / 86400000 > 729) {
+      throw new Error('Choose a valid insights range of at most 730 days.');
+    }
+    return query;
+  };
   const runMetaInsights = async (button, append = false) => {
-    const fromDate = $('#meta-insights-from', app).value;
-    const toDate = $('#meta-insights-to', app).value;
     const target = $('#meta-insights-result', app);
     if (!append) {
-      if (!fromDate || !toDate || fromDate > toDate
-        || (new Date(`${toDate}T00:00:00Z`) - new Date(`${fromDate}T00:00:00Z`)) / 86400000 > 729) {
-        toast('Choose a valid insights range of at most 730 days.', true);
+      try { metaInsightsQuery = buildMetaInsightsQuery(); } catch (error) {
+        toast(error.message, true);
         return;
       }
-      metaInsightsQuery = {
-        objectId: $('#meta-tools-account', app).value,
-        level: $('#meta-insights-level', app).value,
-        fields: [
-          ...(['campaign', 'adset', 'ad'].includes($('#meta-insights-level', app).value)
-            ? ['campaign_id', 'campaign_name'] : []),
-          ...(['adset', 'ad'].includes($('#meta-insights-level', app).value)
-            ? ['adset_id', 'adset_name'] : []),
-          ...($('#meta-insights-level', app).value === 'ad' ? ['ad_id', 'ad_name'] : []),
-          'spend', 'impressions', 'reach', 'clicks', 'ctr', 'cpc', 'cpm', 'frequency',
-          'actions', 'conversions', 'website_purchase_roas',
-        ].join(','),
-        fromDate,
-        toDate,
-        limit: 100,
-        ...($('#meta-insights-breakdown', app).value
-          ? { breakdowns: $('#meta-insights-breakdown', app).value } : {}),
-      };
       metaInsightsAfter = '';
       $('#meta-insights-next', app).hidden = true;
       target.replaceChildren();
@@ -7873,6 +8108,75 @@ pages.ads = async app => {
   });
   if ($('#meta-insights-next', app)) $('#meta-insights-next', app).onclick = guard(async button => {
     await runMetaInsights(button, true);
+  });
+  if ($('#meta-insights-report', app)) $('#meta-insights-report', app).onclick = guard(async button => {
+    const target = $('#meta-insights-result', app);
+    let report;
+    try { report = buildMetaInsightsQuery(true); } catch (error) {
+      toast(error.message, true);
+      return;
+    }
+    busy(button, true, 'Creating…');
+    target.textContent = 'Creating Meta async insights report…';
+    try {
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method: 'POST',
+        path: '/ads/insights/reports',
+        query: {},
+        body: report,
+      });
+      const reportRunId = response.reportRunId || response.report_run_id || response.id;
+      if (!reportRunId) throw new Error('Zernio did not return an async insights report run ID.');
+      $('#meta-insights-report-id', app).value = String(reportRunId);
+      saveMetaInsightsReportId(String(reportRunId));
+      target.textContent = `Async report created: ${reportRunId}\n${JSON.stringify(response, null, 2)}`;
+    } catch (error) {
+      target.textContent = error.message;
+      throw error;
+    } finally { if (button.isConnected) busy(button, false); }
+  });
+  if ($('#meta-insights-report-poll', app)) $('#meta-insights-report-poll', app).onclick = guard(async button => {
+    const reportRunId = $('#meta-insights-report-id', app).value.trim();
+    if (!reportRunId || !/^[A-Za-z0-9_-]+$/.test(reportRunId)) {
+      toast('Enter a valid Meta async report run ID.', true);
+      return;
+    }
+    saveMetaInsightsReportId(reportRunId);
+    const target = $('#meta-insights-result', app);
+    busy(button, true, 'Checking…');
+    target.textContent = 'Checking Meta async report status…';
+    try {
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method: 'GET',
+        path: `/ads/insights/reports/${encodeURIComponent(reportRunId)}`,
+        query: {},
+        body: {},
+      });
+      const status = String(response.status || response.asyncStatus || '');
+      if (Array.isArray(response.data)) {
+        renderAnalyticsTable(target, `Async insights · ${reportRunId}`, response.data);
+      } else {
+        target.replaceChildren();
+      }
+      const progress = document.createElement('p');
+      progress.className = 'small muted';
+      progress.textContent = `Async report ${reportRunId}${status ? ` · ${status}` : ''}`
+        + (response.percentCompletion != null ? ` · ${response.percentCompletion}% complete` : '');
+      target.prepend(progress);
+      if (['Job Completed', 'Job Failed', 'Job Skipped'].includes(status)) {
+        const terminal = document.createElement('p');
+        terminal.className = 'small muted';
+        terminal.textContent = `This report is terminal (${status}); no further polling is needed.`;
+        target.append(terminal);
+      }
+    } catch (error) {
+      target.textContent = error.message;
+      throw error;
+    } finally { if (button.isConnected) busy(button, false); }
   });
   if ($('#meta-tree-load', app)) $('#meta-tree-load', app).onclick = guard(async button => {
     const fromDate = $('#meta-tree-from', app).value;

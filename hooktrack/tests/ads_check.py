@@ -145,6 +145,50 @@ def test_meta_analytics_requests_bind_daily_timeline_and_live_insights_to_select
     ]
 
 
+def test_meta_async_insights_report_create_is_account_scoped_and_keeps_native_body_types(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    monkeypatch.setattr(
+        ads.latehub, "meta_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or
+        ({"reportRunId": "report-1"} if method == "POST" else {
+            "reportRunId": "report-1", "status": "Job Running", "percentCompletion": 50,
+        }),
+    )
+    request = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="POST", path="/ads/insights/reports",
+        body={
+            "objectId": "act-1", "level": "ad", "fields": "ad_id,spend,actions",
+            "actionAttributionWindows": ["7d_click", "1d_view"],
+            "useUnifiedAttributionSetting": True,
+            "fromDate": "2026-10-01", "toDate": "2026-10-31",
+        },
+    )
+    poll = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="GET", path="/ads/insights/reports/report-1",
+    )
+
+    assert ads.meta_ads_request(request, _ctx()) == {"reportRunId": "report-1"}
+    assert ads.meta_ads_request(poll, _ctx()) == {
+        "reportRunId": "report-1", "status": "Job Running", "percentCompletion": 50,
+    }
+    assert calls == [("POST", "/ads/insights/reports", {
+        "params": {"accountId": "meta-connection", "adAccountId": "act-1"},
+        "body": {
+            "objectId": "act-1", "level": "ad", "fields": "ad_id,spend,actions",
+            "actionAttributionWindows": ["7d_click", "1d_view"],
+            "useUnifiedAttributionSetting": True,
+            "fromDate": "2026-10-01", "toDate": "2026-10-31",
+            "accountId": "meta-connection", "adAccountId": "act-1",
+        },
+    }), ("GET", "/ads/insights/reports/report-1", {
+        "params": {"accountId": "meta-connection", "adAccountId": "act-1"},
+        "body": None,
+    })]
+
+
 def test_meta_draft_preview_injects_selected_workspace_and_ad_account(monkeypatch):
     seen = []
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
@@ -1948,6 +1992,7 @@ def _meta_rf_buy_request(**overrides):
     values = {
         "ad_connection_id": "meta-connection",
         "ad_account_id": "act-1",
+        "workflow_id": "a" * 32,
         "prediction_id": "6234567890456",
         "campaign_name": "Spring reserved campaign",
         "headline": "The new collection",
@@ -1968,10 +2013,30 @@ def test_meta_reach_frequency_buy_uses_selected_account_signed_asset_and_reserve
     selected = []
     asset_queries = []
     calls = []
+    db_updates = []
+    def one(query, params):
+        if "meta_reach_frequency_workflows" in query:
+            return {
+                "workflow_id": "a" * 32,
+                "ad_connection_id": "meta-connection",
+                "ad_account_id": "act-1",
+                "status": "reserved",
+                "reserved_id": "6234567890456",
+                "config_json": {
+                    "targeting": {"countries": ["US"], "ageMin": 18, "ageMax": 65},
+                    "placements": {
+                        "publisherPlatforms": ["facebook", "instagram"],
+                        "devicePlatforms": ["mobile", "desktop"],
+                        "facebookPositions": ["feed"],
+                        "instagramPositions": ["stream"],
+                    },
+                },
+            }
+        asset_queries.append((query, params))
+        return {"content_type": "image/png"}
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *args: selected.append(args) or {"id": "meta-connection"})
-    monkeypatch.setattr(ads.db, "one", lambda query, params: (
-        asset_queries.append((query, params)) or {"content_type": "image/png"}
-    ))
+    monkeypatch.setattr(ads.db, "one", one)
+    monkeypatch.setattr(ads.db, "execute", lambda query, params: db_updates.append((query, params)) or 1)
     monkeypatch.setattr(ads, "_asset_url", lambda workspace_id, asset_id:
                         f"https://hooktrack.example/signed/{workspace_id}/{asset_id}")
     monkeypatch.setattr(
@@ -1984,6 +2049,9 @@ def test_meta_reach_frequency_buy_uses_selected_account_signed_asset_and_reserve
     assert result == {"ad": {"status": "pending_review"}}
     assert selected == [(7, "meta-connection", "act-1", "meta")]
     assert asset_queries[0][1] == (41, 7)
+    assert len(db_updates) == 2
+    assert "'buy_pending'" in db_updates[0][0]
+    assert "'bought'" in db_updates[1][0]
     assert calls == [("POST", "/ads/create", {"body": {
         "accountId": "meta-connection",
         "adAccountId": "act-1",
@@ -2020,7 +2088,26 @@ def test_meta_reach_frequency_buy_uses_selected_account_signed_asset_and_reserve
 )
 def test_meta_reach_frequency_buy_rejects_invalid_input(monkeypatch, overrides, content_type, message):
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
-    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": content_type})
+    def one(query, _params):
+        if "meta_reach_frequency_workflows" in query:
+            return {
+                "workflow_id": "a" * 32,
+                "ad_connection_id": "meta-connection",
+                "ad_account_id": "act-1",
+                "status": "reserved",
+                "reserved_id": "6234567890456",
+                "config_json": {
+                    "targeting": {"countries": ["US"], "ageMin": 18, "ageMax": 65},
+                    "placements": {
+                        "publisherPlatforms": ["facebook", "instagram"],
+                        "devicePlatforms": ["mobile", "desktop"],
+                        "facebookPositions": ["feed"],
+                        "instagramPositions": ["stream"],
+                    },
+                },
+            }
+        return {"content_type": content_type}
+    monkeypatch.setattr(ads.db, "one", one)
     monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/ad.png")
 
     with pytest.raises(HTTPException, match=message):
@@ -2029,15 +2116,118 @@ def test_meta_reach_frequency_buy_rejects_invalid_input(monkeypatch, overrides, 
 
 def test_meta_reach_frequency_buy_surfaces_provider_error(monkeypatch):
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
-    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: {"content_type": "video/mp4"})
+    monkeypatch.setattr(ads.db, "one", lambda query, _params: {
+        "workflow_id": "a" * 32,
+        "ad_connection_id": "meta-connection",
+        "ad_account_id": "act-1",
+        "status": "reserved",
+        "reserved_id": "6234567890456",
+        "config_json": {
+            "targeting": {"countries": ["US"], "ageMin": 18, "ageMax": 65},
+            "placements": {
+                "publisherPlatforms": ["facebook", "instagram"],
+                "devicePlatforms": ["mobile", "desktop"],
+                "facebookPositions": ["feed"],
+                "instagramPositions": ["stream"],
+            },
+        },
+    } if "meta_reach_frequency_workflows" in query else {"content_type": "video/mp4"})
     monkeypatch.setattr(ads, "_asset_url", lambda *_args: "https://hooktrack.example/ad.mp4")
+    updates = []
+    monkeypatch.setattr(ads.db, "execute", lambda query, params: updates.append((query, params)) or 1)
 
     def fail_provider(*_args, **_kwargs):
         raise latehub.LateHubError("Reservation expired", 409)
 
     monkeypatch.setattr(ads.latehub, "meta_ads_request", fail_provider)
     with pytest.raises(HTTPException) as error:
-        ads.buy_meta_reach_frequency_campaign(_meta_rf_buy_request(placement="facebook"), _ctx())
+        ads.buy_meta_reach_frequency_campaign(_meta_rf_buy_request(), _ctx())
 
     assert error.value.status_code == 409
     assert error.value.detail == "Reservation expired"
+    assert len(updates) == 2
+    assert updates[1][1][0] == "unknown"
+
+
+def test_meta_reach_frequency_quote_is_persisted_for_selected_account(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *args: seen.append(args) or {"id": "meta-connection"})
+    monkeypatch.setattr(ads.secrets, "token_hex", lambda _length: "b" * 32)
+    monkeypatch.setattr(
+        ads.db, "one",
+        lambda query, params: seen.append((query, params)) or {"workflow_id": "b" * 32, "status": "quote_ready"},
+    )
+    body = ads.MetaRfWorkflowCreateIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        quote_id="quote-1", config={"budgetAmount": 500},
+        quote={"predictionId": "quote-1", "status": "ready"},
+    )
+
+    assert ads.create_meta_reach_frequency_workflow(body, _ctx()) == {
+        "workflow_id": "b" * 32, "status": "quote_ready",
+    }
+    assert seen[0] == (7, "meta-connection", "act-1", "meta")
+    assert "INSERT INTO meta_reach_frequency_workflows" in seen[1][0]
+    assert seen[1][1][:5] == ("b" * 32, 7, "meta-connection", "act-1", "quote-1")
+
+
+def test_meta_reach_frequency_reserve_saves_provider_reservation_id(monkeypatch):
+    saved = {
+        "workflow_id": "c" * 32,
+        "ad_connection_id": "meta-connection",
+        "ad_account_id": "act-1",
+        "status": "quote_ready",
+        "quote_id": "quote-1",
+        "quote_json": {"status": "ready"},
+    }
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: saved)
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    updates = []
+    monkeypatch.setattr(ads.db, "execute", lambda query, params: updates.append((query, params)) or 1)
+    calls = []
+    monkeypatch.setattr(
+        ads.latehub, "meta_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {
+            "prediction": {"predictionId": "reserved-1", "status": "ready"},
+        },
+    )
+
+    result = ads.reserve_meta_reach_frequency_workflow("c" * 32, _ctx())
+
+    assert result == {
+        "workflow_id": "c" * 32, "status": "reserved",
+        "prediction": {"predictionId": "reserved-1", "status": "ready"},
+    }
+    assert calls == [("POST", "/ads/rf-predictions/quote-1/reserve", {
+        "body": {"accountId": "meta-connection", "adAccountId": "act-1"},
+    })]
+    assert len(updates) == 2
+    assert "'reserve_pending'" in updates[0][0]
+    assert "'reserved'" in updates[1][0]
+    assert updates[1][1][0] == "reserved-1"
+
+
+def test_meta_reach_frequency_release_uncertain_result_is_not_retried(monkeypatch):
+    saved = {
+        "workflow_id": "d" * 32,
+        "ad_connection_id": "meta-connection",
+        "ad_account_id": "act-1",
+        "status": "reserved",
+        "reserved_id": "reserved-1",
+    }
+    monkeypatch.setattr(ads.db, "one", lambda *_args, **_kwargs: saved)
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})
+    updates = []
+    monkeypatch.setattr(ads.db, "execute", lambda query, params: updates.append((query, params)) or 1)
+
+    def fail_provider(*_args, **_kwargs):
+        raise latehub.LateHubError("Timed out", None)
+
+    monkeypatch.setattr(ads.latehub, "meta_ads_request", fail_provider)
+    with pytest.raises(HTTPException) as error:
+        ads.release_meta_reach_frequency_workflow("d" * 32, _ctx())
+
+    assert error.value.status_code == 502
+    assert len(updates) == 2
+    assert "'release_pending'" in updates[0][0]
+    assert updates[1][1][0] == "unknown"
