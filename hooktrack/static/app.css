@@ -1357,6 +1357,9 @@ th { font-size: 10.5px; letter-spacing: .075em; }
 .inbox-page .inbox-actions input[type="search"] { width: min(210px, 22vw); min-width: 150px; min-height: 35px; }
 .inbox-page .inbox-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 10px; }
 .inbox-page .inbox-list > li { min-width: 0; align-self: stretch; padding: 13px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.inbox-page .inbox-comment { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.inbox-page .inbox-comment-replies { display: grid; gap: 10px; width: 100%; margin-top: 6px; }
+.inbox-page .inbox-comment-reply { margin-left: 18px; padding-left: 12px; border-left: 2px solid var(--border); }
 .inbox-page .inbox-list [hidden],
 .inbox-page .inbox-filter-empty[hidden] { display: none; }
 .inbox-page .inbox-empty { padding: 42px 20px; }

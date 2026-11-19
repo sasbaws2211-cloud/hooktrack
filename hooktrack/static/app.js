@@ -9940,6 +9940,51 @@ pages.inbox = async app => {
   } else {
     const comments = await api('GET', `/api/inbox/comments${acctFilter ? '?account_id=' + acctFilter : ''}`);
     const needsReply = comments.filter(c => !c.replied_at && !c.hidden_at).length;
+    const commentKey = c => `${c.account_id}:${c.comment_id}`;
+    const commentsById = new Map(comments.map(c => [commentKey(c), c]));
+    const repliesByParent = new Map();
+    comments.forEach(c => {
+      if (!c.parent_comment_id) return;
+      const parentKey = `${c.account_id}:${c.parent_comment_id}`;
+      if (!repliesByParent.has(parentKey)) repliesByParent.set(parentKey, []);
+      repliesByParent.get(parentKey).push(c);
+    });
+    const renderedComments = new Set();
+    const renderComment = c => {
+      const key = commentKey(c);
+      if (renderedComments.has(key)) return '';
+      renderedComments.add(key);
+      const replies = (repliesByParent.get(key) || []).map(renderComment).join('');
+      const isReply = !!c.parent_comment_id;
+      return `<div class="inbox-comment${isReply ? ' inbox-comment-reply' : ''}">
+        <div class="row" style="width:100%">${isReply ? '<span class="muted small">↳ reply ·</span>' : ''}<b>${esc(c.author_name || 'Someone')}</b> <span class="muted small">on "${esc(short(c.post_title || 'your post', 60))}" · ${esc(c.handle)}</span>
+          <span class="spacer"></span><span class="small muted">${c.posted_at ? esc(String(c.posted_at).slice(0, 10)) : ''}</span></div>
+        <div>${esc(c.body)}</div>
+        ${c.replied_at ? `<div class="small muted">You replied: ${esc(short(c.reply_body, 140))}</div>`
+          : `<div class="row" style="width:100%;gap:8px"><input type="text" class="reply-in" data-comment="${c.id}" placeholder="Write a reply…" style="flex:1">
+             <button class="btn sm primary" data-reply="${c.id}">Reply</button></div>
+             <div class="small" id="reply-err-${c.id}" style="color:var(--bad);display:none"></div>`}
+        ${replies ? `<div class="inbox-comment-replies">${replies}</div>` : ''}
+      </div>`;
+    };
+    const renderThread = root => {
+      const thread = [];
+      const collect = c => {
+        const key = commentKey(c);
+        if (thread.some(item => commentKey(item) === key)) return;
+        thread.push(c);
+        (repliesByParent.get(key) || []).forEach(collect);
+      };
+      collect(root);
+      const statuses = [...new Set(thread.map(c => c.replied_at ? 'replied' : c.hidden_at ? 'hidden' : 'needs-reply'))];
+      const searchText = thread.flatMap(c => [c.author_name, c.post_title, c.handle, c.platform, c.body]).filter(Boolean).join(' ').toLowerCase();
+      return `<li data-inbox-row data-inbox-status="${statuses.join(' ')}" data-inbox-search="${esc(searchText)}">${renderComment(root)}</li>`;
+    };
+    const roots = comments.filter(c => !c.parent_comment_id || !commentsById.has(`${c.account_id}:${c.parent_comment_id}`));
+    const threads = roots.map(renderThread);
+    comments.forEach(c => {
+      if (!renderedComments.has(commentKey(c))) threads.push(renderThread(c));
+    });
     app.innerHTML = `<div class="inbox-page">
       <div class="page-head inbox-head"><div><div class="eyebrow">COMMUNITY</div><h1>Comments</h1>
         <div class="sub">Follow up on the conversations happening around your posts.</div></div></div>
@@ -9951,15 +9996,7 @@ pages.inbox = async app => {
       <div class="inbox-toolbar"><div class="inbox-toolbar-note"><b>Recent comments</b><span>Reply directly from your inbox</span></div>
         <div class="row inbox-actions">${toggle}${acctSelect}${inboxStatus}${inboxSearch}<button class="btn sm" id="irefresh">Refresh</button></div></div>
       ${commentsNote}
-      ${comments.length ? `<ul class="list inbox-list">${comments.map(c => `<li data-inbox-row data-inbox-status="${c.replied_at ? 'replied' : c.hidden_at ? 'hidden' : 'needs-reply'}" data-inbox-search="${esc([c.author_name, c.post_title, c.handle, c.platform, c.body].filter(Boolean).join(' ').toLowerCase())}" style="align-items:flex-start;flex-direction:column;gap:6px${c.parent_comment_id ? ';margin-left:28px;border-left:2px solid var(--border);padding-left:10px' : ''}">
-          <div class="row" style="width:100%">${c.parent_comment_id ? '<span class="muted small">↳ reply ·</span>' : ''}<b>${esc(c.author_name || 'Someone')}</b> <span class="muted small">on "${esc(short(c.post_title || 'your post', 60))}" · ${esc(c.handle)}</span>
-            <span class="spacer"></span><span class="small muted">${c.posted_at ? esc(String(c.posted_at).slice(0, 10)) : ''}</span></div>
-          <div>${esc(c.body)}</div>
-          ${c.replied_at ? `<div class="small muted">You replied: ${esc(short(c.reply_body, 140))}</div>`
-            : `<div class="row" style="width:100%;gap:8px"><input type="text" class="reply-in" data-comment="${c.id}" placeholder="Write a reply…" style="flex:1">
-               <button class="btn sm primary" data-reply="${c.id}">Reply</button></div>
-               <div class="small" id="reply-err-${c.id}" style="color:var(--bad);display:none"></div>`}
-        </li>`).join('')}</ul>`
+      ${comments.length ? `<ul class="list inbox-list">${threads.join('')}</ul>`
         : `<div class="empty card inbox-empty"><span class="inbox-empty-icon">☷</span><h2>No comments yet</h2><p>Press Refresh to check for new comments on your connected accounts' posts.</p></div>`}
       ${comments.length ? '<div class="empty card inbox-empty inbox-filter-empty" id="inbox-filter-empty" hidden><h2>No matches</h2><p>Try a different search or filter.</p></div>' : ''}
     </div>`;
@@ -9989,7 +10026,7 @@ function wireInboxFilters(app, filterKey) {
     let shown = 0;
     $$('[data-inbox-row]', app).forEach(row => {
       const matches = (!query || row.dataset.inboxSearch.includes(query)) &&
-        (status.value === 'all' || row.dataset.inboxStatus === status.value);
+        (status.value === 'all' || row.dataset.inboxStatus.split(' ').includes(status.value));
       row.hidden = !matches;
       if (matches) shown++;
     });
