@@ -6264,6 +6264,49 @@ pages.ads = async app => {
     {label:'Create call ad',method:'POST',path:'/ads/call',query:{},body:{goal:'traffic',budgetAmount:25,budgetType:'daily',status:'PAUSED'}},
     {label:'List conversion destinations',method:'GET',path:'/ads/conversions/destinations',query:{},body:{}},
   ];
+  const tiktokToolsPresets = [
+    {label:'Create video campaign (validate only)',method:'POST',path:'/ads/create',query:{},body:{validateOnly:true,name:'Spring campaign',goal:'traffic',budgetAmount:25,budgetType:'daily',status:'PAUSED',body:'Primary text',linkUrl:'https://example.com',imageUrl:'https://example.com/video.mp4',callToAction:'LEARN_MORE',countries:['US'],bidStrategy:'LOWEST_COST_WITHOUT_CAP'}},
+    {label:'Create a lead-generation campaign',method:'POST',path:'/ads/create',query:{},body:{validateOnly:true,name:'Lead campaign',goal:'lead_generation',budgetAmount:25,budgetType:'daily',status:'PAUSED',body:'Primary text',imageUrl:'https://example.com/video.mp4',countries:['US']}},
+    {label:'Create an app-promotion campaign',method:'POST',path:'/ads/create',query:{},body:{validateOnly:true,name:'App campaign',goal:'app_promotion',budgetAmount:25,budgetType:'daily',status:'PAUSED',body:'Get the app',imageUrl:'https://example.com/video.mp4',countries:['US']}},
+    {label:'Create with Cost Cap bidding',method:'POST',path:'/ads/create',query:{},body:{validateOnly:true,name:'Cost-capped campaign',goal:'conversions',budgetAmount:50,budgetType:'daily',bidStrategy:'COST_CAP',bidAmount:5,body:'Shop now',imageUrl:'https://example.com/video.mp4',linkUrl:'https://example.com',countries:['US']}},
+    {label:'Attach a new ad to an existing ad group',method:'POST',path:'/ads/create',query:{},body:{validateOnly:true,adSetId:'REPLACE_WITH_AD_GROUP_ID',body:'Primary text',imageUrl:'https://example.com/video.mp4',linkUrl:'https://example.com',callToAction:'LEARN_MORE'}},
+    {label:'Boost another creator with Spark Code',method:'POST',path:'/ads/boost',query:{},body:{platformPostId:'REPLACE_WITH_TIKTOK_VIDEO_ID',sparkAuthCode:'REPLACE_WITH_CREATOR_SPARK_CODE',name:'Creator Spark Ad',goal:'traffic',budget:{amount:25,type:'daily'},targeting:{countries:['US']},linkUrl:'https://example.com',callToAction:'LEARN_MORE'}},
+    {label:'Read campaign and ad-group tree',method:'GET',path:'/ads/tree',query:{fromDate:metaMonthAgo,toDate:metaToday,platform:'tiktok'},body:{}},
+    {label:'List connected TikTok advertisers',method:'GET',path:'/ads/accounts',query:{live:true},body:{}},
+    {label:'List Business Centers and advertisers',method:'GET',path:'/ads/business-centers',query:{},body:{}},
+    {label:'Search interests',method:'GET',path:'/ads/targeting/search',query:{q:'gardening',dimension:'interest',platform:'tiktok'},body:{}},
+    {label:'Search behaviors',method:'GET',path:'/ads/targeting/search',query:{q:'gardening',dimension:'behavior',platform:'tiktok'},body:{}},
+    {label:'List Custom Audiences',method:'GET',path:'/ads/audiences',query:{},body:{}},
+    {label:'Create a customer-list audience',method:'POST',path:'/ads/audiences',query:{},body:{type:'customer_list',name:'New customer list'}},
+    {label:'Add customer-list members (email data)',method:'POST',path:'/ads/audiences/REPLACE_WITH_AUDIENCE_ID/users',query:{},body:{users:[{email:'customer@example.com'}]}},
+    {label:'Update ad targeting (interest, behavior, audience, language)',method:'PUT',path:'/ads/REPLACE_WITH_AD_ID',query:{},body:{targeting:{countries:['US'],ageMin:18,ageMax:34,gender:'FEMALE',languages:['en'],interests:['REPLACE_WITH_INTEREST_ID'],behaviors:['video:REPLACE_WITH_BEHAVIOR_ID'],audienceInclude:['REPLACE_WITH_PROCESSED_AUDIENCE_ID'],audienceExclude:[]}}},
+    {label:'Update location targeting (new ad only)',method:'PUT',path:'/ads/REPLACE_WITH_AD_ID',query:{},body:{targeting:{countries:['US'],regions:['REPLACE_WITH_REGION_ID'],cities:['REPLACE_WITH_CITY_ID'],zips:['REPLACE_WITH_POSTAL_CODE'],metros:['REPLACE_WITH_METRO_ID'],incomeTier:'TOP_10_PERCENT'}}},
+    {label:'List TikTok pixels',method:'GET',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags`,query:{},body:{}},
+    {label:'Create a TikTok pixel',method:'POST',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags`,query:{},body:{name:'New TikTok pixel'}},
+    {label:'Read a pixel and its install code',method:'GET',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags/REPLACE_WITH_PIXEL_ID`,query:{},body:{}},
+    {label:'Update pixel settings',method:'PATCH',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags/REPLACE_WITH_PIXEL_ID`,query:{},body:{name:'Updated pixel name',enableAutomaticMatching:true,enableFirstPartyCookies:true}},
+    {label:'Read pixel event statistics',method:'GET',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags/REPLACE_WITH_PIXEL_ID/stats`,query:{},body:{}},
+    {label:'List pixel events',method:'GET',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags/REPLACE_WITH_PIXEL_ID/events`,query:{},body:{}},
+    {label:'Create a pixel event',method:'POST',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags/REPLACE_WITH_PIXEL_ID/events`,query:{},body:{siteEvent:'Purchase',name:'Purchase'}},
+    {label:'Update a pixel event',method:'PATCH',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags/REPLACE_WITH_PIXEL_ID/events/REPLACE_WITH_EVENT_ID`,query:{},body:{name:'Updated event name',currency:'USD'}},
+    {label:'List pixel Business Center shares',method:'GET',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags/REPLACE_WITH_PIXEL_ID/shared-accounts`,query:{},body:{}},
+    {label:'Share pixel with a Business Center',method:'POST',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags/REPLACE_WITH_PIXEL_ID/shared-accounts`,query:{},body:{businessId:'REPLACE_WITH_BUSINESS_CENTER_ID',adAccountId:'REPLACE_WITH_ADVERTISER_ID'}},
+    {label:'Unlink pixel from the selected advertiser',method:'DELETE',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags/REPLACE_WITH_PIXEL_ID/shared-accounts`,query:{adAccountId:'REPLACE_WITH_ADVERTISER_ID'},body:{}},
+    {label:'Install pixel on a connected Shopify store',method:'POST',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags/REPLACE_WITH_PIXEL_ID/install`,query:{},body:{storeAccountId:'REPLACE_WITH_SHOPIFY_STORE_ACCOUNT_ID'}},
+    {label:'Install pixel on a connected WordPress site',method:'POST',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags/REPLACE_WITH_PIXEL_ID/install`,query:{},body:{storeAccountId:'REPLACE_WITH_WORDPRESS_SITE_ACCOUNT_ID'}},
+    {label:'Check pixel installation status',method:'GET',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags/REPLACE_WITH_PIXEL_ID/install`,query:{storeAccountId:'REPLACE_WITH_STORE_ACCOUNT_ID'},body:{}},
+    {label:'Remove a pixel installation',method:'DELETE',path:`/accounts/${encodeURIComponent(tiktokConnection?.id || 'CONNECTION_ID')}/tracking-tags/REPLACE_WITH_PIXEL_ID/install`,query:{storeAccountId:'REPLACE_WITH_STORE_ACCOUNT_ID'},body:{}},
+    {label:'List offline conversion destinations',method:'GET',path:'/ads/conversions/destinations',query:{},body:{}},
+    {label:'Read live TikTok insights',method:'GET',path:'/ads/insights',query:{dataLevel:'AUCTION_CAMPAIGN',dimensions:'campaign_id',metrics:'spend,impressions,clicks,reach,frequency',reportType:'BASIC',fromDate:metaMonthAgo,toDate:metaToday},body:{}},
+    {label:'Read one ad’s analytics',method:'GET',path:'/ads/REPLACE_WITH_AD_ID/analytics',query:{fromDate:metaMonthAgo,toDate:metaToday},body:{}},
+    {label:'Read an ad live',method:'GET',path:'/ads/REPLACE_WITH_AD_ID',query:{live:true},body:{}},
+    {label:'Pause or resume a campaign',method:'PUT',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/status',query:{},body:{status:'paused',platform:'tiktok'}},
+    {label:'Pause or resume an ad group',method:'PUT',path:'/ads/ad-sets/REPLACE_WITH_AD_GROUP_ID/status',query:{},body:{status:'paused',platform:'tiktok'}},
+    {label:'Pause or resume an ad',method:'PUT',path:'/ads/REPLACE_WITH_AD_ID/status',query:{},body:{status:'paused'}},
+    {label:'Update ad budget, targeting, creative, or status',method:'PUT',path:'/ads/REPLACE_WITH_AD_ID',query:{},body:{budget:{amount:25,type:'daily'},targeting:{countries:['US']},creative:{body:'Updated ad text',videoUrl:'https://example.com/new-video.mp4'}}},
+    {label:'Duplicate campaign (created paused)',method:'POST',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/duplicate',query:{},body:{platform:'tiktok'}},
+    {label:'Send offline conversion events (PII is hashed by Zernio)',method:'POST',path:'/events',query:{},body:{destinations:[{accountId:tiktokConnection?.id || 'CONNECTION_ID',destinationId:'REPLACE_WITH_EVENT_SET_ID'}],events:[{eventName:'Purchase',eventTime:Math.floor(Date.now()/1000),eventId:'order-123',value:59.9,currency:'USD',actionSource:'offline',user:{email:'customer@example.com'}}]}},
+  ];
   const activeAdsTab = state.adsTab || 'campaigns';
   state.campaignBehaviors = state.campaignBehaviors || [];
   state.campaignWorkPositions = state.campaignWorkPositions || [];
@@ -6289,7 +6332,7 @@ pages.ads = async app => {
     ${connectNotice}
     ${!d.configured ? '<div class="notice" style="margin-bottom:12px">Managed publishing and Ads are not configured on this server yet. Ask the platform admin to set up Zernio.</div>' : ''}
     <div class="ads-tabs" role="tablist" aria-label="Advertising tools">
-      ${[['campaigns', 'Campaigns'], ['boosts', 'Boosts'], ['meta', 'Meta tools'], ['connections', 'Connections']].map(([tab, label]) =>
+      ${[['campaigns', 'Campaigns'], ['boosts', 'Boosts'], ['meta', 'Meta tools'], ['tiktok', 'TikTok tools'], ['connections', 'Connections']].map(([tab, label]) =>
         `<button class="ads-tab${activeAdsTab === tab ? ' active' : ''}" type="button" role="tab"
           id="ads-tab-${tab}" aria-controls="ads-panel-${tab}" aria-selected="${activeAdsTab === tab}"
           data-ads-tab="${tab}">${label}</button>`).join('')}
@@ -6651,6 +6694,31 @@ pages.ads = async app => {
           <pre id="meta-tools-result" class="card small" style="display:none;white-space:pre-wrap;overflow:auto;max-height:420px"></pre>
           </details>
         </form>` : `<div class="empty card"><p>${!d.can_manage ? 'Ask a workspace admin to manage Meta Ads.' : !metaConnection ? 'Connect Meta Ads to this workspace first.' : 'Select a Meta ad account in the provider before using Meta Ads tools.'}</p></div>`}
+      </section>
+    </div>
+    <div id="ads-panel-tiktok" role="tabpanel" aria-labelledby="ads-tab-tiktok" ${activeAdsTab === 'tiktok' ? '' : 'hidden'}>
+      <section class="ads-section ads-tiktok-tools">
+        <div class="ads-section-heading"><div><span class="ads-kicker">ZERNIO TIKTOK ADS API</span><h2>TikTok Ads tools</h2>
+          <p class="small muted">Manage TikTok campaigns, Spark Ads, audiences, pixels, offline conversions, Business Centers and reporting. See the <a href="https://docs.zernio.com/platforms/tiktok-ads" target="_blank" rel="noopener noreferrer">Zernio TikTok Ads docs</a> for request fields and limits.</p></div></div>
+        ${tiktokConnection && tiktokAdAccounts.length && d.can_manage ? `<form id="tiktok-tools-form" class="card">
+          <div style="max-width:420px;margin-bottom:18px"><label class="small muted" for="tiktok-tools-account">TikTok advertiser</label>
+            <select id="tiktok-tools-account" required style="width:100%">${tiktokAdAccounts.map(item =>
+              `<option value="${esc(item.id)}">${esc(item.name)}${item.currency ? ` · ${esc(item.currency)}` : ''}</option>`).join('')}</select></div>
+          <p class="notice small">Every write requires confirmation. Replace all REPLACE_WITH_* values before submitting. Customer-list uploads and offline conversion events send customer data to TikTok; use only data you are authorized to share. TikTok async reports and Reach &amp; Frequency predictions are not supported.</p>
+          <label class="small muted" for="tiktok-tools-preset">Start from an operation template</label>
+          <select id="tiktok-tools-preset" style="width:100%;margin-bottom:10px"><option value="">Choose a template…</option>
+            ${tiktokToolsPresets.map((preset, index) => `<option value="${index}">${esc(preset.label)}</option>`).join('')}</select>
+          <div class="row"><div style="flex:1"><label class="small muted" for="tiktok-tools-method">Method</label>
+              <select id="tiktok-tools-method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select></div></div>
+          <label class="small muted" for="tiktok-tools-path">Zernio API path</label>
+          <input id="tiktok-tools-path" required maxlength="512" placeholder="/ads/audiences" style="width:100%">
+          <label class="small muted" for="tiktok-tools-query">Query parameters (JSON object)</label>
+          <textarea id="tiktok-tools-query" spellcheck="false" style="width:100%;min-height:64px;font-family:monospace">{}</textarea>
+          <label class="small muted" for="tiktok-tools-body">Request body (JSON object)</label>
+          <textarea id="tiktok-tools-body" spellcheck="false" style="width:100%;min-height:150px;font-family:monospace">{}</textarea>
+          <div class="actions"><button id="tiktok-tools-run" class="btn primary" type="submit">Run TikTok Ads request</button></div>
+          <pre id="tiktok-tools-result" class="card small" style="display:none;white-space:pre-wrap;overflow:auto;max-height:420px"></pre>
+        </form>` : `<div class="empty card"><p>${!d.can_manage ? 'Ask a workspace admin to manage TikTok Ads.' : !tiktokConnection ? 'Connect TikTok Ads to this workspace first.' : 'Select a TikTok advertiser in the provider before using TikTok Ads tools.'}</p></div>`}
       </section>
     </div>
     <div id="ads-panel-campaigns" role="tabpanel" aria-labelledby="ads-tab-campaigns" ${activeAdsTab === 'campaigns' ? '' : 'hidden'}>
@@ -8364,6 +8432,54 @@ pages.ads = async app => {
         ad_account_id: $('#meta-tools-account', app).value,
         method,
         path: $('#meta-tools-path', app).value.trim(),
+        query,
+        body,
+      });
+      result.textContent = JSON.stringify(response, null, 2);
+    } catch (error) {
+      result.textContent = error.message;
+      throw error;
+    } finally { if (button.isConnected) busy(button, false); }
+  });
+  if ($('#tiktok-tools-preset', app)) $('#tiktok-tools-preset', app).onchange = () => {
+    const preset = tiktokToolsPresets[Number($('#tiktok-tools-preset', app).value)];
+    if (!preset) return;
+    $('#tiktok-tools-method', app).value = preset.method;
+    $('#tiktok-tools-path', app).value = preset.path;
+    $('#tiktok-tools-query', app).value = JSON.stringify(preset.query, null, 2);
+    $('#tiktok-tools-body', app).value = JSON.stringify(preset.body, null, 2);
+  };
+  if ($('#tiktok-tools-form', app)) $('#tiktok-tools-form', app).onsubmit = guard(async event => {
+    event.preventDefault();
+    const method = $('#tiktok-tools-method', app).value;
+    let query, body;
+    try {
+      query = JSON.parse($('#tiktok-tools-query', app).value || '{}');
+      body = JSON.parse($('#tiktok-tools-body', app).value || '{}');
+    } catch (error) {
+      toast(`Request JSON is invalid: ${error.message}`, true);
+      return;
+    }
+    if (!query || Array.isArray(query) || typeof query !== 'object'
+      || !body || Array.isArray(body) || typeof body !== 'object') {
+      toast('Query and request body must each be JSON objects.', true);
+      return;
+    }
+    if (method !== 'GET' && !await askConfirm(
+      'This request may create or change TikTok ads, spend against the selected account, or send customer data. Continue only if you reviewed the account and full JSON.',
+      { title: 'Run TikTok Ads write request', ok: 'Run request', danger: true },
+    )) return;
+    const button = $('#tiktok-tools-run', app);
+    const result = $('#tiktok-tools-result', app);
+    result.style.display = 'block';
+    result.textContent = 'Request in progress…';
+    busy(button, true, 'Running…');
+    try {
+      const response = await api('POST', '/api/ads/tiktok/request', {
+        ad_connection_id: tiktokConnection.id,
+        ad_account_id: $('#tiktok-tools-account', app).value,
+        method,
+        path: $('#tiktok-tools-path', app).value.trim(),
         query,
         body,
       });

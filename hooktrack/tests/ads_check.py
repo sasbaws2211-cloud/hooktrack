@@ -62,6 +62,184 @@ def test_meta_ads_tool_binds_requests_to_selected_connection_and_account(monkeyp
     })
 
 
+def test_tiktok_ads_tool_scopes_campaign_and_pixel_requests_to_selected_advertiser(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *args: seen.append(("selected", args)) or {"id": "tiktok-connection"})
+    monkeypatch.setattr(
+        latehub, "tiktok_ads_request",
+        lambda method, path, **kwargs: seen.append((method, path, kwargs)) or {"ok": True},
+    )
+    campaign = ads.AdsApiRequestIn(
+        ad_connection_id="tiktok-connection", ad_account_id="advertiser-1",
+        method="POST", path="/ads/create", body={"name": "TikTok draft", "validateOnly": True},
+    )
+    pixel = ads.AdsApiRequestIn(
+        ad_connection_id="tiktok-connection", ad_account_id="advertiser-1",
+        method="GET", path="/accounts/tiktok-connection/tracking-tags/pixel-1",
+    )
+
+    assert ads.tiktok_ads_request(campaign, _ctx()) == {"ok": True}
+    assert ads.tiktok_ads_request(pixel, _ctx()) == {"ok": True}
+    assert seen == [
+        ("selected", (7, "tiktok-connection", "advertiser-1", "tiktok")),
+        ("POST", "/ads/create", {
+            "params": {"accountId": "tiktok-connection", "adAccountId": "advertiser-1"},
+            "body": {"name": "TikTok draft", "validateOnly": True,
+                     "accountId": "tiktok-connection", "adAccountId": "advertiser-1"},
+        }),
+        ("selected", (7, "tiktok-connection", "advertiser-1", "tiktok")),
+        ("GET", "/accounts/tiktok-connection/tracking-tags/pixel-1", {
+            "params": {"accountId": "tiktok-connection", "adAccountId": "advertiser-1"},
+            "body": None,
+        }),
+    ]
+
+
+def test_tiktok_spark_boost_uses_only_linked_workspace_posting_identity(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        ads, "_selected_ad_account",
+        lambda *_args: {"id": "tiktok-connection", "parent_account_id": "posting-account"},
+    )
+    monkeypatch.setattr(ads.latehub, "accounts", lambda _workspace_id: [
+        {"id": "posting-account", "platform": "tiktok"},
+        {"id": "other-tiktok-account", "platform": "tiktok"},
+    ])
+    monkeypatch.setattr(
+        ads.latehub, "tiktok_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"ok": True},
+    )
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="tiktok-connection", ad_account_id="advertiser-1",
+        method="POST", path="/ads/boost",
+        body={"platformPostId": "video-1", "sparkAuthCode": "creator-code"},
+    )
+
+    assert ads.tiktok_ads_request(request, _ctx()) == {"ok": True}
+    assert calls[0][2]["params"]["accountId"] == "posting-account"
+    assert calls[0][2]["body"]["accountId"] == "posting-account"
+    assert calls[0][2]["body"]["adAccountId"] == "advertiser-1"
+
+    request.body["accountId"] = "other-tiktok-account"
+    with pytest.raises(HTTPException, match="selected TikTok Ads connection"):
+        ads.tiktok_ads_request(request, _ctx())
+
+
+def test_tiktok_offline_events_are_workspace_scoped_and_require_connection_destination(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "tiktok-connection"})
+    monkeypatch.setattr(ads.latehub, "ensure_profile", lambda workspace_id: f"profile-{workspace_id}")
+    monkeypatch.setattr(
+        ads.latehub, "tiktok_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"eventsReceived": 1},
+    )
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="tiktok-connection", ad_account_id="advertiser-1",
+        method="POST", path="/events",
+        body={
+            "destinations": [{"accountId": "tiktok-connection", "destinationId": "event-set-1"}],
+            "events": [{"eventName": "Purchase", "user": {"email": "customer@example.com"}}],
+        },
+    )
+
+    assert ads.tiktok_ads_request(request, _ctx()) == {"eventsReceived": 1}
+    assert calls == [("POST", "/events", {
+        "params": {},
+        "body": {
+            "destinations": [{"accountId": "tiktok-connection", "destinationId": "event-set-1"}],
+            "events": [{"eventName": "Purchase", "user": {"email": "customer@example.com"}}],
+            "profileId": "profile-7",
+        },
+    })]
+
+    request.body["destinations"][0]["accountId"] = "another-workspace-connection"
+    with pytest.raises(HTTPException, match="selected workspace TikTok connection"):
+        ads.tiktok_ads_request(request, _ctx())
+
+
+def test_tiktok_pixel_install_requires_workspace_connected_store(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "tiktok-connection"})
+    monkeypatch.setattr(ads.latehub, "accounts", lambda workspace_id: [
+        {"id": "shopify-1", "platform": "shopify"},
+        {"id": "wordpress-1", "platform": "wordpress"},
+    ])
+    monkeypatch.setattr(
+        ads.latehub, "tiktok_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"installed": True},
+    )
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="tiktok-connection", ad_account_id="advertiser-1",
+        method="POST",
+        path="/accounts/tiktok-connection/tracking-tags/pixel-1/install",
+        body={"storeAccountId": "shopify-1"},
+    )
+
+    assert ads.tiktok_ads_request(request, _ctx()) == {"installed": True}
+    assert calls == [("POST", request.path, {
+        "params": {"accountId": "tiktok-connection"},
+        "body": {"storeAccountId": "shopify-1"},
+    })]
+
+    request.body["storeAccountId"] = "shopify-outside-workspace"
+    with pytest.raises(HTTPException, match="connected to this workspace"):
+        ads.tiktok_ads_request(request, _ctx())
+
+
+@pytest.mark.parametrize("path", [
+    "/ads/insights/reports", "/ads/rf-predictions",
+    "/accounts/another-connection/tracking-tags",
+    "/ads/../profiles",
+])
+def test_tiktok_ads_tool_rejects_unsupported_or_out_of_scope_paths(monkeypatch, path):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "tiktok-connection"})
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="tiktok-connection", ad_account_id="advertiser-1",
+        method="GET", path=path,
+    )
+    with pytest.raises(HTTPException):
+        ads.tiktok_ads_request(request, _ctx())
+
+
+def test_tiktok_ads_tool_rejects_pixel_and_pixel_event_deletion(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "tiktok-connection"})
+    for path in (
+        "/accounts/tiktok-connection/tracking-tags/pixel-1",
+        "/accounts/tiktok-connection/tracking-tags/pixel-1/events/event-1",
+    ):
+        request = ads.AdsApiRequestIn(
+            ad_connection_id="tiktok-connection", ad_account_id="advertiser-1",
+            method="DELETE", path=path,
+        )
+        with pytest.raises(HTTPException, match="does not support pixel or pixel-event deletion"):
+            ads.tiktok_ads_request(request, _ctx())
+
+
+def test_tiktok_pixel_share_unlink_uses_scoped_advertiser(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "tiktok-connection"})
+    monkeypatch.setattr(
+        ads.latehub, "tiktok_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"unlinked": True},
+    )
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="tiktok-connection", ad_account_id="advertiser-1",
+        method="DELETE",
+        path="/accounts/tiktok-connection/tracking-tags/pixel-1/shared-accounts",
+        query={"adAccountId": "advertiser-1"},
+    )
+
+    assert ads.tiktok_ads_request(request, _ctx()) == {"unlinked": True}
+    assert calls == [("DELETE", request.path, {
+        "params": {"accountId": "tiktok-connection", "adAccountId": "advertiser-1"},
+        "body": {},
+    })]
+
+    request.query["adAccountId"] = "advertiser-2"
+    with pytest.raises(HTTPException, match="adAccountId must match"):
+        ads.tiktok_ads_request(request, _ctx())
+
+
 def test_meta_reach_frequency_requests_keep_quote_reserve_and_read_account_scoped(monkeypatch):
     calls = []
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})

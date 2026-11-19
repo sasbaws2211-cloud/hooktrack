@@ -203,13 +203,16 @@ class CampaignStatusIn(BaseModel):
     status: Literal["active", "paused"]
 
 
-class MetaAdsRequestIn(BaseModel):
+class AdsApiRequestIn(BaseModel):
     ad_connection_id: str = Field(min_length=1, max_length=200)
     ad_account_id: str = Field(min_length=1, max_length=200)
-    method: Literal["GET", "POST", "PUT", "DELETE"]
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
     path: str = Field(min_length=5, max_length=512)
     query: dict = Field(default_factory=dict)
     body: dict = Field(default_factory=dict)
+
+
+MetaAdsRequestIn = AdsApiRequestIn
 
 
 class MetaMessagingCallAdIn(BaseModel):
@@ -1751,6 +1754,124 @@ def meta_ads_request(body: MetaAdsRequestIn, ctx: Ctx = Depends(admin)):
         request_body["destinations"] = destinations
     try:
         return latehub.meta_ads_request(
+            body.method, path, params=params,
+            body=request_body if body.method != "GET" else None,
+        )
+    except latehub.LateHubError as error:
+        raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 409, 422, 429) else 502,
+                            str(error)) from error
+
+
+@router.post("/tiktok/request")
+def tiktok_ads_request(body: AdsApiRequestIn, ctx: Ctx = Depends(admin)):
+    """Expose documented TikTok Ads operations through the selected workspace account."""
+    connection = _selected_ad_account(
+        ctx.workspace_id, body.ad_connection_id, body.ad_account_id, "tiktok")
+    path = body.path
+    valid_ads_path = (
+        path.startswith("/ads/")
+        and not path.startswith("//")
+        and all(part not in ("", ".", "..") for part in path.split("/")[1:])
+        and re.fullmatch(r"/ads/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*", path) is not None
+    )
+    tracking_match = re.fullmatch(
+        r"/accounts/([A-Za-z0-9_-]+)/tracking-tags"
+        r"(?:/([A-Za-z0-9_-]+)(?:/(stats|events(?:/[A-Za-z0-9_-]+)?|shared-accounts|install))?)?",
+        path,
+    )
+    valid_tracking_path = bool(tracking_match and tracking_match.group(1) == connection["id"])
+    if not valid_ads_path and not valid_tracking_path and path != "/events":
+        raise HTTPException(400, "Choose a documented TikTok Ads, pixel, or conversion-event endpoint.")
+    if path == "/ads/insights/reports" or path.startswith("/ads/insights/reports/"):
+        raise HTTPException(400, "TikTok async report runs are not supported by Zernio; use live /ads/insights.")
+    if path.startswith("/ads/rf-predictions"):
+        raise HTTPException(400, "Reach & Frequency predictions are not supported for TikTok Ads.")
+    if path == "/events" and body.method != "POST":
+        raise HTTPException(400, "TikTok offline conversion events must be sent with POST.")
+    if valid_tracking_path and body.method == "DELETE":
+        suffix = path.removeprefix(f"/accounts/{connection['id']}/tracking-tags")
+        if not suffix or re.fullmatch(r"/[A-Za-z0-9_-]+", suffix) or "/events" in suffix:
+            raise HTTPException(400, "TikTok does not support pixel or pixel-event deletion; only shared-account links and installations can be removed.")
+
+    params = dict(body.query)
+    request_body = dict(body.body)
+    boost_account_ids = {connection["id"]}
+    boost_account_id = connection["id"]
+    if path == "/ads/boost":
+        parent_id = str(connection.get("parent_account_id") or "")
+        if parent_id:
+            try:
+                workspace_tiktok_ids = {
+                    account["id"] for account in latehub.accounts(ctx.workspace_id)
+                    if account["platform"] == "tiktok"
+                }
+            except latehub.LateHubError as error:
+                raise HTTPException(error.status or 502, str(error)) from error
+            if parent_id in workspace_tiktok_ids:
+                boost_account_ids.add(parent_id)
+                boost_account_id = parent_id
+    for data in (params, request_body):
+        if "accountId" in data and str(data["accountId"]) not in boost_account_ids:
+            raise HTTPException(400, "accountId must match the selected TikTok Ads connection or its linked workspace TikTok account.")
+        if "adAccountId" in data and str(data["adAccountId"]) != body.ad_account_id:
+            raise HTTPException(400, "adAccountId must match the selected workspace TikTok Ads advertiser.")
+    if path != "/events":
+        params["accountId"] = connection["id"]
+        if not path.endswith("/install"):
+            params["adAccountId"] = body.ad_account_id
+    if path in {
+        "/ads/create", "/ads/audiences", "/ads/images", "/ads/videos",
+    } and body.method == "POST":
+        request_body.setdefault("accountId", connection["id"])
+        request_body.setdefault("adAccountId", body.ad_account_id)
+    if path == "/ads/boost" and body.method == "POST":
+        request_body.setdefault("accountId", boost_account_id)
+        request_body.setdefault("adAccountId", body.ad_account_id)
+        params["accountId"] = request_body["accountId"]
+    if valid_tracking_path and body.method == "POST" and not path.endswith("/install"):
+        request_body.setdefault("adAccountId", body.ad_account_id)
+    if valid_tracking_path and path.endswith("/install"):
+        store_account_id = (
+            request_body.get("storeAccountId") if body.method == "POST"
+            else params.get("storeAccountId")
+        )
+        if not store_account_id:
+            raise HTTPException(400, "Provide the connected Shopify or WordPress storeAccountId.")
+        try:
+            store_account = next(
+                (account for account in latehub.accounts(ctx.workspace_id)
+                 if account["id"] == str(store_account_id)),
+                None,
+            )
+        except latehub.LateHubError as error:
+            raise HTTPException(error.status or 502, str(error)) from error
+        if not store_account or store_account["platform"] not in ("shopify", "wordpress"):
+            raise HTTPException(400, "The store must be a Shopify or WordPress account connected to this workspace.")
+    if valid_tracking_path and path.endswith("/shared-accounts") and body.method == "DELETE":
+        share_account_id = params.get("adAccountId")
+        if not share_account_id:
+            raise HTTPException(400, "Provide the shared advertiser adAccountId to unlink.")
+        if str(share_account_id) != body.ad_account_id:
+            raise HTTPException(400, "The shared advertiser adAccountId must match the selected TikTok advertiser.")
+    if path == "/events":
+        profile_id = latehub.ensure_profile(ctx.workspace_id)
+        if "profileId" in request_body and str(request_body["profileId"]) != profile_id:
+            raise HTTPException(400, "profileId must match the selected workspace.")
+        request_body["profileId"] = profile_id
+        events = request_body.get("events")
+        destinations = request_body.get("destinations")
+        if not isinstance(events, list) or not events:
+            raise HTTPException(400, "Provide at least one offline conversion event.")
+        if len(events) > 1000:
+            raise HTTPException(400, "TikTok accepts at most 1,000 conversion events per request.")
+        if not isinstance(destinations, list) or not destinations:
+            raise HTTPException(400, "Choose at least one TikTok offline event-set destination.")
+        for destination in destinations:
+            if not isinstance(destination, dict) or str(destination.get("accountId") or "") != connection["id"]:
+                raise HTTPException(400, "Each conversion destination must use the selected workspace TikTok connection.")
+        request_body["destinations"] = destinations
+    try:
+        return latehub.tiktok_ads_request(
             body.method, path, params=params,
             body=request_body if body.method != "GET" else None,
         )
