@@ -6030,7 +6030,7 @@ pages.ads = async app => {
         <div id="camp-meta-objective-fields" hidden>
           <div data-meta-objective="lead_generation">
             <label class="small muted" for="camp-meta-form">Instant form ID</label><input id="camp-meta-form" maxlength="100" style="width:100%">
-            <label class="small muted" for="camp-meta-page">Facebook Page ID (optional if Zernio can infer it)</label><input id="camp-meta-page" maxlength="100" style="width:100%">
+            <label class="small muted" for="camp-meta-page">Facebook Page ID (optional if the platform can infer it)</label><input id="camp-meta-page" maxlength="100" style="width:100%">
           </div>
           <div data-meta-objective="lead_conversion conversions catalog_sales">
             <label class="small muted" for="camp-meta-custom-conversion">Custom Conversion ID (optional)</label><input id="camp-meta-custom-conversion" maxlength="100" style="width:100%">
@@ -6161,7 +6161,7 @@ pages.ads = async app => {
             <label class="small muted" for="camp-logo-upload">Or upload a logo</label>
             <input id="camp-logo-upload" type="file" accept="image/jpeg,image/png" style="width:100%"></div>
         </div>
-        <div id="camp-linkedin-fields" hidden><label class="small muted" for="camp-linkedin-org">LinkedIn Company Page ID (optional if Zernio can infer it)</label>
+        <div id="camp-linkedin-fields" hidden><label class="small muted" for="camp-linkedin-org">LinkedIn Company Page ID (optional if the platform can infer it)</label>
           <input id="camp-linkedin-org" maxlength="100" placeholder="Numeric ID or urn:li:organization:123" style="width:100%"></div>
         <div id="camp-cta-wrap"><label class="small muted" for="camp-cta">Call to action</label>
           <select id="camp-cta" style="width:100%">${[
@@ -6305,7 +6305,7 @@ pages.ads = async app => {
     {label:'Pause or resume an ad',method:'PUT',path:'/ads/REPLACE_WITH_AD_ID/status',query:{},body:{status:'paused'}},
     {label:'Update ad budget, targeting, creative, or status',method:'PUT',path:'/ads/REPLACE_WITH_AD_ID',query:{},body:{budget:{amount:25,type:'daily'},targeting:{countries:['US']},creative:{body:'Updated ad text',videoUrl:'https://example.com/new-video.mp4'}}},
     {label:'Duplicate campaign (created paused)',method:'POST',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/duplicate',query:{},body:{platform:'tiktok'}},
-    {label:'Send offline conversion events (PII is hashed by Zernio)',method:'POST',path:'/events',query:{},body:{destinations:[{accountId:tiktokConnection?.id || 'CONNECTION_ID',destinationId:'REPLACE_WITH_EVENT_SET_ID'}],events:[{eventName:'Purchase',eventTime:Math.floor(Date.now()/1000),eventId:'order-123',value:59.9,currency:'USD',actionSource:'offline',user:{email:'customer@example.com'}}]}},
+    {label:'Send offline conversion events (PII is hashed before transfer)',method:'POST',path:'/events',query:{},body:{destinations:[{accountId:tiktokConnection?.id || 'CONNECTION_ID',destinationId:'REPLACE_WITH_EVENT_SET_ID'}],events:[{eventName:'Purchase',eventTime:Math.floor(Date.now()/1000),eventId:'order-123',value:59.9,currency:'USD',actionSource:'offline',user:{email:'customer@example.com'}}]}},
   ];
   const linkedinToolsPresets = [
     {label:'Create a paused single-image campaign',method:'POST',path:'/ads/create',query:{},body:{name:'Spring launch',goal:'traffic',budgetAmount:50,budgetType:'daily',organizationId:'REPLACE_WITH_COMPANY_PAGE_ID',headline:'Make your team more productive',body:'A short description of the offer.',imageUrl:'https://cdn.example.com/launch-1200x627.jpg',linkUrl:'https://example.com',callToAction:'LEARN_MORE',countries:['US'],status:'PAUSED'}},
@@ -6351,7 +6351,7 @@ pages.ads = async app => {
     {label:'Associate conversion rule with campaigns',method:'POST',path:'/ads/conversions/destinations/REPLACE_WITH_RULE_ID/associations',query:{},body:{campaignIds:['REPLACE_WITH_CAMPAIGN_ID']}},
     {label:'Read LinkedIn conversion attribution metrics',method:'GET',path:'/ads/conversions/destinations/REPLACE_WITH_RULE_ID/metrics',query:{startDate:metaMonthAgo,endDate:metaToday,granularity:'DAILY'},body:{}},
     {label:'Disable a LinkedIn conversion rule',method:'DELETE',path:'/ads/conversions/destinations/REPLACE_WITH_RULE_ID',query:{},body:{}},
-    {label:'Send LinkedIn offline conversion events (PII hashed by Zernio)',method:'POST',path:'/events',query:{},body:{destinations:[{accountId:linkedinConnection?.id || 'LINKEDIN_ADS_CONNECTION_ID',destinationId:'REPLACE_WITH_CONVERSION_RULE_ID'}],events:[{eventName:'Lead',eventTime:Math.floor(Date.now()/1000),eventId:'lead-123',value:42.5,currency:'USD',user:{email:'customer@example.com',firstName:'Jane',lastName:'Doe',country:'US',clickIds:{li_fat_id:'REPLACE_WITH_LI_FAT_ID'}}}]}},
+    {label:'Send LinkedIn offline conversion events (PII is hashed before transfer)',method:'POST',path:'/events',query:{},body:{destinations:[{accountId:linkedinConnection?.id || 'LINKEDIN_ADS_CONNECTION_ID',destinationId:'REPLACE_WITH_CONVERSION_RULE_ID'}],events:[{eventName:'Lead',eventTime:Math.floor(Date.now()/1000),eventId:'lead-123',value:42.5,currency:'USD',user:{email:'customer@example.com',firstName:'Jane',lastName:'Doe',country:'US',clickIds:{li_fat_id:'REPLACE_WITH_LI_FAT_ID'}}}]}},
     {label:'Read LinkedIn campaign URL tracking tags',method:'GET',path:'/ads/REPLACE_WITH_ZERNIO_AD_ID/tracking-tags',query:{},body:{}},
     {label:'Set LinkedIn campaign URL tracking tags',method:'PATCH',path:'/ads/REPLACE_WITH_ZERNIO_AD_ID/tracking-tags',query:{},body:{dynamicValueParameters:{utm_campaign:'CAMPAIGN_NAME',utm_content:'CREATIVE_ID'},customValueParameters:{utm_source:'linkedin',utm_medium:'paid_social'}}},
   ];
@@ -6375,7 +6375,7 @@ pages.ads = async app => {
     {label:'Get Keyword Planner historical metrics',method:'POST',path:'/ads/keywords/historical-metrics',query:{},body:{keywords:['project management software'],countries:['US'],languageConstantId:'1000',includeAverageCpc:true}},
     {label:'List Customer Match audiences',method:'GET',path:'/ads/audiences',query:{},body:{}},
     {label:'Create Customer Match audience',method:'POST',path:'/ads/audiences',query:{},body:{type:'customer_list',name:'Customer Match list'}},
-    {label:'Upload Customer Match emails (hashed by Zernio)',method:'POST',path:'/ads/audiences/REPLACE_WITH_AUDIENCE_ID/users',query:{},body:{users:[{email:'customer@example.com'}]}},
+    {label:'Upload Customer Match emails (hashed before transfer)',method:'POST',path:'/ads/audiences/REPLACE_WITH_AUDIENCE_ID/users',query:{},body:{users:[{email:'customer@example.com'}]}},
     {label:'List offline conversion destinations',method:'GET',path:'/ads/conversions/destinations',query:{},body:{}},
     {label:'Create an offline conversion destination',method:'POST',path:'/ads/conversions/destinations',query:{},body:{name:'Offline purchase',type:'Purchase',countingType:'MANY_PER_CLICK',primaryForGoal:false}},
     {label:'List Google conversion actions',method:'GET',path:'/ads/conversions/actions',query:{},body:{}},
@@ -6389,7 +6389,7 @@ pages.ads = async app => {
     {label:'Read campaign conversion goals',method:'GET',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/conversion-goals',query:{},body:{}},
     {label:'Set campaign conversion goals',method:'PATCH',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/conversion-goals',query:{},body:{goalConfigLevel:'CAMPAIGN',customConversionGoalId:'REPLACE_WITH_GOAL_ID'}},
     {label:'Adjust an uploaded conversion (retract example)',method:'POST',path:'/ads/conversions/adjustments',query:{},body:{destinationId:'customers/REPLACE_WITH_CUSTOMER_ID/conversionActions/REPLACE_WITH_ACTION_ID',adjustments:[{adjustmentType:'RETRACTION',adjustmentTime:Math.floor(Date.now()/1000),orderId:'REPLACE_WITH_ORDER_ID'}]}},
-    {label:'Send Google offline conversion (PII hashed by Zernio)',method:'POST',path:'/events',query:{},body:{destinations:[{accountId:googleConnection?.id || 'CONNECTION_ID',destinationId:'customers/REPLACE_WITH_CUSTOMER_ID/conversionActions/REPLACE_WITH_ACTION_ID'}],consent:{adUserData:'GRANTED',adPersonalization:'GRANTED'},events:[{eventName:'Purchase',eventTime:Math.floor(Date.now()/1000),eventId:'order-123',value:59.9,currency:'USD',user:{email:'customer@example.com',clickIds:{gclid:'REPLACE_WITH_GCLID'}}}]}},
+    {label:'Send Google offline conversion (PII is hashed before transfer)',method:'POST',path:'/events',query:{},body:{destinations:[{accountId:googleConnection?.id || 'CONNECTION_ID',destinationId:'customers/REPLACE_WITH_CUSTOMER_ID/conversionActions/REPLACE_WITH_ACTION_ID'}],consent:{adUserData:'GRANTED',adPersonalization:'GRANTED'},events:[{eventName:'Purchase',eventTime:Math.floor(Date.now()/1000),eventId:'order-123',value:59.9,currency:'USD',user:{email:'customer@example.com',clickIds:{gclid:'REPLACE_WITH_GCLID'}}}]}},
     {label:'List Google recommendations',method:'GET',path:'/ads/recommendations',query:{},body:{}},
     {label:'Apply a Google recommendation (irreversible)',method:'POST',path:'/ads/recommendations/apply',query:{},body:{recommendations:[{resourceName:'REPLACE_WITH_RECOMMENDATION_RESOURCE_NAME'}]}},
     {label:'Dismiss Google recommendations',method:'POST',path:'/ads/recommendations/dismiss',query:{},body:{resourceNames:['REPLACE_WITH_RECOMMENDATION_RESOURCE_NAME']}},
@@ -6429,7 +6429,7 @@ pages.ads = async app => {
       <article class="card ads-overview-item"><span class="ads-overview-icon spend">#</span><div><span>Reported campaigns</span><b>${(campaignReport.campaigns || []).length}</b></div></article>
     </div>
     ${connectNotice}
-    ${!d.configured ? '<div class="notice" style="margin-bottom:12px">Managed publishing and Ads are not configured on this server yet. Ask the platform admin to set up Zernio.</div>' : ''}
+    ${!d.configured ? '<div class="notice" style="margin-bottom:12px">Managed publishing and Ads are not configured on this server yet. Ask the platform admin to configure the ad provider.</div>' : ''}
     <div class="ads-tabs" role="tablist" aria-label="Advertising tools">
       ${[['campaigns', 'Campaigns'], ['boosts', 'Boosts'], ['meta', 'Meta tools'], ['tiktok', 'TikTok tools'], ['google', 'Google tools'], ['linkedin', 'LinkedIn tools'], ['connections', 'Connections']].map(([tab, label]) =>
         `<button class="ads-tab${activeAdsTab === tab ? ' active' : ''}" type="button" role="tab"
@@ -6443,8 +6443,8 @@ pages.ads = async app => {
     </div>
     <div id="ads-panel-meta" role="tabpanel" aria-labelledby="ads-tab-meta" ${activeAdsTab === 'meta' ? '' : 'hidden'}>
       <section class="ads-section ads-meta-tools">
-        <div class="ads-section-heading"><div><span class="ads-kicker">ZERNIO META ADS API</span><h2>Meta Ads tools</h2>
-          <p class="small muted">Run Zernio’s documented Meta Ads operations for this workspace. See the <a href="https://docs.zernio.com/platforms/meta-ads" target="_blank" rel="noopener noreferrer">Zernio Meta Ads docs</a> for request fields and limits.</p></div></div>
+        <div class="ads-section-heading"><div><span class="ads-kicker">META ADS</span><h2>Meta Ads tools</h2>
+          <p class="small muted">Manage campaigns, audiences, conversions and reporting for this workspace.</p></div></div>
         ${metaConnection && metaAdAccounts.length && d.can_manage ? `<form id="meta-tools-form" class="card">
           <div style="max-width:420px;margin-bottom:18px"><label class="small muted" for="meta-tools-account">Meta ad account</label>
             <select id="meta-tools-account" required style="width:100%">${metaAdAccounts.map(item =>
@@ -6608,7 +6608,7 @@ pages.ads = async app => {
             </div>
             <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
               <label class="small muted" for="meta-preview-ad-id">Preview an existing ad</label>
-              <div class="row" style="gap:8px"><input id="meta-preview-ad-id" maxlength="100" placeholder="Zernio ad ID" style="max-width:320px">
+              <div class="row" style="gap:8px"><input id="meta-preview-ad-id" maxlength="100" placeholder="Ad ID" style="max-width:320px">
                 <button class="btn sm" type="button" id="meta-preview-existing">Load ad preview</button></div>
             </div>
             <div id="meta-preview-result" aria-live="polite" style="margin-top:12px"></div>
@@ -6656,13 +6656,13 @@ pages.ads = async app => {
                 </select></div>
                 <div id="meta-audience-source-id-wrap" hidden><label class="small muted" for="meta-audience-source-id">Page, Instagram account, or video ID</label><input id="meta-audience-source-id" maxlength="100" style="width:100%"></div>
               </div>
-              <p class="small muted">Customer list rows are provided only for this request. Zernio normalizes and hashes identifiers before sending them to Meta. Only upload data you are authorized to use.</p>
+              <p class="small muted">Customer list rows are provided only for this request. Identifiers are normalized and hashed before they are sent to Meta. Only upload data you are authorized to use.</p>
               <button type="button" class="btn primary sm" id="meta-audience-create" style="margin-top:8px">Create audience</button>
             </details>
           </section>
           <section aria-labelledby="meta-pixels-heading" style="margin-bottom:20px">
             <h3 id="meta-pixels-heading">Meta pixels and Conversions API</h3>
-            <p class="small muted">Pixels are owned by Meta Business and the selected ad account. Server events go to the selected pixel; Zernio handles provider-side event processing. Submit customer data only with appropriate notice and consent.</p>
+            <p class="small muted">Pixels are owned by Meta Business and the selected ad account. Server events go to the selected pixel for processing. Submit customer data only with appropriate notice and consent.</p>
             <div class="row" style="gap:8px;align-items:end">
               <button type="button" class="btn sm" id="meta-pixels-load">Load pixels</button>
               <div><label class="small muted" for="meta-pixel-name">Create a pixel</label><input id="meta-pixel-name" maxlength="100" style="width:100%"></div>
@@ -6776,14 +6776,14 @@ pages.ads = async app => {
             <pre id="meta-rf-buy-result" class="card small" aria-live="polite" style="display:none;white-space:pre-wrap;overflow:auto;max-height:300px"></pre>
           </section>
           <details>
-          <summary class="small muted">Advanced Zernio API request (for operations without a guided workflow)</summary>
-          <p class="small muted">Use Zernio's documentation for the required request fields. Writes may create or change ads; verify the selected ad account before submitting.</p>
+          <summary class="small muted">Advanced API request (for operations without a guided workflow)</summary>
+          <p class="small muted">Provide the request fields required by the selected operation. Writes may create or change ads; verify the selected ad account before submitting.</p>
           <label class="small muted" for="meta-tools-preset">Start from an operation template</label>
           <select id="meta-tools-preset" style="width:100%;margin-bottom:10px"><option value="">Choose a template…</option>
             ${metaToolsPresets.map((preset, index) => `<option value="${index}">${esc(preset.label)}</option>`).join('')}</select>
           <div class="row"><div style="flex:1"><label class="small muted" for="meta-tools-method">Method</label>
               <select id="meta-tools-method"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select></div></div>
-          <label class="small muted" for="meta-tools-path">Zernio Ads API path</label>
+          <label class="small muted" for="meta-tools-path">Ads API path</label>
           <input id="meta-tools-path" required maxlength="512" placeholder="/ads/audiences" style="width:100%">
           <label class="small muted" for="meta-tools-query">Query parameters (JSON object)</label>
           <textarea id="meta-tools-query" spellcheck="false" style="width:100%;min-height:64px;font-family:monospace">{}</textarea>
@@ -6797,8 +6797,8 @@ pages.ads = async app => {
     </div>
     <div id="ads-panel-tiktok" role="tabpanel" aria-labelledby="ads-tab-tiktok" ${activeAdsTab === 'tiktok' ? '' : 'hidden'}>
       <section class="ads-section ads-tiktok-tools">
-        <div class="ads-section-heading"><div><span class="ads-kicker">ZERNIO TIKTOK ADS API</span><h2>TikTok Ads tools</h2>
-          <p class="small muted">Manage TikTok campaigns, Spark Ads, audiences, pixels, offline conversions, Business Centers and reporting. See the <a href="https://docs.zernio.com/platforms/tiktok-ads" target="_blank" rel="noopener noreferrer">Zernio TikTok Ads docs</a> for request fields and limits.</p></div></div>
+        <div class="ads-section-heading"><div><span class="ads-kicker">TIKTOK ADS</span><h2>TikTok Ads tools</h2>
+          <p class="small muted">Manage TikTok campaigns, Spark Ads, audiences, pixels, offline conversions, Business Centers and reporting.</p></div></div>
         ${tiktokConnection && tiktokAdAccounts.length && d.can_manage ? `<form id="tiktok-tools-form" class="card">
           <div style="max-width:420px;margin-bottom:18px"><label class="small muted" for="tiktok-tools-account">TikTok advertiser</label>
             <select id="tiktok-tools-account" required style="width:100%">${tiktokAdAccounts.map(item =>
@@ -6809,7 +6809,7 @@ pages.ads = async app => {
             ${tiktokToolsPresets.map((preset, index) => `<option value="${index}">${esc(preset.label)}</option>`).join('')}</select>
           <div class="row"><div style="flex:1"><label class="small muted" for="tiktok-tools-method">Method</label>
               <select id="tiktok-tools-method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select></div></div>
-          <label class="small muted" for="tiktok-tools-path">Zernio API path</label>
+          <label class="small muted" for="tiktok-tools-path">Ads API path</label>
           <input id="tiktok-tools-path" required maxlength="512" placeholder="/ads/audiences" style="width:100%">
           <label class="small muted" for="tiktok-tools-query">Query parameters (JSON object)</label>
           <textarea id="tiktok-tools-query" spellcheck="false" style="width:100%;min-height:64px;font-family:monospace">{}</textarea>
@@ -6822,8 +6822,8 @@ pages.ads = async app => {
     </div>
     <div id="ads-panel-google" role="tabpanel" aria-labelledby="ads-tab-google" ${activeAdsTab === 'google' ? '' : 'hidden'}>
       <section class="ads-section ads-google-tools">
-        <div class="ads-section-heading"><div><span class="ads-kicker">ZERNIO GOOGLE ADS API</span><h2>Google Ads tools</h2>
-          <p class="small muted">Manage supported Google Ads campaigns, keywords, audiences, conversions, recommendations, accounts and reporting. See the <a href="https://docs.zernio.com/platforms/google-ads" target="_blank" rel="noopener noreferrer">Zernio Google Ads docs</a> for request fields and limits.</p></div></div>
+        <div class="ads-section-heading"><div><span class="ads-kicker">GOOGLE ADS</span><h2>Google Ads tools</h2>
+          <p class="small muted">Manage campaigns, keywords, audiences, conversions, recommendations, accounts and reporting.</p></div></div>
         ${googleConnection && googleAdAccounts.length && d.can_manage ? `<form id="google-tools-form" class="card">
           <div style="max-width:420px;margin-bottom:18px"><label class="small muted" for="google-tools-account">Google Ads customer</label>
             <select id="google-tools-account" required style="width:100%">${googleAdAccounts.map(item =>
@@ -6834,7 +6834,7 @@ pages.ads = async app => {
             ${googleToolsPresets.map((preset, index) => `<option value="${index}">${esc(preset.label)}</option>`).join('')}</select>
           <div class="row"><div style="flex:1"><label class="small muted" for="google-tools-method">Method</label>
               <select id="google-tools-method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select></div></div>
-          <label class="small muted" for="google-tools-path">Zernio API path</label>
+          <label class="small muted" for="google-tools-path">Ads API path</label>
           <input id="google-tools-path" required maxlength="512" placeholder="/ads/insights" style="width:100%">
           <label class="small muted" for="google-tools-query">Query parameters (JSON object)</label>
           <textarea id="google-tools-query" spellcheck="false" style="width:100%;min-height:64px;font-family:monospace">{}</textarea>
@@ -6849,19 +6849,19 @@ pages.ads = async app => {
     </div>
     <div id="ads-panel-linkedin" role="tabpanel" aria-labelledby="ads-tab-linkedin" ${activeAdsTab === 'linkedin' ? '' : 'hidden'}>
       <section class="ads-section ads-linkedin-tools">
-        <div class="ads-section-heading"><div><span class="ads-kicker">ZERNIO LINKEDIN ADS API</span><h2>LinkedIn Ads tools</h2>
-          <p class="small muted">Manage LinkedIn campaigns, audiences, Lead Gen Forms, conversions, targeting forecasts and reporting. See the <a href="https://docs.zernio.com/platforms/linkedin-ads" target="_blank" rel="noopener noreferrer">Zernio LinkedIn Ads docs</a> for request fields and limits.</p></div></div>
+        <div class="ads-section-heading"><div><span class="ads-kicker">LINKEDIN ADS</span><h2>LinkedIn Ads tools</h2>
+          <p class="small muted">Manage campaigns, audiences, Lead Gen Forms, conversions, targeting forecasts and reporting.</p></div></div>
         ${linkedinConnection && linkedinAdAccounts.length && d.can_manage ? `<form id="linkedin-tools-form" class="card">
           <div style="max-width:420px;margin-bottom:18px"><label class="small muted" for="linkedin-tools-account">LinkedIn sponsored ad account</label>
             <select id="linkedin-tools-account" required style="width:100%">${linkedinAdAccounts.map(item =>
               `<option value="${esc(item.id)}">${esc(item.name)}${item.currency ? ` · ${esc(item.currency)}` : ''}</option>`).join('')}</select></div>
-          <p class="notice small">Every write requires confirmation. Replace all REPLACE_WITH_* values before submitting. Campaigns are safest when created paused for review. LinkedIn boosts require a linked LinkedIn publishing account. Contact-list uploads replace the full list; audience emails and offline conversion identifiers are sent to LinkedIn and hashed by Zernio where documented. Lead responses may contain personal data. Use only data you are authorized to share.</p>
+          <p class="notice small">Every write requires confirmation. Replace all REPLACE_WITH_* values before submitting. Campaigns are safest when created paused for review. LinkedIn boosts require a linked LinkedIn publishing account. Contact-list uploads replace the full list; audience emails and offline conversion identifiers are sent to LinkedIn and hashed before transfer where supported. Lead responses may contain personal data. Use only data you are authorized to share.</p>
           <label class="small muted" for="linkedin-tools-preset">Start from an operation template</label>
           <select id="linkedin-tools-preset" style="width:100%;margin-bottom:10px"><option value="">Choose a template…</option>
             ${linkedinToolsPresets.map((preset, index) => `<option value="${index}">${esc(preset.label)}</option>`).join('')}</select>
           <div class="row"><div style="flex:1"><label class="small muted" for="linkedin-tools-method">Method</label>
               <select id="linkedin-tools-method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select></div></div>
-          <label class="small muted" for="linkedin-tools-path">Zernio API path</label>
+          <label class="small muted" for="linkedin-tools-path">Ads API path</label>
           <input id="linkedin-tools-path" required maxlength="512" placeholder="/ads/insights" style="width:100%">
           <label class="small muted" for="linkedin-tools-query">Query parameters (JSON object)</label>
           <textarea id="linkedin-tools-query" spellcheck="false" style="width:100%;min-height:64px;font-family:monospace">{}</textarea>
@@ -7007,9 +7007,9 @@ pages.ads = async app => {
   );
   const metaRfDisplayPrediction = (label, response) => {
     const prediction = response && (response.prediction || response);
-    if (!prediction || typeof prediction !== 'object') throw new Error('Zernio returned an invalid Reach & Frequency prediction.');
+    if (!prediction || typeof prediction !== 'object') throw new Error('The ad platform returned an invalid Reach & Frequency prediction.');
     const id = prediction.predictionId || prediction.id;
-    if (!id) throw new Error('Zernio did not return a prediction ID.');
+    if (!id) throw new Error('The ad platform did not return a prediction ID.');
     return {
       ...prediction,
       predictionId: String(id),
@@ -7123,7 +7123,7 @@ pages.ads = async app => {
       $('#meta-rf-placement', app).value = placementChoice;
       $('#meta-rf-reservation-note', app).textContent = saved.status === 'unknown'
         || ['reserve_pending', 'release_pending', 'buy_pending'].includes(saved.status)
-        ? `Saved state: ${saved.status.replaceAll('_', ' ')}. The provider result may be uncertain. Check Meta Ads Manager/Zernio before retrying or releasing.`
+        ? `Saved state: ${saved.status.replaceAll('_', ' ')}. The provider result may be uncertain. Check Meta Ads Manager before retrying or releasing.`
         : reservation.expiresAt ? `Reservation expires at ${reservation.expiresAt}.` : 'Reservation saved. Confirm its expiry with the provider before buying.';
       if (saved.status === 'bought') {
         metaRfBuyResult.style.display = 'block';
@@ -8094,7 +8094,7 @@ pages.ads = async app => {
   if ($('#meta-preview-existing', app)) $('#meta-preview-existing', app).onclick = guard(async button => {
     const adId = $('#meta-preview-ad-id', app).value.trim();
     if (!/^[A-Za-z0-9_-]+$/.test(adId)) {
-      toast('Enter a valid Zernio ad ID.', true);
+      toast('Enter a valid ad ID.', true);
       return;
     }
     const formats = selectedMetaFormats();
@@ -8121,7 +8121,7 @@ pages.ads = async app => {
       return;
     }
     if (rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) {
-      throw new Error('Zernio returned an invalid analytics row.');
+      throw new Error('The ad platform returned an invalid analytics row.');
     }
     const keys = [...new Set([...preferredColumns, ...rows.flatMap(row => Object.keys(row))])]
       .filter(key => rows.some(row => Object.hasOwn(row, key)));
@@ -8173,7 +8173,7 @@ pages.ads = async app => {
         query,
         body: {},
       });
-      if (!Array.isArray(response.rows)) throw new Error('Zernio returned an invalid Meta timeline response.');
+      if (!Array.isArray(response.rows)) throw new Error('The ad platform returned an invalid Meta timeline response.');
       target.replaceChildren();
       if (response.backfillPending) {
         const notice = document.createElement('p');
@@ -8186,7 +8186,7 @@ pages.ads = async app => {
         'conversions', 'costPerConversion', 'purchaseValue', 'roas',
       ]);
       if (compare && response.previousRows !== undefined) {
-        if (!Array.isArray(response.previousRows)) throw new Error('Zernio returned an invalid previous-period timeline.');
+        if (!Array.isArray(response.previousRows)) throw new Error('The ad platform returned an invalid previous-period timeline.');
         const range = response.previousRange || {};
         renderAnalyticsTable(
           target,
@@ -8310,7 +8310,7 @@ pages.ads = async app => {
         query,
         body: {},
       });
-      if (!Array.isArray(response.data)) throw new Error('Zernio returned an invalid Meta insights response.');
+      if (!Array.isArray(response.data)) throw new Error('The ad platform returned an invalid Meta insights response.');
       status.remove();
       renderAnalyticsTable(
         target,
@@ -8349,7 +8349,7 @@ pages.ads = async app => {
         body: report,
       });
       const reportRunId = response.reportRunId || response.report_run_id || response.id;
-      if (!reportRunId) throw new Error('Zernio did not return an async insights report run ID.');
+      if (!reportRunId) throw new Error('The ad platform did not return an async insights report run ID.');
       $('#meta-insights-report-id', app).value = String(reportRunId);
       saveMetaInsightsReportId(String(reportRunId));
       target.textContent = `Async report created: ${reportRunId}\n${JSON.stringify(response, null, 2)}`;
