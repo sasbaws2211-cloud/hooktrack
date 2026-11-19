@@ -6307,6 +6307,54 @@ pages.ads = async app => {
     {label:'Duplicate campaign (created paused)',method:'POST',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/duplicate',query:{},body:{platform:'tiktok'}},
     {label:'Send offline conversion events (PII is hashed by Zernio)',method:'POST',path:'/events',query:{},body:{destinations:[{accountId:tiktokConnection?.id || 'CONNECTION_ID',destinationId:'REPLACE_WITH_EVENT_SET_ID'}],events:[{eventName:'Purchase',eventTime:Math.floor(Date.now()/1000),eventId:'order-123',value:59.9,currency:'USD',actionSource:'offline',user:{email:'customer@example.com'}}]}},
   ];
+  const linkedinToolsPresets = [
+    {label:'Create a paused single-image campaign',method:'POST',path:'/ads/create',query:{},body:{name:'Spring launch',goal:'traffic',budgetAmount:50,budgetType:'daily',organizationId:'REPLACE_WITH_COMPANY_PAGE_ID',headline:'Make your team more productive',body:'A short description of the offer.',imageUrl:'https://cdn.example.com/launch-1200x627.jpg',linkUrl:'https://example.com',callToAction:'LEARN_MORE',countries:['US'],status:'PAUSED'}},
+    {label:'Create a paused video campaign',method:'POST',path:'/ads/create',query:{},body:{name:'Product video',goal:'video_views',budgetAmount:50,budgetType:'daily',organizationId:'REPLACE_WITH_COMPANY_PAGE_ID',headline:'See the product in action',body:'A short video description.',video:{url:'https://cdn.example.com/launch.mp4'},linkUrl:'https://example.com',countries:['US'],status:'PAUSED'}},
+    {label:'Create a paused carousel campaign',method:'POST',path:'/ads/create',query:{},body:{name:'Product carousel',goal:'traffic',budgetAmount:50,budgetType:'daily',organizationId:'REPLACE_WITH_COMPANY_PAGE_ID',headline:'Explore the collection',body:'A short description.',linkUrl:'https://example.com',countries:['US'],status:'PAUSED',platformSpecificData:{carousel:{cards:[{imageUrl:'https://cdn.example.com/card-1.jpg',headline:'First item',landingUrl:'https://example.com/one'},{imageUrl:'https://cdn.example.com/card-2.jpg',headline:'Second item',landingUrl:'https://example.com/two'}]}}}},
+    {label:'Create a paused document campaign',method:'POST',path:'/ads/create',query:{},body:{name:'Whitepaper download',goal:'traffic',budgetAmount:50,budgetType:'daily',organizationId:'REPLACE_WITH_COMPANY_PAGE_ID',headline:'Download the industry report',body:'A short description.',linkUrl:'https://example.com/whitepaper',countries:['US'],status:'PAUSED',platformSpecificData:{document:{url:'https://cdn.example.com/whitepaper.pdf',title:'Industry report'}}}},
+    {label:'Create a paused job applicants campaign',method:'POST',path:'/ads/create',query:{},body:{name:'Hiring campaign',goal:'job_applicants',budgetAmount:50,budgetType:'daily',organizationId:'REPLACE_WITH_COMPANY_PAGE_ID',countries:['US'],status:'PAUSED',platformSpecificData:{jobs:{headline:{custom:'Ready for your next role'},buttonLabel:{preApproved:'CAREERS_AT_COMPANY'}}}}},
+    {label:'Create a paused spotlight campaign',method:'POST',path:'/ads/create',query:{},body:{name:'Spotlight campaign',goal:'traffic',budgetAmount:50,budgetType:'daily',organizationId:'REPLACE_WITH_COMPANY_PAGE_ID',countries:['US'],status:'PAUSED',platformSpecificData:{spotlight:{headline:'See our platform',description:'One place for your team',callToAction:'Visit us',landingUrl:'https://example.com',logoUrl:'https://cdn.example.com/logo.png',organizationName:'Example Inc'}}}},
+    {label:'Create a paused follower campaign',method:'POST',path:'/ads/create',query:{},body:{name:'Company followers',goal:'engagement',budgetAmount:50,budgetType:'daily',organizationId:'REPLACE_WITH_COMPANY_PAGE_ID',countries:['US'],status:'PAUSED',platformSpecificData:{follower:{headline:{custom:'Follow us for updates'},description:{preApproved:'GET_LATEST_JOBS_AND_INDUSTRY_NEWS'},callToAction:'VISIT_ORGANIZATION_COMPANY_PAGE'}}}},
+    {label:'Create a paused text ad',method:'POST',path:'/ads/create',query:{},body:{name:'Right rail text ad',goal:'traffic',budgetAmount:50,budgetType:'daily',organizationId:'REPLACE_WITH_COMPANY_PAGE_ID',countries:['US'],status:'PAUSED',platformSpecificData:{textAd:{headline:'Try Example',description:'Tools for growing teams',landingUrl:'https://example.com',imageUrl:'https://cdn.example.com/logo-100x100.png'}}}},
+    {label:'Create a paused LinkedIn Event campaign',method:'POST',path:'/ads/create',query:{},body:{name:'Promote company event',goal:'engagement',budgetAmount:50,budgetType:'daily',organizationId:'REPLACE_WITH_COMPANY_PAGE_ID',countries:['US'],status:'PAUSED',platformSpecificData:{event:{urn:'urn:li:event:REPLACE_WITH_EVENT_ID'}}}},
+    {label:'Create a paused thought-leader campaign',method:'POST',path:'/ads/create',query:{},body:{name:'Sponsor company post',goal:'engagement',budgetAmount:50,budgetType:'daily',organizationId:'REPLACE_WITH_COMPANY_PAGE_ID',countries:['US'],status:'PAUSED',platformSpecificData:{thoughtLeader:{postUrn:'urn:li:share:REPLACE_WITH_POST_ID'}}}},
+    {label:'Create a paused conversation ad',method:'POST',path:'/ads/create',query:{},body:{name:'Message prospects',goal:'engagement',budgetAmount:50,budgetType:'daily',organizationId:'REPLACE_WITH_COMPANY_PAGE_ID',countries:['US'],status:'PAUSED',platformSpecificData:{conversation:{subject:'Chat with us',firstMessageId:'intro',messages:[{id:'intro',text:'Hi there. How can we help?',buttons:[{text:'Visit our site',url:'https://example.com'}]}]}}}},
+    {label:'Boost a LinkedIn Company Page post',method:'POST',path:'/ads/boost',query:{},body:{platformPostId:'urn:li:share:REPLACE_WITH_POST_ID',name:'Boost product launch',goal:'engagement',budget:{amount:50,type:'daily'},schedule:{startDate:new Date(Date.now()+86400000).toISOString(),endDate:new Date(Date.now()+8*86400000).toISOString()}}},
+    {label:'Read LinkedIn campaign tree and metrics',method:'GET',path:'/ads/tree',query:{fromDate:metaMonthAgo,toDate:metaToday,platform:'linkedin'},body:{}},
+    {label:'Read live LinkedIn insights',method:'GET',path:'/ads/insights',query:{fromDate:metaMonthAgo,toDate:metaToday,platform:'linkedin'},body:{}},
+    {label:'Read LinkedIn ad analytics with firmographic breakdowns',method:'GET',path:'/ads/REPLACE_WITH_ZERNIO_AD_ID/analytics',query:{fromDate:metaMonthAgo,toDate:metaToday,breakdowns:'job_title,seniority,industry,company_size'},body:{}},
+    {label:'Read LinkedIn campaign analytics',method:'GET',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/analytics',query:{fromDate:metaMonthAgo,toDate:metaToday,breakdowns:'job_function,country'},body:{}},
+    {label:'Pause or resume a LinkedIn campaign',method:'PUT',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/status',query:{},body:{status:'paused',platform:'linkedin'}},
+    {label:'Pause or resume a LinkedIn campaign ad set',method:'PUT',path:'/ads/ad-sets/REPLACE_WITH_CAMPAIGN_ID/status',query:{},body:{status:'paused',platform:'linkedin'}},
+    {label:'Pause or resume a LinkedIn ad',method:'PUT',path:'/ads/REPLACE_WITH_ZERNIO_AD_ID/status',query:{},body:{status:'paused'}},
+    {label:'Read a LinkedIn ad',method:'GET',path:'/ads/REPLACE_WITH_ZERNIO_AD_ID',query:{},body:{}},
+    {label:'Update LinkedIn ad details',method:'PUT',path:'/ads/REPLACE_WITH_ZERNIO_AD_ID',query:{},body:{creative:{body:'Updated ad text'}}},
+    {label:'Update LinkedIn campaign targeting',method:'PUT',path:'/ads/REPLACE_WITH_ZERNIO_AD_ID',query:{},body:{targeting:{countries:['US'],industries:['urn:li:industry:4'],seniorities:['6'],companySizes:['E']}}},
+    {label:'Search LinkedIn targeting facets',method:'GET',path:'/ads/targeting/search',query:{q:'software',dimension:'skill'},body:{}},
+    {label:'Get LinkedIn suggested bid and budget bounds',method:'POST',path:'/ads/targeting/bid-pricing',query:{},body:{spec:{countries:['US']},campaignType:'SPONSORED_UPDATES',bidType:'CPM',currency:'USD',objectiveType:'WEBSITE_VISIT',dailyBudget:50}},
+    {label:'Forecast LinkedIn campaign delivery',method:'POST',path:'/ads/targeting/supply-forecast',query:{},body:{spec:{countries:['US']},campaignType:'SPONSORED_UPDATES',timeRangeStart:Date.now()+86400000,timeRangeEnd:Date.now()+8*86400000,objectiveType:'WEBSITE_VISIT',dailyBudget:50,competingBid:{bidType:'CPM',amount:10}}},
+    {label:'List LinkedIn matched audiences',method:'GET',path:'/ads/audiences',query:{},body:{}},
+    {label:'Create a LinkedIn contact-list audience',method:'POST',path:'/ads/audiences',query:{},body:{type:'customer_list',name:'Webinar attendees'}},
+    {label:'Replace contact-list audience members (email data)',method:'POST',path:'/ads/audiences/REPLACE_WITH_AUDIENCE_ID/users',query:{},body:{users:[{email:'customer@example.com'}]}},
+    {label:'Create a LinkedIn company-list audience',method:'POST',path:'/ads/audiences',query:{},body:{type:'company_list',name:'Target companies',companies:[{name:'Example Inc',domain:'example.com'}]}},
+    {label:'Replace LinkedIn company-list rows',method:'POST',path:'/ads/audiences/REPLACE_WITH_AUDIENCE_ID/companies',query:{},body:{companies:[{name:'Example Inc',domain:'example.com'}]}},
+    {label:'Create a LinkedIn engagement retargeting audience',method:'POST',path:'/ads/audiences',query:{},body:{type:'engagement',name:'Video viewers',sourceType:'VIDEO_ADS',trigger:'FIRST_QUARTILE',lookbackDays:90,engagementSources:['urn:li:sponsoredCampaign:REPLACE_WITH_CAMPAIGN_ID']}},
+    {label:'Create a LinkedIn website retargeting audience',method:'POST',path:'/ads/audiences',query:{},body:{type:'website_retargeting',name:'Pricing page visitors',matchRules:[{matchType:'STARTS_WITH',matchValue:'https://example.com/pricing'}]}},
+    {label:'Delete a LinkedIn matched audience',method:'DELETE',path:'/ads/audiences/REPLACE_WITH_AUDIENCE_ID',query:{},body:{}},
+    {label:'List LinkedIn Lead Gen Forms',method:'GET',path:'/ads/lead-forms',query:{},body:{}},
+    {label:'Create a LinkedIn Lead Gen Form',method:'POST',path:'/ads/lead-forms',query:{},body:{name:'Product guide request',privacyPolicyUrl:'https://example.com/privacy',platformSpecificData:{headline:'Get the guide',description:'Tell us where to send it.',state:'DRAFT',questions:[{kind:'text',name:'company',question:'Company name'}],consents:[{description:'I agree to be contacted',required:true}]}}},
+    {label:'Read a LinkedIn Lead Gen Form',method:'GET',path:'/ads/lead-forms/REPLACE_WITH_FORM_ID',query:{},body:{}},
+    {label:'Archive a LinkedIn Lead Gen Form',method:'DELETE',path:'/ads/lead-forms/REPLACE_WITH_FORM_ID',query:{},body:{}},
+    {label:'Retrieve LinkedIn lead responses (personal data)',method:'GET',path:'/ads/leads',query:{formId:'REPLACE_WITH_FORM_ID',limit:50},body:{}},
+    {label:'List LinkedIn conversion rules',method:'GET',path:'/ads/conversions/destinations',query:{},body:{}},
+    {label:'Create a LinkedIn conversion rule',method:'POST',path:'/ads/conversions/destinations',query:{},body:{name:'Trial activation',type:'Lead',attributionType:'LAST_TOUCH_BY_CAMPAIGN',autoAssociationType:'NONE'}},
+    {label:'Associate conversion rule with campaigns',method:'POST',path:'/ads/conversions/destinations/REPLACE_WITH_RULE_ID/associations',query:{},body:{campaignIds:['REPLACE_WITH_CAMPAIGN_ID']}},
+    {label:'Read LinkedIn conversion attribution metrics',method:'GET',path:'/ads/conversions/destinations/REPLACE_WITH_RULE_ID/metrics',query:{startDate:metaMonthAgo,endDate:metaToday,granularity:'DAILY'},body:{}},
+    {label:'Disable a LinkedIn conversion rule',method:'DELETE',path:'/ads/conversions/destinations/REPLACE_WITH_RULE_ID',query:{},body:{}},
+    {label:'Send LinkedIn offline conversion events (PII hashed by Zernio)',method:'POST',path:'/events',query:{},body:{destinations:[{accountId:linkedinConnection?.id || 'LINKEDIN_ADS_CONNECTION_ID',destinationId:'REPLACE_WITH_CONVERSION_RULE_ID'}],events:[{eventName:'Lead',eventTime:Math.floor(Date.now()/1000),eventId:'lead-123',value:42.5,currency:'USD',user:{email:'customer@example.com',firstName:'Jane',lastName:'Doe',country:'US',clickIds:{li_fat_id:'REPLACE_WITH_LI_FAT_ID'}}}]}},
+    {label:'Read LinkedIn campaign URL tracking tags',method:'GET',path:'/ads/REPLACE_WITH_ZERNIO_AD_ID/tracking-tags',query:{},body:{}},
+    {label:'Set LinkedIn campaign URL tracking tags',method:'PATCH',path:'/ads/REPLACE_WITH_ZERNIO_AD_ID/tracking-tags',query:{},body:{dynamicValueParameters:{utm_campaign:'CAMPAIGN_NAME',utm_content:'CREATIVE_ID'},customValueParameters:{utm_source:'linkedin',utm_medium:'paid_social'}}},
+  ];
   const googleToolsPresets = [
     {label:'Create Performance Max campaign (validate only)',method:'POST',path:'/ads/create',query:{},body:{validateOnly:true,campaignType:'pmax',name:'Spring Performance Max',budgetAmount:40,budgetType:'daily',assetGroup:{businessName:'Acme',finalUrl:'https://example.com',longHeadline:'Everything your team needs in one place',headlines:['Acme for teams','Start in minutes','Built for scale'],descriptions:['Set up in minutes and invite your whole team.','Trusted by thousands of growing companies.'],images:{landscape:['https://cdn.example.com/pmax-1200x628.jpg'],square:['https://cdn.example.com/pmax-1080x1080.jpg'],logo:['https://cdn.example.com/logo-1200x1200.jpg']}},countries:['US']}},
     {label:'Create Display campaign (live create)',method:'POST',path:'/ads/create',query:{},body:{campaignType:'display',goal:'traffic',name:'Retargeting Display',budgetAmount:40,budgetType:'daily',headline:'Finish your signup',body:'Come back and upgrade today.',linkUrl:'https://example.com/upgrade',businessName:'Acme',images:{landscape:'https://cdn.example.com/retarget-1200x628.jpg',square:'https://cdn.example.com/retarget-1080x1080.jpg'},countries:['US']}},
@@ -6383,7 +6431,7 @@ pages.ads = async app => {
     ${connectNotice}
     ${!d.configured ? '<div class="notice" style="margin-bottom:12px">Managed publishing and Ads are not configured on this server yet. Ask the platform admin to set up Zernio.</div>' : ''}
     <div class="ads-tabs" role="tablist" aria-label="Advertising tools">
-      ${[['campaigns', 'Campaigns'], ['boosts', 'Boosts'], ['meta', 'Meta tools'], ['tiktok', 'TikTok tools'], ['google', 'Google tools'], ['connections', 'Connections']].map(([tab, label]) =>
+      ${[['campaigns', 'Campaigns'], ['boosts', 'Boosts'], ['meta', 'Meta tools'], ['tiktok', 'TikTok tools'], ['google', 'Google tools'], ['linkedin', 'LinkedIn tools'], ['connections', 'Connections']].map(([tab, label]) =>
         `<button class="ads-tab${activeAdsTab === tab ? ' active' : ''}" type="button" role="tab"
           id="ads-tab-${tab}" aria-controls="ads-panel-${tab}" aria-selected="${activeAdsTab === tab}"
           data-ads-tab="${tab}">${label}</button>`).join('')}
@@ -6797,6 +6845,33 @@ pages.ads = async app => {
           <div class="actions"><button id="google-tools-run" class="btn primary" type="submit">Run Google Ads request</button></div>
           <pre id="google-tools-result" class="card small" style="display:none;white-space:pre-wrap;overflow:auto;max-height:420px"></pre>
         </form>` : `<div class="empty card"><p>${!d.can_manage ? 'Ask a workspace admin to manage Google Ads.' : !googleConnection ? 'Connect Google Ads to this workspace first.' : 'Select a Google Ads customer in the provider before using Google Ads tools.'}</p></div>`}
+      </section>
+    </div>
+    <div id="ads-panel-linkedin" role="tabpanel" aria-labelledby="ads-tab-linkedin" ${activeAdsTab === 'linkedin' ? '' : 'hidden'}>
+      <section class="ads-section ads-linkedin-tools">
+        <div class="ads-section-heading"><div><span class="ads-kicker">ZERNIO LINKEDIN ADS API</span><h2>LinkedIn Ads tools</h2>
+          <p class="small muted">Manage LinkedIn campaigns, audiences, Lead Gen Forms, conversions, targeting forecasts and reporting. See the <a href="https://docs.zernio.com/platforms/linkedin-ads" target="_blank" rel="noopener noreferrer">Zernio LinkedIn Ads docs</a> for request fields and limits.</p></div></div>
+        ${linkedinConnection && linkedinAdAccounts.length && d.can_manage ? `<form id="linkedin-tools-form" class="card">
+          <div style="max-width:420px;margin-bottom:18px"><label class="small muted" for="linkedin-tools-account">LinkedIn sponsored ad account</label>
+            <select id="linkedin-tools-account" required style="width:100%">${linkedinAdAccounts.map(item =>
+              `<option value="${esc(item.id)}">${esc(item.name)}${item.currency ? ` · ${esc(item.currency)}` : ''}</option>`).join('')}</select></div>
+          <p class="notice small">Every write requires confirmation. Replace all REPLACE_WITH_* values before submitting. Campaigns are safest when created paused for review. LinkedIn boosts require a linked LinkedIn publishing account. Contact-list uploads replace the full list; audience emails and offline conversion identifiers are sent to LinkedIn and hashed by Zernio where documented. Lead responses may contain personal data. Use only data you are authorized to share.</p>
+          <label class="small muted" for="linkedin-tools-preset">Start from an operation template</label>
+          <select id="linkedin-tools-preset" style="width:100%;margin-bottom:10px"><option value="">Choose a template…</option>
+            ${linkedinToolsPresets.map((preset, index) => `<option value="${index}">${esc(preset.label)}</option>`).join('')}</select>
+          <div class="row"><div style="flex:1"><label class="small muted" for="linkedin-tools-method">Method</label>
+              <select id="linkedin-tools-method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select></div></div>
+          <label class="small muted" for="linkedin-tools-path">Zernio API path</label>
+          <input id="linkedin-tools-path" required maxlength="512" placeholder="/ads/insights" style="width:100%">
+          <label class="small muted" for="linkedin-tools-query">Query parameters (JSON object)</label>
+          <textarea id="linkedin-tools-query" spellcheck="false" style="width:100%;min-height:64px;font-family:monospace">{}</textarea>
+          <label class="small muted" for="linkedin-tools-body">Request body (JSON object)</label>
+          <textarea id="linkedin-tools-body" spellcheck="false" style="width:100%;min-height:150px;font-family:monospace">{}</textarea>
+          <label class="small muted" for="linkedin-tools-idempotency">Idempotency key (optional; use only for an exact retry of a post boost)</label>
+          <input id="linkedin-tools-idempotency" maxlength="200" placeholder="linkedin-boost-unique-key" style="width:100%">
+          <div class="actions"><button id="linkedin-tools-run" class="btn primary" type="submit">Run LinkedIn Ads request</button></div>
+          <pre id="linkedin-tools-result" class="card small" style="display:none;white-space:pre-wrap;overflow:auto;max-height:420px"></pre>
+        </form>` : `<div class="empty card"><p>${!d.can_manage ? 'Ask a workspace admin to manage LinkedIn Ads.' : !linkedinConnection ? 'Connect LinkedIn Ads to this workspace first.' : 'Select a LinkedIn sponsored ad account in the provider before using LinkedIn Ads tools.'}</p></div>`}
       </section>
     </div>
     <div id="ads-panel-campaigns" role="tabpanel" aria-labelledby="ads-tab-campaigns" ${activeAdsTab === 'campaigns' ? '' : 'hidden'}>
@@ -8610,6 +8685,57 @@ pages.ads = async app => {
         query,
         body,
         idempotency_key: $('#google-tools-idempotency', app).value.trim(),
+      });
+      result.textContent = JSON.stringify(response, null, 2);
+    } catch (error) {
+      result.textContent = error.message;
+      throw error;
+    } finally { if (button.isConnected) busy(button, false); }
+  });
+  if ($('#linkedin-tools-preset', app)) $('#linkedin-tools-preset', app).onchange = () => {
+    const value = $('#linkedin-tools-preset', app).value;
+    const preset = value ? linkedinToolsPresets[Number(value)] : null;
+    if (!preset) return;
+    $('#linkedin-tools-method', app).value = preset.method;
+    $('#linkedin-tools-path', app).value = preset.path;
+    $('#linkedin-tools-query', app).value = JSON.stringify(preset.query, null, 2);
+    $('#linkedin-tools-body', app).value = JSON.stringify(preset.body, null, 2);
+    $('#linkedin-tools-idempotency', app).value = '';
+  };
+  if ($('#linkedin-tools-form', app)) $('#linkedin-tools-form', app).onsubmit = guard(async event => {
+    event.preventDefault();
+    const method = $('#linkedin-tools-method', app).value;
+    let query, body;
+    try {
+      query = JSON.parse($('#linkedin-tools-query', app).value || '{}');
+      body = JSON.parse($('#linkedin-tools-body', app).value || '{}');
+    } catch (error) {
+      toast(`Request JSON is invalid: ${error.message}`, true);
+      return;
+    }
+    if (!query || Array.isArray(query) || typeof query !== 'object'
+      || !body || Array.isArray(body) || typeof body !== 'object') {
+      toast('Query and request body must each be JSON objects.', true);
+      return;
+    }
+    if (method !== 'GET' && !await askConfirm(
+      'This request may create or change LinkedIn ads, spend against the selected advertiser, change targeting or account data, or send customer information. Review the advertiser and full JSON before continuing.',
+      { title: 'Run LinkedIn Ads write request', ok: 'Run request', danger: true },
+    )) return;
+    const button = $('#linkedin-tools-run', app);
+    const result = $('#linkedin-tools-result', app);
+    result.style.display = 'block';
+    result.textContent = 'Request in progress…';
+    busy(button, true, 'Running…');
+    try {
+      const response = await api('POST', '/api/ads/linkedin/request', {
+        ad_connection_id: linkedinConnection.id,
+        ad_account_id: $('#linkedin-tools-account', app).value,
+        method,
+        path: $('#linkedin-tools-path', app).value.trim(),
+        query,
+        body,
+        idempotency_key: $('#linkedin-tools-idempotency', app).value.trim(),
       });
       result.textContent = JSON.stringify(response, null, 2);
     } catch (error) {

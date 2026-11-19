@@ -1961,6 +1961,114 @@ def google_ads_request(body: AdsApiRequestIn, ctx: Ctx = Depends(admin)):
                             str(error)) from error
 
 
+@router.post("/linkedin/request")
+def linkedin_ads_request(body: AdsApiRequestIn, ctx: Ctx = Depends(admin)):
+    """Expose documented LinkedIn Ads operations using the selected workspace advertiser."""
+    connection = _selected_ad_account(
+        ctx.workspace_id, body.ad_connection_id, body.ad_account_id, "linkedin")
+    path = body.path
+    valid_ads_path = (
+        path.startswith("/ads/")
+        and not path.startswith("//")
+        and all(part not in ("", ".", "..") for part in path.split("/")[1:])
+        and re.fullmatch(r"/ads/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*", path) is not None
+    )
+    if not valid_ads_path and path != "/events":
+        raise HTTPException(400, "Choose a documented LinkedIn Ads or conversion-event endpoint.")
+    if path == "/events" and body.method != "POST":
+        raise HTTPException(400, "LinkedIn conversion events must be sent with POST.")
+    if body.idempotency_key and (
+        path != "/ads/boost"
+        or body.method != "POST"
+        or not re.fullmatch(r"[A-Za-z0-9._:-]{1,200}", body.idempotency_key)
+    ):
+        raise HTTPException(400, "An idempotency key is supported only for LinkedIn post boosts and must use letters, numbers, '.', '_', ':' or '-'.")
+
+    params = dict(body.query)
+    request_body = dict(body.body)
+    profile_id = ""
+    boost_account_id = ""
+    if path == "/ads/boost":
+        try:
+            posting_accounts = latehub.accounts(ctx.workspace_id)
+        except latehub.LateHubError as error:
+            raise HTTPException(error.status or 502, str(error)) from error
+        linked_account = next(
+            (account for account in posting_accounts if account["platform"] == "linkedin"),
+            None,
+        )
+        if not linked_account:
+            raise HTTPException(
+                400, "Connect a LinkedIn publishing account to this workspace before boosting a Company Page post.")
+        boost_account_id = linked_account["id"]
+    if path == "/events":
+        try:
+            profile_id = latehub.ensure_profile(ctx.workspace_id)
+        except latehub.LateHubError as error:
+            raise HTTPException(error.status or 502, str(error)) from error
+
+    for data in (params, request_body):
+        if "accountId" in data:
+            expected_account_id = boost_account_id if path == "/ads/boost" else connection["id"]
+            if str(data["accountId"]) != expected_account_id:
+                message = (
+                    "accountId must match the linked workspace LinkedIn publishing account for a boost."
+                    if path == "/ads/boost"
+                    else "accountId must match the selected workspace LinkedIn Ads connection."
+                )
+                raise HTTPException(400, message)
+        if "adAccountId" in data and str(data["adAccountId"]) != body.ad_account_id:
+            raise HTTPException(400, "adAccountId must match the selected workspace LinkedIn Ads advertiser.")
+        if profile_id and "profileId" in data and str(data["profileId"]) != profile_id:
+            raise HTTPException(400, "profileId must match the selected workspace.")
+        if "platform" in data and str(data["platform"]).lower() not in ("linkedin", "linkedinads"):
+            raise HTTPException(400, "platform must be LinkedIn Ads.")
+
+    if path == "/events":
+        request_body["profileId"] = profile_id
+        events = request_body.get("events")
+        destinations = request_body.get("destinations")
+        if not isinstance(events, list) or not events:
+            raise HTTPException(400, "Provide at least one LinkedIn conversion event.")
+        if not isinstance(destinations, list) or not destinations:
+            raise HTTPException(400, "Choose at least one LinkedIn conversion-rule destination.")
+        for destination in destinations:
+            if (not isinstance(destination, dict)
+                    or str(destination.get("accountId") or "") != connection["id"]):
+                raise HTTPException(
+                    400, "Each conversion destination must use the selected workspace LinkedIn Ads connection.")
+        request_body["destinations"] = destinations
+    else:
+        params["accountId"] = boost_account_id if path == "/ads/boost" else connection["id"]
+        params["adAccountId"] = body.ad_account_id
+        if body.method != "GET":
+            request_body.setdefault("accountId", params["accountId"])
+            request_body.setdefault("adAccountId", body.ad_account_id)
+        if path == "/ads/lead-forms" and body.method == "POST":
+            platform_data = request_body.get("platformSpecificData")
+            if not isinstance(platform_data, dict):
+                raise HTTPException(400, "LinkedIn Lead Gen Forms require a platformSpecificData object.")
+            if ("adAccountId" in platform_data
+                    and str(platform_data["adAccountId"]) != body.ad_account_id):
+                raise HTTPException(400, "platformSpecificData.adAccountId must match the selected LinkedIn Ads advertiser.")
+            platform_data["adAccountId"] = body.ad_account_id
+        if path == "/ads/tree":
+            params["platform"] = "linkedin"
+
+    try:
+        provider_options = {}
+        if body.idempotency_key:
+            provider_options["idempotency_key"] = body.idempotency_key
+        return latehub.linkedin_ads_request(
+            body.method, path, params=params,
+            body=request_body if body.method != "GET" else None,
+            **provider_options,
+        )
+    except latehub.LateHubError as error:
+        raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 409, 422, 429) else 502,
+                            str(error)) from error
+
+
 @router.post("/meta/messaging-call")
 def create_meta_messaging_call_ad(body: MetaMessagingCallAdIn, ctx: Ctx = Depends(admin)):
     connection = _selected_ad_account(

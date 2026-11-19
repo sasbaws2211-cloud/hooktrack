@@ -320,6 +320,135 @@ def test_google_ads_tools_reject_invalid_idempotency_key_characters(monkeypatch)
         ads.google_ads_request(request, _ctx())
 
 
+def test_linkedin_ads_tools_scope_campaign_requests_to_selected_advertiser(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *args: seen.append(("selected", args)) or {"id": "linkedin-connection"})
+    monkeypatch.setattr(
+        ads.latehub, "linkedin_ads_request",
+        lambda method, path, **kwargs: seen.append((method, path, kwargs)) or {"ok": True},
+    )
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="linkedin-connection", ad_account_id="sponsored-1",
+        method="POST", path="/ads/create", body={"goal": "traffic", "status": "PAUSED"},
+    )
+
+    assert ads.linkedin_ads_request(request, _ctx()) == {"ok": True}
+    assert seen == [
+        ("selected", (7, "linkedin-connection", "sponsored-1", "linkedin")),
+        ("POST", "/ads/create", {
+            "params": {"accountId": "linkedin-connection", "adAccountId": "sponsored-1"},
+            "body": {"goal": "traffic", "status": "PAUSED",
+                     "accountId": "linkedin-connection", "adAccountId": "sponsored-1"},
+        }),
+    ]
+
+    request.query["adAccountId"] = "another-advertiser"
+    with pytest.raises(HTTPException, match="selected workspace LinkedIn Ads advertiser"):
+        ads.linkedin_ads_request(request, _ctx())
+
+
+def test_linkedin_boost_uses_linked_workspace_publishing_identity_and_retry_key(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "linkedin-ads-connection"})
+    monkeypatch.setattr(ads.latehub, "accounts", lambda _workspace_id: [
+        {"id": "workspace-linkedin", "platform": "linkedin"},
+        {"id": "other-linkedin", "platform": "linkedin"},
+    ])
+    monkeypatch.setattr(
+        ads.latehub, "linkedin_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"ok": True},
+    )
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="linkedin-ads-connection", ad_account_id="sponsored-1",
+        method="POST", path="/ads/boost", body={"goal": "engagement"},
+        idempotency_key="linkedin-boost-123",
+    )
+
+    assert ads.linkedin_ads_request(request, _ctx()) == {"ok": True}
+    assert calls == [("POST", "/ads/boost", {
+        "params": {"accountId": "workspace-linkedin", "adAccountId": "sponsored-1"},
+        "body": {"goal": "engagement", "accountId": "workspace-linkedin",
+                 "adAccountId": "sponsored-1"},
+        "idempotency_key": "linkedin-boost-123",
+    })]
+
+    request.body["accountId"] = "other-linkedin"
+    with pytest.raises(HTTPException, match="linked workspace LinkedIn publishing account"):
+        ads.linkedin_ads_request(request, _ctx())
+
+
+def test_linkedin_lead_form_binds_nested_advertiser_identity(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "linkedin-connection"})
+    monkeypatch.setattr(
+        ads.latehub, "linkedin_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"ok": True},
+    )
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="linkedin-connection", ad_account_id="sponsored-1",
+        method="POST", path="/ads/lead-forms",
+        body={
+            "name": "Product guide",
+            "privacyPolicyUrl": "https://example.com/privacy",
+            "platformSpecificData": {
+                "headline": "Get the guide",
+                "questions": [{"kind": "text", "name": "company", "question": "Company"}],
+            },
+        },
+    )
+
+    assert ads.linkedin_ads_request(request, _ctx()) == {"ok": True}
+    assert calls[0][2]["body"]["platformSpecificData"]["adAccountId"] == "sponsored-1"
+    assert calls[0][2]["body"]["adAccountId"] == "sponsored-1"
+
+    request.body["platformSpecificData"]["adAccountId"] = "another-advertiser"
+    with pytest.raises(HTTPException, match="platformSpecificData.adAccountId"):
+        ads.linkedin_ads_request(request, _ctx())
+
+
+def test_linkedin_offline_events_bind_profile_and_ads_connection(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "linkedin-ads-connection"})
+    monkeypatch.setattr(ads.latehub, "ensure_profile", lambda workspace_id: f"profile-{workspace_id}")
+    monkeypatch.setattr(
+        ads.latehub, "linkedin_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"eventsReceived": 1},
+    )
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="linkedin-ads-connection", ad_account_id="sponsored-1",
+        method="POST", path="/events",
+        body={
+            "destinations": [{"accountId": "linkedin-ads-connection", "destinationId": "rule-1"}],
+            "events": [{"eventName": "Lead", "user": {"email": "customer@example.com"}}],
+        },
+    )
+
+    assert ads.linkedin_ads_request(request, _ctx()) == {"eventsReceived": 1}
+    assert calls == [("POST", "/events", {
+        "params": {},
+        "body": {
+            "destinations": [{"accountId": "linkedin-ads-connection", "destinationId": "rule-1"}],
+            "events": [{"eventName": "Lead", "user": {"email": "customer@example.com"}}],
+            "profileId": "profile-7",
+        },
+    })]
+
+    request.body["destinations"][0]["accountId"] = "other-connection"
+    with pytest.raises(HTTPException, match="selected workspace LinkedIn Ads connection"):
+        ads.linkedin_ads_request(request, _ctx())
+
+
+@pytest.mark.parametrize("path", ["/ads/../profiles", "/accounts/linkedin-connection/tracking-tags", "/events/another-route"])
+def test_linkedin_ads_tools_reject_non_ads_and_out_of_scope_paths(monkeypatch, path):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "linkedin-connection"})
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="linkedin-connection", ad_account_id="sponsored-1",
+        method="GET", path=path,
+    )
+    with pytest.raises(HTTPException):
+        ads.linkedin_ads_request(request, _ctx())
+
+
 def test_google_offline_conversions_bind_profile_connection_and_customer_destination(monkeypatch):
     calls = []
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "google-connection"})
