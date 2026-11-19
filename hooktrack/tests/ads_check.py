@@ -240,6 +240,138 @@ def test_tiktok_pixel_share_unlink_uses_scoped_advertiser(monkeypatch):
         ads.tiktok_ads_request(request, _ctx())
 
 
+def test_google_ads_tools_scope_read_and_create_requests_to_selected_customer(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *args: seen.append(("selected", args)) or {"id": "google-connection"})
+    monkeypatch.setattr(
+        ads.latehub, "google_ads_request",
+        lambda method, path, **kwargs: seen.append((method, path, kwargs)) or {"ok": True},
+    )
+    read = ads.AdsApiRequestIn(
+        ad_connection_id="google-connection", ad_account_id="customer-1",
+        method="GET", path="/ads/insights",
+        query={"query": "SELECT campaign.name FROM campaign"},
+    )
+    create = ads.AdsApiRequestIn(
+        ad_connection_id="google-connection", ad_account_id="customer-1",
+        method="POST", path="/ads/create",
+        body={"campaignType": "pmax"},
+        idempotency_key="google-create-123",
+    )
+
+    assert ads.google_ads_request(read, _ctx()) == {"ok": True}
+    assert ads.google_ads_request(create, _ctx()) == {"ok": True}
+    assert seen == [
+        ("selected", (7, "google-connection", "customer-1", "google")),
+        ("GET", "/ads/insights", {
+            "params": {"query": "SELECT campaign.name FROM campaign",
+                       "accountId": "google-connection", "adAccountId": "customer-1"},
+            "body": None,
+        }),
+        ("selected", (7, "google-connection", "customer-1", "google")),
+        ("POST", "/ads/create", {
+            "params": {"accountId": "google-connection", "adAccountId": "customer-1"},
+            "body": {"campaignType": "pmax",
+                     "accountId": "google-connection", "adAccountId": "customer-1"},
+            "idempotency_key": "google-create-123",
+        }),
+    ]
+
+
+def test_google_ads_tools_reject_idempotency_key_for_non_create_requests(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "google-connection"})
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="google-connection", ad_account_id="customer-1",
+        method="GET", path="/ads/tree", idempotency_key="not-valid-here",
+    )
+    with pytest.raises(HTTPException, match="supported only for Google campaign creation"):
+        ads.google_ads_request(request, _ctx())
+
+
+def test_google_ads_tools_do_not_forward_idempotency_key_for_validate_only_create(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "google-connection"})
+    monkeypatch.setattr(
+        ads.latehub, "google_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"ok": True},
+    )
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="google-connection", ad_account_id="customer-1",
+        method="POST", path="/ads/create",
+        body={"campaignType": "pmax", "validateOnly": True},
+        idempotency_key="google-validate-123",
+    )
+
+    assert ads.google_ads_request(request, _ctx()) == {"ok": True}
+    assert calls == [("POST", "/ads/create", {
+        "params": {"accountId": "google-connection", "adAccountId": "customer-1"},
+        "body": {"campaignType": "pmax", "validateOnly": True,
+                 "accountId": "google-connection", "adAccountId": "customer-1"},
+    })]
+
+
+def test_google_ads_tools_reject_invalid_idempotency_key_characters(monkeypatch):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "google-connection"})
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="google-connection", ad_account_id="customer-1",
+        method="POST", path="/ads/create", idempotency_key="invalid key",
+    )
+    with pytest.raises(HTTPException, match="must use letters, numbers"):
+        ads.google_ads_request(request, _ctx())
+
+
+def test_google_offline_conversions_bind_profile_connection_and_customer_destination(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "google-connection"})
+    monkeypatch.setattr(ads.latehub, "ensure_profile", lambda workspace_id: f"profile-{workspace_id}")
+    monkeypatch.setattr(
+        ads.latehub, "google_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or {"eventsReceived": 1},
+    )
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="google-connection", ad_account_id="customer-1",
+        method="POST", path="/events",
+        body={
+            "destinations": [{
+                "accountId": "google-connection",
+                "destinationId": "customers/customer-1/conversionActions/123",
+            }],
+            "events": [{"eventName": "Purchase", "user": {"email": "customer@example.com"}}],
+        },
+    )
+
+    assert ads.google_ads_request(request, _ctx()) == {"eventsReceived": 1}
+    assert calls == [("POST", "/events", {
+        "params": {},
+        "body": {
+            "destinations": [{
+                "accountId": "google-connection",
+                "destinationId": "customers/customer-1/conversionActions/123",
+            }],
+            "events": [{"eventName": "Purchase", "user": {"email": "customer@example.com"}}],
+            "profileId": "profile-7",
+        },
+    })]
+
+    request.body["destinations"][0]["destinationId"] = "customers/customer-2/conversionActions/123"
+    with pytest.raises(HTTPException, match="selected Google Ads customer"):
+        ads.google_ads_request(request, _ctx())
+
+
+@pytest.mark.parametrize("path", [
+    "/ads/../profiles", "/accounts/google-connection/tracking-tags",
+    "/events/another-route",
+])
+def test_google_ads_tool_rejects_non_ads_and_out_of_scope_paths(monkeypatch, path):
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "google-connection"})
+    request = ads.AdsApiRequestIn(
+        ad_connection_id="google-connection", ad_account_id="customer-1",
+        method="GET", path=path,
+    )
+    with pytest.raises(HTTPException):
+        ads.google_ads_request(request, _ctx())
+
+
 def test_meta_reach_frequency_requests_keep_quote_reserve_and_read_account_scoped(monkeypatch):
     calls = []
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})

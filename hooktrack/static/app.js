@@ -6307,6 +6307,57 @@ pages.ads = async app => {
     {label:'Duplicate campaign (created paused)',method:'POST',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/duplicate',query:{},body:{platform:'tiktok'}},
     {label:'Send offline conversion events (PII is hashed by Zernio)',method:'POST',path:'/events',query:{},body:{destinations:[{accountId:tiktokConnection?.id || 'CONNECTION_ID',destinationId:'REPLACE_WITH_EVENT_SET_ID'}],events:[{eventName:'Purchase',eventTime:Math.floor(Date.now()/1000),eventId:'order-123',value:59.9,currency:'USD',actionSource:'offline',user:{email:'customer@example.com'}}]}},
   ];
+  const googleToolsPresets = [
+    {label:'Create Performance Max campaign (validate only)',method:'POST',path:'/ads/create',query:{},body:{validateOnly:true,campaignType:'pmax',name:'Spring Performance Max',budgetAmount:40,budgetType:'daily',assetGroup:{businessName:'Acme',finalUrl:'https://example.com',longHeadline:'Everything your team needs in one place',headlines:['Acme for teams','Start in minutes','Built for scale'],descriptions:['Set up in minutes and invite your whole team.','Trusted by thousands of growing companies.'],images:{landscape:['https://cdn.example.com/pmax-1200x628.jpg'],square:['https://cdn.example.com/pmax-1080x1080.jpg'],logo:['https://cdn.example.com/logo-1200x1200.jpg']}},countries:['US']}},
+    {label:'Create Display campaign (live create)',method:'POST',path:'/ads/create',query:{},body:{campaignType:'display',goal:'traffic',name:'Retargeting Display',budgetAmount:40,budgetType:'daily',headline:'Finish your signup',body:'Come back and upgrade today.',linkUrl:'https://example.com/upgrade',businessName:'Acme',images:{landscape:'https://cdn.example.com/retarget-1200x628.jpg',square:'https://cdn.example.com/retarget-1080x1080.jpg'},countries:['US']}},
+    {label:'Create Demand Gen video campaign (validate only)',method:'POST',path:'/ads/create',query:{},body:{validateOnly:true,campaignType:'demand_gen',budgetAmount:10,budgetType:'daily',countries:['US'],languages:['en'],demandGen:{finalUrl:'https://example.com',businessName:'Acme',headlines:['Schedule posts'],longHeadlines:['Everything your team needs in one place'],descriptions:['Publish and manage social content through one API.'],callToAction:'Learn more',images:{logo:['https://cdn.example.com/logo-512.png']},youtubeVideoIds:['REPLACE_WITH_YOUTUBE_VIDEO_ID'],channels:['youtube_in_feed','youtube_shorts','discover','gmail']}}},
+    {label:'Create Demand Gen image campaign (validate only)',method:'POST',path:'/ads/create',query:{},body:{validateOnly:true,campaignType:'demand_gen',budgetAmount:10,budgetType:'daily',countries:['US'],demandGen:{finalUrl:'https://example.com',businessName:'Acme',headlines:['Schedule posts'],descriptions:['Publish and manage social content through one API.'],callToAction:'Learn more',images:{landscape:['https://cdn.example.com/landscape-1200x628.png'],square:['https://cdn.example.com/square-1080x1080.png'],logo:['https://cdn.example.com/logo-512.png']},channels:['youtube_in_feed','youtube_shorts','discover','gmail']}}},
+    {label:'Create ad in an existing Google ad group (live create)',method:'POST',path:'/ads/create',query:{},body:{adSetId:'REPLACE_WITH_AD_GROUP_ID',headline:'Headline',body:'Description',linkUrl:'https://example.com',additionalHeadlines:['Second headline','Third headline'],additionalDescriptions:['Second description'],countries:['US']}},
+    {label:'Read campaign tree and metrics',method:'GET',path:'/ads/tree',query:{fromDate:metaMonthAgo,toDate:metaToday,platform:'google'},body:{}},
+    {label:'Pause or resume a campaign',method:'PUT',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/status',query:{},body:{status:'paused',platform:'google'}},
+    {label:'Read a Performance Max campaign asset group',method:'GET',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/asset-groups',query:{},body:{}},
+    {label:'Add a Performance Max asset group (validate only)',method:'POST',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/asset-groups',query:{},body:{validateOnly:true,name:'New asset group',finalUrls:['https://example.com'],assets:[{fieldType:'HEADLINE',text:'Shoes for every run'},{fieldType:'LONG_HEADLINE',text:'Lightweight running shoes for road and trail'},{fieldType:'DESCRIPTION',text:'Free returns on every order.'},{fieldType:'MARKETING_IMAGE',imageUrl:'https://cdn.example.com/shoes-1200x628.jpg'}]}},
+    {label:'Read campaign spend and impression share (GAQL)',method:'GET',path:'/ads/insights',query:{query:'SELECT campaign.name, metrics.clicks, metrics.cost_micros, metrics.search_impression_share FROM campaign WHERE segments.date DURING LAST_30_DAYS ORDER BY metrics.cost_micros DESC'},body:{}},
+    {label:'Read search terms (GAQL endpoint)',method:'GET',path:'/ads/search-terms',query:{fromDate:metaMonthAgo,toDate:metaToday},body:{}},
+    {label:'List Search keywords',method:'GET',path:'/ads/keywords',query:{limit:100},body:{}},
+    {label:'Add keywords to an ad group',method:'POST',path:'/ads/keywords',query:{},body:{adSetId:'REPLACE_WITH_AD_GROUP_ID',keywords:[{text:'keyword phrase',matchType:'phrase'}],negative:false}},
+    {label:'Pause or resume one keyword',method:'PATCH',path:'/ads/keywords/REPLACE_WITH_KEYWORD_ID',query:{},body:{status:'paused'}},
+    {label:'Remove one keyword',method:'DELETE',path:'/ads/keywords/REPLACE_WITH_KEYWORD_ID',query:{},body:{}},
+    {label:'Get Keyword Planner ideas',method:'POST',path:'/ads/keywords/ideas',query:{},body:{seedKeywords:['project management software'],countries:['US'],languageConstantId:'1000',network:'GOOGLE_SEARCH'}},
+    {label:'Get Keyword Planner historical metrics',method:'POST',path:'/ads/keywords/historical-metrics',query:{},body:{keywords:['project management software'],countries:['US'],languageConstantId:'1000',includeAverageCpc:true}},
+    {label:'List Customer Match audiences',method:'GET',path:'/ads/audiences',query:{},body:{}},
+    {label:'Create Customer Match audience',method:'POST',path:'/ads/audiences',query:{},body:{type:'customer_list',name:'Customer Match list'}},
+    {label:'Upload Customer Match emails (hashed by Zernio)',method:'POST',path:'/ads/audiences/REPLACE_WITH_AUDIENCE_ID/users',query:{},body:{users:[{email:'customer@example.com'}]}},
+    {label:'List offline conversion destinations',method:'GET',path:'/ads/conversions/destinations',query:{},body:{}},
+    {label:'Create an offline conversion destination',method:'POST',path:'/ads/conversions/destinations',query:{},body:{name:'Offline purchase',type:'Purchase',countingType:'MANY_PER_CLICK',primaryForGoal:false}},
+    {label:'List Google conversion actions',method:'GET',path:'/ads/conversions/actions',query:{},body:{}},
+    {label:'Read account conversion goals',method:'GET',path:'/ads/conversions/goals',query:{},body:{}},
+    {label:'Update account conversion goals',method:'PATCH',path:'/ads/conversions/goals',query:{},body:{goals:[{category:'PURCHASE',origin:'WEBSITE',biddable:true}]}},
+    {label:'Set a conversion action to secondary',method:'PATCH',path:'/ads/conversions/actions/REPLACE_WITH_ACTION_ID',query:{},body:{primaryForGoal:false}},
+    {label:'Create a custom conversion goal',method:'POST',path:'/ads/conversions/custom-goals',query:{},body:{name:'Lead quality goal',conversionActionIds:['REPLACE_WITH_ACTION_ID']}},
+    {label:'List custom conversion goals',method:'GET',path:'/ads/conversions/custom-goals',query:{},body:{}},
+    {label:'Rename a custom conversion goal',method:'PATCH',path:'/ads/conversions/custom-goals/REPLACE_WITH_GOAL_ID',query:{},body:{name:'Qualified leads'}},
+    {label:'Delete an unused custom conversion goal',method:'DELETE',path:'/ads/conversions/custom-goals/REPLACE_WITH_GOAL_ID',query:{},body:{}},
+    {label:'Read campaign conversion goals',method:'GET',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/conversion-goals',query:{},body:{}},
+    {label:'Set campaign conversion goals',method:'PATCH',path:'/ads/campaigns/REPLACE_WITH_CAMPAIGN_ID/conversion-goals',query:{},body:{goalConfigLevel:'CAMPAIGN',customConversionGoalId:'REPLACE_WITH_GOAL_ID'}},
+    {label:'Adjust an uploaded conversion (retract example)',method:'POST',path:'/ads/conversions/adjustments',query:{},body:{destinationId:'customers/REPLACE_WITH_CUSTOMER_ID/conversionActions/REPLACE_WITH_ACTION_ID',adjustments:[{adjustmentType:'RETRACTION',adjustmentTime:Math.floor(Date.now()/1000),orderId:'REPLACE_WITH_ORDER_ID'}]}},
+    {label:'Send Google offline conversion (PII hashed by Zernio)',method:'POST',path:'/events',query:{},body:{destinations:[{accountId:googleConnection?.id || 'CONNECTION_ID',destinationId:'customers/REPLACE_WITH_CUSTOMER_ID/conversionActions/REPLACE_WITH_ACTION_ID'}],consent:{adUserData:'GRANTED',adPersonalization:'GRANTED'},events:[{eventName:'Purchase',eventTime:Math.floor(Date.now()/1000),eventId:'order-123',value:59.9,currency:'USD',user:{email:'customer@example.com',clickIds:{gclid:'REPLACE_WITH_GCLID'}}}]}},
+    {label:'List Google recommendations',method:'GET',path:'/ads/recommendations',query:{},body:{}},
+    {label:'Apply a Google recommendation (irreversible)',method:'POST',path:'/ads/recommendations/apply',query:{},body:{recommendations:[{resourceName:'REPLACE_WITH_RECOMMENDATION_RESOURCE_NAME'}]}},
+    {label:'Dismiss Google recommendations',method:'POST',path:'/ads/recommendations/dismiss',query:{},body:{resourceNames:['REPLACE_WITH_RECOMMENDATION_RESOURCE_NAME']}},
+    {label:'Read MCC manager hierarchy',method:'GET',path:'/ads/accounts/hierarchy',query:{},body:{}},
+    {label:'Create a Google Ads client account (validate only)',method:'POST',path:'/ads/accounts',query:{},body:{platform:'google',managerCustomerId:'REPLACE_WITH_MANAGER_CUSTOMER_ID',name:'New client account',currency:'USD',timeZone:'America/New_York',validateOnly:true}},
+    {label:'Read manager billing options',method:'GET',path:'/ads/accounts/billing',query:{},body:{}},
+    {label:'Set up monthly-invoice billing (validate only)',method:'POST',path:'/ads/accounts/billing',query:{},body:{paymentsAccountId:'REPLACE_WITH_PAYMENTS_ACCOUNT_ID',spendingLimit:5000,validateOnly:true}},
+    {label:'Invite a customer account to a manager (validate only)',method:'POST',path:'/ads/accounts/manager-links',query:{},body:{managerCustomerId:'REPLACE_WITH_MANAGER_CUSTOMER_ID',clientCustomerId:'REPLACE_WITH_CLIENT_CUSTOMER_ID',validateOnly:true}},
+    {label:'Update a manager link',method:'PATCH',path:'/ads/accounts/manager-links',query:{},body:{managerCustomerId:'REPLACE_WITH_MANAGER_CUSTOMER_ID',clientCustomerId:'REPLACE_WITH_CLIENT_CUSTOMER_ID',managerLinkId:'REPLACE_WITH_MANAGER_LINK_ID',action:'accept',validateOnly:true}},
+    {label:'Read Google Ads labels',method:'GET',path:'/ads/labels',query:{},body:{}},
+    {label:'Create a Google Ads label',method:'POST',path:'/ads/labels',query:{},body:{name:'Q1 launch',backgroundColor:'#1A73E8',description:'Campaign grouping'}},
+    {label:'Attach a label to a campaign',method:'POST',path:'/ads/labels/REPLACE_WITH_LABEL_ID/assignments',query:{},body:{campaignIds:['REPLACE_WITH_CAMPAIGN_ID']}},
+    {label:'Read Google Ads account invitations',method:'GET',path:'/ads/accounts/user-invitations',query:{},body:{}},
+    {label:'Invite a user to a Google Ads customer',method:'POST',path:'/ads/accounts/user-invitations',query:{},body:{emailAddress:'user@example.com',accessRole:'READ_ONLY',validateOnly:true}},
+    {label:'Read connected ad account billing options',method:'GET',path:'/ads/accounts/billing',query:{},body:{}},
+  ];
   const activeAdsTab = state.adsTab || 'campaigns';
   state.campaignBehaviors = state.campaignBehaviors || [];
   state.campaignWorkPositions = state.campaignWorkPositions || [];
@@ -6332,7 +6383,7 @@ pages.ads = async app => {
     ${connectNotice}
     ${!d.configured ? '<div class="notice" style="margin-bottom:12px">Managed publishing and Ads are not configured on this server yet. Ask the platform admin to set up Zernio.</div>' : ''}
     <div class="ads-tabs" role="tablist" aria-label="Advertising tools">
-      ${[['campaigns', 'Campaigns'], ['boosts', 'Boosts'], ['meta', 'Meta tools'], ['tiktok', 'TikTok tools'], ['connections', 'Connections']].map(([tab, label]) =>
+      ${[['campaigns', 'Campaigns'], ['boosts', 'Boosts'], ['meta', 'Meta tools'], ['tiktok', 'TikTok tools'], ['google', 'Google tools'], ['connections', 'Connections']].map(([tab, label]) =>
         `<button class="ads-tab${activeAdsTab === tab ? ' active' : ''}" type="button" role="tab"
           id="ads-tab-${tab}" aria-controls="ads-panel-${tab}" aria-selected="${activeAdsTab === tab}"
           data-ads-tab="${tab}">${label}</button>`).join('')}
@@ -6719,6 +6770,33 @@ pages.ads = async app => {
           <div class="actions"><button id="tiktok-tools-run" class="btn primary" type="submit">Run TikTok Ads request</button></div>
           <pre id="tiktok-tools-result" class="card small" style="display:none;white-space:pre-wrap;overflow:auto;max-height:420px"></pre>
         </form>` : `<div class="empty card"><p>${!d.can_manage ? 'Ask a workspace admin to manage TikTok Ads.' : !tiktokConnection ? 'Connect TikTok Ads to this workspace first.' : 'Select a TikTok advertiser in the provider before using TikTok Ads tools.'}</p></div>`}
+      </section>
+    </div>
+    <div id="ads-panel-google" role="tabpanel" aria-labelledby="ads-tab-google" ${activeAdsTab === 'google' ? '' : 'hidden'}>
+      <section class="ads-section ads-google-tools">
+        <div class="ads-section-heading"><div><span class="ads-kicker">ZERNIO GOOGLE ADS API</span><h2>Google Ads tools</h2>
+          <p class="small muted">Manage supported Google Ads campaigns, keywords, audiences, conversions, recommendations, accounts and reporting. See the <a href="https://docs.zernio.com/platforms/google-ads" target="_blank" rel="noopener noreferrer">Zernio Google Ads docs</a> for request fields and limits.</p></div></div>
+        ${googleConnection && googleAdAccounts.length && d.can_manage ? `<form id="google-tools-form" class="card">
+          <div style="max-width:420px;margin-bottom:18px"><label class="small muted" for="google-tools-account">Google Ads customer</label>
+            <select id="google-tools-account" required style="width:100%">${googleAdAccounts.map(item =>
+              `<option value="${esc(item.id)}">${esc(item.name)}${item.currency ? ` · ${esc(item.currency)}` : ''}</option>`).join('')}</select></div>
+          <p class="notice small">Every write requires confirmation. Replace all REPLACE_WITH_* values before submitting. Campaign and account changes can spend money or affect access; Google recommendation application is irreversible. Customer Match uploads and offline conversions send customer data to Google; use only data you are authorized to share. Google Ads allows about 15 live keyword, GAQL, and write operations per user per minute.</p>
+          <label class="small muted" for="google-tools-preset">Start from an operation template</label>
+          <select id="google-tools-preset" style="width:100%;margin-bottom:10px"><option value="">Choose a template…</option>
+            ${googleToolsPresets.map((preset, index) => `<option value="${index}">${esc(preset.label)}</option>`).join('')}</select>
+          <div class="row"><div style="flex:1"><label class="small muted" for="google-tools-method">Method</label>
+              <select id="google-tools-method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select></div></div>
+          <label class="small muted" for="google-tools-path">Zernio API path</label>
+          <input id="google-tools-path" required maxlength="512" placeholder="/ads/insights" style="width:100%">
+          <label class="small muted" for="google-tools-query">Query parameters (JSON object)</label>
+          <textarea id="google-tools-query" spellcheck="false" style="width:100%;min-height:64px;font-family:monospace">{}</textarea>
+          <label class="small muted" for="google-tools-body">Request body (JSON object)</label>
+          <textarea id="google-tools-body" spellcheck="false" style="width:100%;min-height:150px;font-family:monospace">{}</textarea>
+          <label class="small muted" for="google-tools-idempotency">Idempotency key (optional; reuse only for an exact retry of a campaign create)</label>
+          <input id="google-tools-idempotency" maxlength="200" placeholder="campaign-create-unique-key" style="width:100%">
+          <div class="actions"><button id="google-tools-run" class="btn primary" type="submit">Run Google Ads request</button></div>
+          <pre id="google-tools-result" class="card small" style="display:none;white-space:pre-wrap;overflow:auto;max-height:420px"></pre>
+        </form>` : `<div class="empty card"><p>${!d.can_manage ? 'Ask a workspace admin to manage Google Ads.' : !googleConnection ? 'Connect Google Ads to this workspace first.' : 'Select a Google Ads customer in the provider before using Google Ads tools.'}</p></div>`}
       </section>
     </div>
     <div id="ads-panel-campaigns" role="tabpanel" aria-labelledby="ads-tab-campaigns" ${activeAdsTab === 'campaigns' ? '' : 'hidden'}>
@@ -8482,6 +8560,56 @@ pages.ads = async app => {
         path: $('#tiktok-tools-path', app).value.trim(),
         query,
         body,
+      });
+      result.textContent = JSON.stringify(response, null, 2);
+    } catch (error) {
+      result.textContent = error.message;
+      throw error;
+    } finally { if (button.isConnected) busy(button, false); }
+  });
+  if ($('#google-tools-preset', app)) $('#google-tools-preset', app).onchange = () => {
+    const preset = googleToolsPresets[Number($('#google-tools-preset', app).value)];
+    if (!preset) return;
+    $('#google-tools-method', app).value = preset.method;
+    $('#google-tools-path', app).value = preset.path;
+    $('#google-tools-query', app).value = JSON.stringify(preset.query, null, 2);
+    $('#google-tools-body', app).value = JSON.stringify(preset.body, null, 2);
+    $('#google-tools-idempotency', app).value = '';
+  };
+  if ($('#google-tools-form', app)) $('#google-tools-form', app).onsubmit = guard(async event => {
+    event.preventDefault();
+    const method = $('#google-tools-method', app).value;
+    let query, body;
+    try {
+      query = JSON.parse($('#google-tools-query', app).value || '{}');
+      body = JSON.parse($('#google-tools-body', app).value || '{}');
+    } catch (error) {
+      toast(`Request JSON is invalid: ${error.message}`, true);
+      return;
+    }
+    if (!query || Array.isArray(query) || typeof query !== 'object'
+      || !body || Array.isArray(body) || typeof body !== 'object') {
+      toast('Query and request body must each be JSON objects.', true);
+      return;
+    }
+    if (method !== 'GET' && !await askConfirm(
+      'This request may create or change Google Ads, spend against the selected account, alter account access, or send customer data. Continue only if you reviewed the selected customer and full JSON.',
+      { title: 'Run Google Ads write request', ok: 'Run request', danger: true },
+    )) return;
+    const button = $('#google-tools-run', app);
+    const result = $('#google-tools-result', app);
+    result.style.display = 'block';
+    result.textContent = 'Request in progress…';
+    busy(button, true, 'Running…');
+    try {
+      const response = await api('POST', '/api/ads/google/request', {
+        ad_connection_id: googleConnection.id,
+        ad_account_id: $('#google-tools-account', app).value,
+        method,
+        path: $('#google-tools-path', app).value.trim(),
+        query,
+        body,
+        idempotency_key: $('#google-tools-idempotency', app).value.trim(),
       });
       result.textContent = JSON.stringify(response, null, 2);
     } catch (error) {

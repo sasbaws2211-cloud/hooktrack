@@ -210,6 +210,7 @@ class AdsApiRequestIn(BaseModel):
     path: str = Field(min_length=5, max_length=512)
     query: dict = Field(default_factory=dict)
     body: dict = Field(default_factory=dict)
+    idempotency_key: str = Field(default="", max_length=200)
 
 
 MetaAdsRequestIn = AdsApiRequestIn
@@ -1874,6 +1875,86 @@ def tiktok_ads_request(body: AdsApiRequestIn, ctx: Ctx = Depends(admin)):
         return latehub.tiktok_ads_request(
             body.method, path, params=params,
             body=request_body if body.method != "GET" else None,
+        )
+    except latehub.LateHubError as error:
+        raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 409, 422, 429) else 502,
+                            str(error)) from error
+
+
+@router.post("/google/request")
+def google_ads_request(body: AdsApiRequestIn, ctx: Ctx = Depends(admin)):
+    """Expose documented Google Ads operations using the selected workspace customer."""
+    connection = _selected_ad_account(
+        ctx.workspace_id, body.ad_connection_id, body.ad_account_id, "google")
+    path = body.path
+    valid_ads_path = (
+        path.startswith("/ads/")
+        and not path.startswith("//")
+        and all(part not in ("", ".", "..") for part in path.split("/")[1:])
+        and re.fullmatch(r"/ads/[A-Za-z0-9_{}~.-]+(?:/[A-Za-z0-9_{}~.-]+)*", path) is not None
+    )
+    if not valid_ads_path and path != "/events":
+        raise HTTPException(400, "Choose a documented Google Ads or conversion-event endpoint.")
+    if path == "/events" and body.method != "POST":
+        raise HTTPException(400, "Google conversion events must be sent with POST.")
+    if body.idempotency_key and (
+        path != "/ads/create"
+        or body.method != "POST"
+        or not re.fullmatch(r"[A-Za-z0-9._:-]{1,200}", body.idempotency_key)
+    ):
+        raise HTTPException(400, "An idempotency key is supported only for Google campaign creation and must use letters, numbers, '.', '_', ':' or '-'.")
+
+    params = dict(body.query)
+    request_body = dict(body.body)
+    profile_id = ""
+    if path == "/events":
+        profile_id = latehub.ensure_profile(ctx.workspace_id)
+    for data in (params, request_body):
+        if "accountId" in data and str(data["accountId"]) != connection["id"]:
+            raise HTTPException(400, "accountId must match the selected workspace Google Ads connection.")
+        for field in ("adAccountId", "customerId"):
+            if field in data and str(data[field]) != body.ad_account_id:
+                raise HTTPException(400, f"{field} must match the selected workspace Google Ads customer.")
+        if profile_id and "profileId" in data and str(data["profileId"]) != profile_id:
+            raise HTTPException(400, "profileId must match the selected workspace.")
+        if "platform" in data and str(data["platform"]).lower() not in ("google", "googleads"):
+            raise HTTPException(400, "platform must be Google Ads.")
+    if path != "/events":
+        params["accountId"] = connection["id"]
+        if path not in ("/ads/accounts", "/ads/accounts/hierarchy", "/ads/accounts/manager-links"):
+            params["adAccountId"] = body.ad_account_id
+    if body.method != "GET" and path != "/events":
+        request_body.setdefault("accountId", connection["id"])
+        if path not in ("/ads/accounts", "/ads/accounts/hierarchy", "/ads/accounts/manager-links"):
+            request_body.setdefault("adAccountId", body.ad_account_id)
+    if path == "/ads/tree":
+        params["platform"] = "google"
+    if path == "/events":
+        request_body["profileId"] = profile_id
+        destinations = request_body.get("destinations")
+        events = request_body.get("events")
+        if not isinstance(events, list) or not events:
+            raise HTTPException(400, "Provide at least one Google conversion event.")
+        if len(events) > 2000:
+            raise HTTPException(400, "Google accepts at most 2,000 conversion events per request.")
+        if not isinstance(destinations, list) or not destinations:
+            raise HTTPException(400, "Choose at least one Google Ads conversion-action destination.")
+        expected_prefix = f"customers/{body.ad_account_id}/conversionActions/"
+        for destination in destinations:
+            if (not isinstance(destination, dict)
+                    or str(destination.get("accountId") or "") != connection["id"]
+                    or not str(destination.get("destinationId") or "").startswith(expected_prefix)):
+                raise HTTPException(
+                    400, "Each destination must be a conversion action for the selected Google Ads customer.")
+        request_body["destinations"] = destinations
+    try:
+        provider_options = {}
+        if body.idempotency_key and not request_body.get("validateOnly"):
+            provider_options["idempotency_key"] = body.idempotency_key
+        return latehub.google_ads_request(
+            body.method, path, params=params,
+            body=request_body if body.method != "GET" else None,
+            **provider_options,
         )
     except latehub.LateHubError as error:
         raise HTTPException(error.status if error.status in (400, 401, 402, 403, 404, 409, 422, 429) else 502,

@@ -264,6 +264,19 @@ def tiktok_ads_request(method: str, path: str, *, params: dict | None = None, bo
     )
 
 
+def google_ads_request(
+    method: str, path: str, *, params: dict | None = None, body: dict | None = None,
+    idempotency_key: str = "",
+) -> dict:
+    """Make an explicitly scoped request to a Zernio Google Ads endpoint."""
+    return _call(
+        method, path, params=params, idempotency_key=idempotency_key,
+        **({"json": body} if method != "GET" and body is not None else {}),
+        timeout=750.0 if method == "POST" and path in ("/ads/create", "/ads/keywords/ideas",
+                                                       "/ads/keywords/historical-metrics") else 90.0,
+    )
+
+
 def ad_tracking_tags(account_id: str, ad_account_id: str) -> list[dict]:
     data = _call("GET", f"/accounts/{account_id}/tracking-tags", params={"adAccountId": ad_account_id})
     tags = data.get("tags") if isinstance(data, dict) else None
