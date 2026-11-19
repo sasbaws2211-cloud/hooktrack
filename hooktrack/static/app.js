@@ -6721,7 +6721,8 @@ pages.ads = async app => {
     quote: null, reservation: null, config: null, created: false,
     reserveUncertain: false, buyUncertain: false,
   };
-  let metaRfAccountId = $('#meta-tools-account', app).value;
+  const metaToolsAccount = $('#meta-tools-account', app);
+  let metaRfAccountId = metaToolsAccount?.value || '';
   const metaRfResult = $('#meta-rf-quote-result', app);
   const metaRfBuyResult = $('#meta-rf-buy-result', app);
   const resetMetaRfWorkflow = () => {
