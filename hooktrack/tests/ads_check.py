@@ -105,6 +105,46 @@ def test_meta_reach_frequency_requests_keep_quote_reserve_and_read_account_scope
     ]
 
 
+def test_meta_analytics_requests_bind_daily_timeline_and_live_insights_to_selected_account(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ads, "_selected_ad_account", lambda *args: calls.append(("selected", args)) or {"id": "meta-connection"})
+    monkeypatch.setattr(
+        ads.latehub, "meta_ads_request",
+        lambda method, path, **kwargs: calls.append((method, path, kwargs)) or
+        ({"rows": []} if path == "/ads/timeline" else {"objectId": "act-1", "data": [], "paging": {}}),
+    )
+    timeline = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="GET", path="/ads/timeline",
+        query={"fromDate": "2026-10-01", "toDate": "2026-10-31", "compare": "previous"},
+    )
+    insights = ads.MetaAdsRequestIn(
+        ad_connection_id="meta-connection", ad_account_id="act-1",
+        method="GET", path="/ads/insights",
+        query={
+            "objectId": "act-1", "level": "campaign", "fields": "campaign_id,spend",
+            "breakdowns": "publisher_platform", "fromDate": "2026-10-01", "toDate": "2026-10-31",
+            "limit": 100,
+        },
+    )
+
+    assert ads.meta_ads_request(timeline, _ctx()) == {"rows": []}
+    assert ads.meta_ads_request(insights, _ctx()) == {"objectId": "act-1", "data": [], "paging": {}}
+    assert calls == [
+        ("selected", (7, "meta-connection", "act-1", "meta")),
+        ("GET", "/ads/timeline", {"params": {
+            "fromDate": "2026-10-01", "toDate": "2026-10-31", "compare": "previous",
+            "accountId": "meta-connection", "adAccountId": "act-1",
+        }, "body": None}),
+        ("selected", (7, "meta-connection", "act-1", "meta")),
+        ("GET", "/ads/insights", {"params": {
+            "objectId": "act-1", "level": "campaign", "fields": "campaign_id,spend",
+            "breakdowns": "publisher_platform", "fromDate": "2026-10-01", "toDate": "2026-10-31",
+            "limit": 100, "accountId": "meta-connection", "adAccountId": "act-1",
+        }, "body": None}),
+    ]
+
+
 def test_meta_draft_preview_injects_selected_workspace_and_ad_account(monkeypatch):
     seen = []
     monkeypatch.setattr(ads, "_selected_ad_account", lambda *_args: {"id": "meta-connection"})

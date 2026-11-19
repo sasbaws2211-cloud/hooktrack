@@ -6364,6 +6364,46 @@ pages.ads = async app => {
             </div>
             <div id="meta-tree-result" aria-live="polite" style="margin-top:10px"></div>
           </section>
+          <section aria-labelledby="meta-analytics-heading" style="margin-bottom:20px">
+            <h3 id="meta-analytics-heading">Performance analytics</h3>
+            <p class="small muted">Read the account's daily synced metrics or query live Meta performance by campaign/ad level and a supported breakdown. Live breakdowns use Meta's API and may count against provider/platform limits.</p>
+            <div class="card" style="margin:10px 0;padding:12px">
+              <h4>Daily account timeline</h4>
+              <div class="row" style="gap:8px;align-items:end">
+                <div><label class="small muted" for="meta-timeline-from">From</label><input id="meta-timeline-from" type="date" value="${metaMonthAgo}"></div>
+                <div><label class="small muted" for="meta-timeline-to">To</label><input id="meta-timeline-to" type="date" value="${metaToday}"></div>
+                <label class="check" style="align-self:end"><input id="meta-timeline-compare" type="checkbox" checked> Compare previous period</label>
+                <button class="btn sm" type="button" id="meta-timeline-load">Load daily metrics</button>
+              </div>
+              <div id="meta-timeline-result" aria-live="polite" style="margin-top:10px"></div>
+            </div>
+            <div class="card" style="margin:10px 0;padding:12px">
+              <h4>Live performance breakdown</h4>
+              <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px">
+                <div><label class="small muted" for="meta-insights-level">Row level</label>
+                  <select id="meta-insights-level" style="width:100%"><option value="campaign">Campaign</option><option value="adset">Ad set</option><option value="ad">Ad</option></select></div>
+                <div><label class="small muted" for="meta-insights-breakdown">Breakdown</label>
+                  <select id="meta-insights-breakdown" style="width:100%">
+                    <option value="">No breakdown</option>
+                    <option value="age">Age</option><option value="gender">Gender</option>
+                    <option value="country">Country</option><option value="region">Region</option>
+                    <option value="publisher_platform">Publisher platform</option>
+                    <option value="platform_position">Placement position</option>
+                    <option value="device_platform">Device platform</option>
+                    <option value="impression_device">Impression device</option>
+                    <option value="image_asset">Image asset</option><option value="video_asset">Video asset</option>
+                    <option value="body_asset">Primary text asset</option><option value="title_asset">Headline asset</option>
+                  </select></div>
+                <div><label class="small muted" for="meta-insights-from">From</label><input id="meta-insights-from" type="date" value="${metaMonthAgo}"></div>
+                <div><label class="small muted" for="meta-insights-to">To</label><input id="meta-insights-to" type="date" value="${metaToday}"></div>
+              </div>
+              <div class="row" style="gap:8px;margin-top:8px">
+                <button class="btn primary sm" type="button" id="meta-insights-load">Run Meta insights query</button>
+                <button class="btn sm" type="button" id="meta-insights-next" hidden>Load next page</button>
+              </div>
+              <div id="meta-insights-result" aria-live="polite" style="margin-top:10px"></div>
+            </div>
+          </section>
           <section aria-labelledby="meta-creatives-heading" style="margin-bottom:20px">
             <h3 id="meta-creatives-heading">Creative library and previews</h3>
             <p class="small muted">Browse creatives in the selected ad account, preview one in Meta placements, or render a draft before creating an ad.</p>
@@ -6974,6 +7014,11 @@ pages.ads = async app => {
       selectedAccount && selectedAccount.currency || 'account currency';
     $('#meta-rf-currency', app).textContent = selectedAccount && selectedAccount.currency || 'account currency';
     resetMetaRfWorkflow();
+    metaInsightsQuery = null;
+    metaInsightsAfter = '';
+    $('#meta-insights-next', app).hidden = true;
+    $('#meta-insights-result', app).replaceChildren();
+    $('#meta-timeline-result', app).replaceChildren();
     ['#meta-audience-pixel', '#meta-capi-pixel'].forEach(selector => {
       const select = $(selector, app);
       if (select) select.innerHTML = '<option value="">Load pixels to choose</option>';
@@ -7657,6 +7702,176 @@ pages.ads = async app => {
       query: { formats: formats.join(',') },
       body: {},
     });
+  });
+  const renderAnalyticsTable = (target, headingText, rows, preferredColumns = []) => {
+    const section = document.createElement('section');
+    section.className = 'card';
+    section.style.cssText = 'margin:8px 0;padding:12px;overflow:auto';
+    const heading = document.createElement('h4');
+    heading.textContent = headingText;
+    section.append(heading);
+    if (!Array.isArray(rows) || !rows.length) {
+      const empty = document.createElement('p');
+      empty.className = 'small muted';
+      empty.textContent = 'No metrics were returned for this period.';
+      section.append(empty);
+      target.append(section);
+      return;
+    }
+    if (rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) {
+      throw new Error('Zernio returned an invalid analytics row.');
+    }
+    const keys = [...new Set([...preferredColumns, ...rows.flatMap(row => Object.keys(row))])]
+      .filter(key => rows.some(row => Object.hasOwn(row, key)));
+    const table = document.createElement('table');
+    table.className = 'data-table';
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    keys.forEach(key => {
+      const cell = document.createElement('th');
+      cell.scope = 'col';
+      cell.textContent = key;
+      headerRow.append(cell);
+    });
+    thead.append(headerRow);
+    const tbody = document.createElement('tbody');
+    rows.forEach(row => {
+      const tr = document.createElement('tr');
+      keys.forEach(key => {
+        const cell = document.createElement('td');
+        const value = row[key];
+        cell.textContent = value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+        tr.append(cell);
+      });
+      tbody.append(tr);
+    });
+    table.append(thead, tbody);
+    section.append(table);
+    target.append(section);
+  };
+  if ($('#meta-timeline-load', app)) $('#meta-timeline-load', app).onclick = guard(async button => {
+    const fromDate = $('#meta-timeline-from', app).value;
+    const toDate = $('#meta-timeline-to', app).value;
+    const target = $('#meta-timeline-result', app);
+    if (!fromDate || !toDate || fromDate > toDate
+      || (new Date(`${toDate}T00:00:00Z`) - new Date(`${fromDate}T00:00:00Z`)) / 86400000 > 729) {
+      toast('Choose a valid timeline range of at most 730 days.', true);
+      return;
+    }
+    const compare = $('#meta-timeline-compare', app).checked;
+    busy(button, true, 'Loading…');
+    target.textContent = 'Loading Meta daily metrics…';
+    try {
+      const query = { fromDate, toDate, ...(compare ? { compare: 'previous' } : {}) };
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method: 'GET',
+        path: '/ads/timeline',
+        query,
+        body: {},
+      });
+      if (!Array.isArray(response.rows)) throw new Error('Zernio returned an invalid Meta timeline response.');
+      target.replaceChildren();
+      if (response.backfillPending) {
+        const notice = document.createElement('p');
+        notice.className = 'notice';
+        notice.textContent = 'Historical Meta metrics are still being backfilled. This is the covered portion so far; reload later to get the complete range.';
+        target.append(notice);
+      }
+      renderAnalyticsTable(target, `Daily metrics · ${fromDate} to ${toDate}`, response.rows, [
+        'date', 'currency', 'spend', 'impressions', 'reach', 'clicks', 'ctr', 'cpc', 'cpm',
+        'conversions', 'costPerConversion', 'purchaseValue', 'roas',
+      ]);
+      if (compare && response.previousRows !== undefined) {
+        if (!Array.isArray(response.previousRows)) throw new Error('Zernio returned an invalid previous-period timeline.');
+        const range = response.previousRange || {};
+        renderAnalyticsTable(
+          target,
+          `Previous period · ${range.fromDate || ''} to ${range.toDate || ''}`,
+          response.previousRows,
+          ['date', 'currency', 'spend', 'impressions', 'reach', 'clicks', 'ctr', 'cpc', 'cpm',
+            'conversions', 'costPerConversion', 'purchaseValue', 'roas'],
+        );
+      }
+      const note = document.createElement('p');
+      note.className = 'small muted';
+      note.textContent = 'Money is reported in each row’s currency. Reach is daily only and must not be summed across dates.';
+      target.append(note);
+    } catch (error) {
+      target.textContent = error.message;
+      throw error;
+    } finally { if (button.isConnected) busy(button, false); }
+  });
+  let metaInsightsQuery = null;
+  let metaInsightsAfter = '';
+  const runMetaInsights = async (button, append = false) => {
+    const fromDate = $('#meta-insights-from', app).value;
+    const toDate = $('#meta-insights-to', app).value;
+    const target = $('#meta-insights-result', app);
+    if (!append) {
+      if (!fromDate || !toDate || fromDate > toDate
+        || (new Date(`${toDate}T00:00:00Z`) - new Date(`${fromDate}T00:00:00Z`)) / 86400000 > 729) {
+        toast('Choose a valid insights range of at most 730 days.', true);
+        return;
+      }
+      metaInsightsQuery = {
+        objectId: $('#meta-tools-account', app).value,
+        level: $('#meta-insights-level', app).value,
+        fields: [
+          ...(['campaign', 'adset', 'ad'].includes($('#meta-insights-level', app).value)
+            ? ['campaign_id', 'campaign_name'] : []),
+          ...(['adset', 'ad'].includes($('#meta-insights-level', app).value)
+            ? ['adset_id', 'adset_name'] : []),
+          ...($('#meta-insights-level', app).value === 'ad' ? ['ad_id', 'ad_name'] : []),
+          'spend', 'impressions', 'reach', 'clicks', 'ctr', 'cpc', 'cpm', 'frequency',
+          'actions', 'conversions', 'website_purchase_roas',
+        ].join(','),
+        fromDate,
+        toDate,
+        limit: 100,
+        ...($('#meta-insights-breakdown', app).value
+          ? { breakdowns: $('#meta-insights-breakdown', app).value } : {}),
+      };
+      metaInsightsAfter = '';
+      $('#meta-insights-next', app).hidden = true;
+      target.replaceChildren();
+    }
+    if (!metaInsightsQuery) return;
+    busy(button, true, append ? 'Loading…' : 'Querying…');
+    const status = document.createElement('p');
+    status.className = 'small muted';
+    status.textContent = append ? 'Loading the next page…' : 'Querying live Meta insights…';
+    target.append(status);
+    try {
+      const query = { ...metaInsightsQuery, ...(append && metaInsightsAfter ? { after: metaInsightsAfter } : {}) };
+      const response = await api('POST', '/api/ads/meta/request', {
+        ad_connection_id: metaConnection.id,
+        ad_account_id: $('#meta-tools-account', app).value,
+        method: 'GET',
+        path: '/ads/insights',
+        query,
+        body: {},
+      });
+      if (!Array.isArray(response.data)) throw new Error('Zernio returned an invalid Meta insights response.');
+      status.remove();
+      renderAnalyticsTable(
+        target,
+        `Live insights · ${metaInsightsQuery.level} · ${metaInsightsQuery.fromDate} to ${metaInsightsQuery.toDate}${metaInsightsQuery.breakdowns ? ` · ${metaInsightsQuery.breakdowns}` : ''}`,
+        response.data,
+      );
+      metaInsightsAfter = typeof response.paging?.after === 'string' ? response.paging.after : '';
+      $('#meta-insights-next', app).hidden = !metaInsightsAfter;
+    } catch (error) {
+      status.textContent = error.message;
+      throw error;
+    } finally { if (button.isConnected) busy(button, false); }
+  };
+  if ($('#meta-insights-load', app)) $('#meta-insights-load', app).onclick = guard(async button => {
+    await runMetaInsights(button);
+  });
+  if ($('#meta-insights-next', app)) $('#meta-insights-next', app).onclick = guard(async button => {
+    await runMetaInsights(button, true);
   });
   if ($('#meta-tree-load', app)) $('#meta-tree-load', app).onclick = guard(async button => {
     const fromDate = $('#meta-tree-from', app).value;
