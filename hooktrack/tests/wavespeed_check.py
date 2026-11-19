@@ -177,6 +177,35 @@ def test_image_to_video_quota_is_reserved_before_upload(monkeypatch):
     assert error.value.status_code == 402
 
 
+def test_image_to_video_supports_campaign_studio_without_post(monkeypatch):
+    class ImageUpload:
+        async def read(self, _limit):
+            return b"source-image"
+
+    ctx = wavespeed.Ctx(user_id=1, email="test@example.com", name="Test",
+                        workspace_id=7, role="member")
+    monkeypatch.setattr(wavespeed.media, "sniff_image", lambda _content: "jpg")
+
+    async def upload_source(*_args, **_kwargs):
+        return "https://media.wavespeed.ai/source.jpg"
+
+    monkeypatch.setattr(wavespeed, "_upload_image_to_wavespeed", upload_source)
+    submitted = {}
+
+    async def capture_submission(function, *args):
+        submitted["args"] = args
+        return {"prediction_id": "pred_campaign"}
+
+    monkeypatch.setattr(wavespeed.asyncio, "to_thread", capture_submission)
+    result = asyncio.run(wavespeed.generate_image_to_video(
+        prompt="Animate this campaign image", negative_prompt="", duration=5, size="832*480",
+        post_id=None, file=ImageUpload(), ctx=ctx))
+
+    assert result["prediction_id"] == "pred_campaign"
+    assert submitted["args"][1] is None
+    assert submitted["args"][2]["model"] == "wavespeed-ai/wan-2.1/i2v-480p"
+
+
 @pytest.mark.parametrize("num_images", [0, 5, "2", True])
 def test_image_generation_rejects_invalid_variation_count(monkeypatch, num_images):
     monkeypatch.setenv("WAVESPEED_API_KEY", "test-token")

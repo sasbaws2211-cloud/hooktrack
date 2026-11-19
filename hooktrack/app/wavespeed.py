@@ -264,10 +264,11 @@ async def generate_image_to_video(
         negative_prompt: str = Form("", max_length=1000),
         duration: int = Form(5),
         size: str = Form("832*480"),
-        post_id: int = Form(...),
+        post_id: Optional[int] = Form(None),
         file: UploadFile = File(...),
         ctx: Ctx = Depends(current)):
-    if not db.one("SELECT 1 FROM posts WHERE id=%s AND workspace_id=%s", (post_id, ctx.workspace_id)):
+    if post_id is not None and not db.one(
+            "SELECT 1 FROM posts WHERE id=%s AND workspace_id=%s", (post_id, ctx.workspace_id)):
         raise HTTPException(404, "Post not found")
     if not prompt.strip():
         raise HTTPException(400, "Enter a prompt of 1–4,000 characters.")

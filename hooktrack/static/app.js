@@ -68,8 +68,50 @@ const state = {
   weekStart: null,   // set lazily from the workspace time zone
   calMonth: null,
   calAccount: '', hookStatus: '', hookAccount: '', hookQuick: 'all', hookSearch: '', postsView: 'board', discNiche: null, discBand: '', discPlatform: '',
-  campaignDraftId: null, campaignAssetId: null, campaignInterests: [],
+  campaignDraftId: null, campaignAssetId: null, campaignInterests: [], campaignStudioAssets: [],
 };
+let campaignStudioWindow = null;
+window.addEventListener('message', event => {
+  if (event.origin !== location.origin || event.source !== campaignStudioWindow ||
+      !event.data || event.data.type !== 'hooktrack:campaign-studio-finished') return;
+  campaignStudioWindow = null;
+  const asset = event.data.asset;
+  if (!asset || !asset.id || !asset.content_type) return;
+  state.campaignStudioAssets = state.campaignStudioAssets || [];
+  if (!state.campaignStudioAssets.some(item => String(item.id) === String(asset.id))) {
+    state.campaignStudioAssets.push({
+      id: asset.id, file_name: asset.name || 'Studio creative', content_type: asset.content_type,
+    });
+  }
+  state.campaignAssetId = asset.id;
+  state.metaDefaultMediaAssetId = asset.id;
+  state.metaPlacementAssetType = String(asset.content_type).startsWith('video/') ? 'video' : 'image';
+  const mediaSelect = $('#camp-media');
+  if (mediaSelect) {
+    const option = document.createElement('option');
+    option.value = `asset:${asset.id}`;
+    option.dataset.kind = state.metaPlacementAssetType;
+    option.dataset.contentType = asset.content_type;
+    option.textContent = `${state.metaPlacementAssetType} · ${asset.name || 'Studio creative'}`;
+    option.selected = true;
+    mediaSelect.add(option);
+  }
+  ['#camp-meta-placement-default', '#camp-meta-dynamic-assets'].forEach(selector => {
+    const select = $(selector);
+    if (!select) return;
+    const option = document.createElement('option');
+    option.value = String(asset.id);
+    option.textContent = asset.name || 'Studio creative';
+    select.add(option);
+  });
+  $$('[data-meta-placement-asset], [data-meta-carousel-asset]').forEach(select => {
+    const option = document.createElement('option');
+    option.value = String(asset.id);
+    option.textContent = asset.name || 'Studio creative';
+    select.add(option);
+  });
+  toast('Studio creative added to the campaign');
+});
 
 async function api(method, path, body) {
   const opt = { method, headers: {} };
@@ -2831,7 +2873,7 @@ pages.calendar = async app => {
 };
 
 
-/* ---------------- studio: the in-app video/photo editor (Shotstack Studio), opened on one post ---------------- */
+/* ---------------- studio: the in-app video/photo editor, used by posts and campaign creatives ---------------- */
 // The prebuilt bundle (studio-build/, see index.html) loads as a deferred <script>, so by the time a user
 // actually opens the editor it's normally already on window - this just covers the rare case of asking for
 // it before that deferred script has run.
@@ -2869,14 +2911,29 @@ function studioSeedEdit(post) {
 }
 pages.studio = async app => {
   const q = new URLSearchParams((location.hash.split('?')[1] || ''));
+  const campaignMode = q.get('campaign') === '1';
   const postId = +q.get('post');
-  if (!postId) { app.innerHTML = '<div class="empty card"><h2>No post to edit</h2><p class="muted">Open a card from Posts or Hooks and press "Edit in Studio" there.</p></div>'; return; }
   let post;
-  try { post = await api('GET', `/api/posts/${postId}`); } catch (e) {
-    app.innerHTML = `<div class="empty card"><h2>Could not load this post</h2><p class="muted">${esc(e.message)}</p></div>`;
-    return;
+  if (campaignMode) {
+    const sourcePostId = Number(q.get('source_post'));
+    if (Number.isSafeInteger(sourcePostId) && sourcePostId > 0) {
+      try { post = await api('GET', `/api/posts/${sourcePostId}`); } catch (e) {
+        app.innerHTML = `<div class="empty card"><h2>Could not load this creative</h2><p class="muted">${esc(e.message)}</p></div>`;
+        return;
+      }
+    } else {
+      const sourceType = q.get('media') === 'video' ? 'video/mp4' : 'image/jpeg';
+      post = { id: null, status: 'scripted', content_type: sourceType, images: [] };
+    }
+    post.content_type = q.get('media') === 'video' ? 'video/mp4' : 'image/jpeg';
+  } else {
+    if (!postId) { app.innerHTML = '<div class="empty card"><h2>No post to edit</h2><p class="muted">Open a card from Posts or Hooks and press "Edit in Studio" there.</p></div>'; return; }
+    try { post = await api('GET', `/api/posts/${postId}`); } catch (e) {
+      app.innerHTML = `<div class="empty card"><h2>Could not load this post</h2><p class="muted">${esc(e.message)}</p></div>`;
+      return;
+    }
   }
-  const sessionDraftKey = `hooktrack:studio-draft:${post.id}`;
+  const sessionDraftKey = `hooktrack:studio-draft:${campaignMode ? q.get('session') || 'campaign' : post.id}`;
   const brandKitStorageKey = `hooktrack:studio-brand-kit:${state.me && state.me.workspace && state.me.workspace.id || 'browser'}`;
   const defaultBrandKit = { logoText: '', primaryColor: '#ffffff', accentColor: '#ffe15a', fontFamily: 'Roboto' };
   const studioFonts = ['Roboto', 'Arial', 'Montserrat', 'Poppins', 'Inter'];
@@ -2908,7 +2965,7 @@ pages.studio = async app => {
         throw new Error('The saved timeline data is invalid.');
       }
       const serverDraftAt = Date.parse(post.studio_draft_at || '');
-      const cacheIsNewer = Number.isFinite(parsed.updatedAt) &&
+      const cacheIsNewer = campaignMode || Number.isFinite(parsed.updatedAt) &&
         (!post.studio_draft || Number.isFinite(serverDraftAt) && parsed.updatedAt > serverDraftAt);
       if (cacheIsNewer) sessionDraft = cachedEdit;
       else sessionStorage.removeItem(sessionDraftKey);
@@ -2920,7 +2977,7 @@ pages.studio = async app => {
     }
     toast(message, true);
   }
-  const locked = normStatus(post.status) === 'filmed';
+  const locked = !campaignMode && normStatus(post.status) === 'filmed';
   const transitionPresets = [
     ['fade', 'Fade'], ['reveal', 'Reveal'], ['wipeLeft', 'Wipe left'], ['wipeRight', 'Wipe right'],
     ['slideLeft', 'Slide left'], ['slideRight', 'Slide right'], ['slideUp', 'Slide up'], ['slideDown', 'Slide down'],
@@ -2948,7 +3005,10 @@ pages.studio = async app => {
       `<option value="${value}Slow">${label} (slow)</option>`,
     ]),
   ).join('');
-  app.innerHTML = `<div class="page-head"><div><h1>Edit in Studio</h1><div class="sub">${esc(short(post.hook || post.caption || 'Untitled', 90))}</div></div>
+  app.innerHTML = `<div class="page-head"><div><h1>${campaignMode ? 'Campaign Studio' : 'Edit in Studio'}</h1><div class="sub">${esc(short(post.hook || post.caption || (campaignMode ? 'Create or edit campaign media' : 'Untitled'), 90))}</div>
+      ${campaignMode ? `<label class="small muted">Creative output
+        <select id="studio-campaign-output"><option value="image" ${isImageFormat(post.content_type) ? 'selected' : ''}>Image</option>
+          <option value="video" ${isVideoFormat(post.content_type) ? 'selected' : ''}>Video</option></select></label>` : ''}</div>
     <div class="row"><button class="btn" id="studio-back">← Back</button></div></div>
     ${locked ? '<div class="card" style="margin-bottom:10px"><p class="muted">This card is Filmed, so its finished video/images are locked for publishing. You can still draft here, but move it back to Scripted before using "Finish".</p></div>' : ''}
     <div class="card studio-workspace">
@@ -2958,11 +3018,13 @@ pages.studio = async app => {
             <div class="studio-tool-label">Add to timeline</div>
             <div class="studio-tool-buttons">
               <button class="btn sm primary" id="studio-add-media" title="Add a video or image from your device">+ Media</button>
-              <button class="btn sm" id="studio-add-audio" disabled title="Add audio without needing another clip selected">+ Audio</button>
-              <button class="btn sm" id="studio-voiceover" disabled title="Record a voiceover or clean an audio file">Voiceover / clean</button>
+              <button class="btn sm" id="studio-add-audio" ${campaignMode ? 'hidden' : 'disabled'} title="Add audio without needing another clip selected">+ Audio</button>
+              <button class="btn sm" id="studio-voiceover" ${campaignMode ? 'hidden' : 'disabled'} title="Record a voiceover or clean an audio file">Voiceover / clean</button>
               <button class="btn sm" id="studio-add-text" disabled title="Add text without needing another clip selected">+ Text</button>
               ${state.wavespeed && state.wavespeed.configured ? '<button class="btn sm" id="studio-add-ai" disabled title="Generate an image or video with WaveSpeedAI">+ AI clip</button>' : ''}
-              <input type="file" id="studio-upload" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" hidden>
+              <input type="file" id="studio-upload" accept="${campaignMode
+                ? 'video/mp4,video/quicktime,image/jpeg,image/png'
+                : 'video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp'}" hidden>
               <input type="file" id="studio-audio-upload" accept="audio/mpeg,audio/mp3,audio/mp4,audio/wav,audio/x-wav,audio/aac,audio/ogg" hidden>
               <input type="file" id="studio-clean-audio-upload" accept="audio/*" hidden>
             </div>
@@ -2977,7 +3039,7 @@ pages.studio = async app => {
               </select>
               <button class="btn sm" id="studio-safe-area" type="button" aria-pressed="false" title="Show guides for keeping important content clear of interface overlays">Safe area</button>
               <button class="btn sm" id="studio-brand-kit" type="button">Brand kit</button>
-              <button class="btn sm" id="studio-cover-editor" type="button" title="Create and download a cover image from the current frame">Cover</button>
+              <button class="btn sm" id="studio-cover-editor" type="button" ${campaignMode ? 'hidden' : ''} title="Create and download a cover image from the current frame">Cover</button>
             </div>
           </section>
           <section class="studio-tool-group studio-tool-group-selection" aria-label="Selected clip tools">
@@ -2997,7 +3059,7 @@ pages.studio = async app => {
               <button class="btn sm" id="studio-undo" disabled title="Undo the last edit">Undo</button>
               <button class="btn sm" id="studio-redo" disabled title="Redo the last undone edit">Redo</button>
               <button class="btn sm" id="studio-save-draft" disabled>Save draft</button>
-              ${post.studio_draft || sessionDraft ? '<button class="btn sm" id="studio-discard-draft" disabled>Start over</button>' : ''}
+              ${!campaignMode && (post.studio_draft || sessionDraft) || campaignMode && sessionDraft ? '<button class="btn sm" id="studio-discard-draft" disabled>Start over</button>' : ''}
             </div>
           </section>
           <section class="studio-tool-group studio-tool-group-export" aria-label="Export">
@@ -3109,7 +3171,10 @@ pages.studio = async app => {
       <div data-shotstack-studio style="width:100%;background:#000"></div>
       <div data-shotstack-timeline style="width:100%;overflow:hidden;background:#0d1117"></div>
     </div>`;
-  $('#studio-back').onclick = () => { location.hash = '#/pipeline'; };
+  $('#studio-back').onclick = () => {
+    if (campaignMode && window.opener) window.close();
+    else location.hash = campaignMode ? '#/ads' : '#/pipeline';
+  };
   if ($('#studio-discard-draft')) $('#studio-discard-draft').onclick = guard(async () => {
     if (!await askConfirm('Discard your saved draft and start over from this post\'s current media? This cannot be undone.', { title: 'Start over' })) return;
     clearInterval(autosave);
@@ -3119,7 +3184,7 @@ pages.studio = async app => {
         setStatus(`Pending save failed; discarding the saved draft: ${error.message || error}`, true);
       }
     }
-    await api('DELETE', `/api/posts/${post.id}/studio-draft`);
+    if (!campaignMode) await api('DELETE', `/api/posts/${post.id}/studio-draft`);
     try { sessionStorage.removeItem(sessionDraftKey); } catch (error) {
       toast(`Could not clear this tab's saved Studio changes: ${error.message || error}`, true);
       return;
@@ -3220,7 +3285,20 @@ pages.studio = async app => {
     // A saved draft (in-progress crops, filters, clip order, added media) wins over re-seeding from the
     // post's current media - that re-seed is only the starting point the very first time, or after
     // "Start over" explicitly asks for it.
-    const seed = sessionDraft || post.studio_draft || studioSeedEdit(post);
+    const sourceAssetId = Number(q.get('source_asset'));
+    let seed;
+    if (sessionDraft) seed = sessionDraft;
+    else if (!campaignMode && post.studio_draft) seed = post.studio_draft;
+    else if (campaignMode && Number.isSafeInteger(sourceAssetId) && sourceAssetId > 0) {
+      const sourceExtension = { 'image/jpeg': 'jpg', 'image/png': 'png',
+        'video/mp4': 'mp4', 'video/quicktime': 'mov' }[q.get('source_ext')] ||
+        (isImageFormat(post.content_type) ? 'jpg' : 'mp4');
+      const src = `/api/ads/assets/${sourceAssetId}/studio-file.${sourceExtension}`;
+      seed = { timeline: { background: '#000000', tracks: [{ clips: [{
+        asset: { type: isImageFormat(post.content_type) ? 'image' : 'video', src },
+        start: 0, length: isImageFormat(post.content_type) ? 3 : 'auto',
+      }] }] }, output: { format: 'mp4', resolution: 'sd' } };
+    } else seed = studioSeedEdit(post);
     edit = new Edit(seed);
     canvas = new Canvas(edit);
     ui = UIController.create(edit, canvas, { mergeFields: true });
@@ -4222,17 +4300,17 @@ pages.studio = async app => {
         form.append('negative_prompt', typeof options.negativePrompt === 'string' ? options.negativePrompt : '');
         form.append('duration', String(options.duration || 5));
         form.append('size', options.size || '832*480');
-        form.append('post_id', String(post.id));
+        if (!campaignMode) form.append('post_id', String(post.id));
         form.append('file', imageBlob, 'studio-source-image');
         row = await api('POST', '/api/wavespeed/generate-image-to-video', form);
       } else {
-        row = await api('POST', '/api/wavespeed/generate',
-          { asset: {
+        const generation = { asset: {
             type: request.asset.type, prompt: request.asset.prompt, model: request.asset.model,
             duration: options.duration, size: options.size, negative_prompt: options.negativePrompt,
             num_images: options.numImages,
-          },
-            post_id: post.id });
+          } };
+        if (!campaignMode) generation.post_id = post.id;
+        row = await api('POST', '/api/wavespeed/generate', generation);
       }
       if (state.wavespeed && state.wavespeed.ai_quota) {
         const currentQuota = state.wavespeed.ai_quota;
@@ -4275,6 +4353,10 @@ pages.studio = async app => {
     if (!draftDirty) return 'clean';
     const revision = draftRevision;
     const snapshot = edit.getEdit();
+    if (campaignMode) {
+      draftDirty = false;
+      return 'saved';
+    }
     draftDirty = false;
     draftSaveInFlight = api('PUT', `/api/posts/${post.id}/studio-draft`, { edit: snapshot });
     try {
@@ -4348,7 +4430,7 @@ pages.studio = async app => {
     }
     draftDirty = false;
     try {
-      await api('DELETE', `/api/posts/${post.id}/studio-draft`);
+      if (!campaignMode) await api('DELETE', `/api/posts/${post.id}/studio-draft`);
       sessionStorage.removeItem(sessionDraftKey);
     } catch (error) {
       toast(`Video finished, but its saved draft could not be cleared: ${error.message || error}`, true);
@@ -4739,19 +4821,49 @@ pages.studio = async app => {
     e.target.value = '';
     if (!f) return;
     const isImg = String(f.type).startsWith('image/');
-    setStatus('Uploading…');
-    const fd = new FormData();
-    fd.append('file', f);
     try {
-      const r = await api('POST', `/api/posts/${post.id}/${isImg ? 'images/upload' : 'video/upload'}`, fd);
-      const ext = MIME_EXT[r.type] || (isImg ? 'jpg' : 'mp4');
-      const src = `${location.origin}/api/posts/${post.id}/${isImg ? `images/${r.id}/file.${ext}` : `video/file.${ext}`}`;
+      let src;
+      if (campaignMode) {
+        const form = new FormData();
+        form.append('file', f);
+        const uploaded = await api('POST', '/api/ads/assets/upload', form);
+        const ext = MIME_EXT[uploaded.content_type] || (isImg ? 'jpg' : 'mp4');
+        src = `/api/ads/assets/${uploaded.id}/studio-file.${ext}`;
+      } else {
+        setStatus('Uploading…');
+        const fd = new FormData();
+        fd.append('file', f);
+        const r = await api('POST', `/api/posts/${post.id}/${isImg ? 'images/upload' : 'video/upload'}`, fd);
+        const ext = MIME_EXT[r.type] || (isImg ? 'jpg' : 'mp4');
+        src = `${location.origin}/api/posts/${post.id}/${isImg ? `images/${r.id}/file.${ext}` : `video/file.${ext}`}`;
+      }
       await edit.addClip(baseTrackIndex(), { asset: { type: isImg ? 'image' : 'video', src }, start: 0, length: isImg ? 3 : 'auto' });
       setStatus('Added', true);
     } catch (err) { toast(err.message || 'Could not upload that file', true); setStatus('Ready'); }
   });
 
   $('#studio-finish').onclick = guard(isImageFormat(post.content_type) ? finishImages : finishVideo);
+  if (campaignMode) $('#studio-campaign-output').onchange = event => {
+    post.content_type = event.target.value === 'video' ? 'video/mp4' : 'image/jpeg';
+    $('#studio-finish').textContent = event.target.value === 'video' ? 'Finish video' : 'Finish images';
+    $('#studio-finish').onclick = guard(event.target.value === 'video' ? finishVideo : finishImages);
+    syncStudioOutputButtons();
+  };
+
+  async function finishCampaignAsset(blob, filename, contentType) {
+    setStatus('Uploading campaign creative…');
+    const form = new FormData();
+    form.append('file', blob, filename);
+    const asset = await api('POST', '/api/ads/assets/upload', form);
+    await finishedDraftCleanup();
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage({ type: 'hooktrack:campaign-studio-finished', asset }, location.origin);
+      setTimeout(() => window.close(), 250);
+    } else {
+      location.hash = `#/ads?studio_asset=${encodeURIComponent(asset.id)}`;
+    }
+    toast(`Campaign ${contentType} added`);
+  }
 
   async function finishVideo() {
     const finishBtn = $('#studio-finish', app), addBtn = $('#studio-add-media', app);
@@ -4761,6 +4873,10 @@ pages.studio = async app => {
       const blob = await exporter.exportBlob({
         onProgress: (fraction, stage) => setStatus(`${stage}… ${Math.round(fraction * 100)}%`),
       });
+      if (campaignMode) {
+        await finishCampaignAsset(blob, 'studio-export.mp4', 'video');
+        return;
+      }
       setStatus('Uploading…');
       const fd = new FormData();
       fd.append('file', blob, 'studio-export.mp4');
@@ -4800,6 +4916,14 @@ pages.studio = async app => {
         .filter(c => c.asset && c.asset.type === 'image')
         .sort((a, b) => a.start - b.start);
       if (!clips.length) { toast('No images on the timeline to finish.', true); return; }
+      if (campaignMode) {
+        setStatus('Capturing edited image…');
+        edit.seek(clips[0].start + clips[0].length / 2);
+        await new Promise(resolve => setTimeout(resolve, 50));
+        const dataUrl = await canvas.captureFrame({ format: 'jpeg', quality: 0.92 });
+        await finishCampaignAsset(await (await fetch(dataUrl)).blob(), 'studio-export.jpg', 'image');
+        return;
+      }
       const before = await api('GET', `/api/posts/${post.id}/images`);
       const captured = [];
       for (let i = 0; i < clips.length; i++) {
@@ -5796,7 +5920,12 @@ pages.accounts = async app => {
 };
 
 pages.ads = async app => {
+  const routeQuery = new URLSearchParams((location.hash.split('?')[1] || ''));
+  if (routeQuery.has('studio_asset')) state.campaignAssetId = Number(routeQuery.get('studio_asset')) || null;
   const d = await api('GET', '/api/ads');
+  const listedAssetIds = new Set((d.campaign_assets || []).map(item => String(item.id)));
+  d.campaign_assets = [...(d.campaign_assets || []),
+    ...(state.campaignStudioAssets || []).filter(item => !listedAssetIds.has(String(item.id)))];
   let campaignReport = { campaigns: [] };
   let campaignReportError = '';
   if (d.configured) {
@@ -5913,6 +6042,7 @@ pages.ads = async app => {
     ...(d.campaign_assets || []).map(item => ({
       value: `asset:${item.id}`, label: `${String(item.content_type).startsWith('video/') ? 'video' : 'image'} · ${item.file_name}`,
       type: String(item.content_type).startsWith('video/') ? 'video' : 'image',
+      content_type: item.content_type,
       platform: 'both',
     })),
   ];
@@ -6057,9 +6187,10 @@ pages.ads = async app => {
           <select id="camp-media" required style="width:100%">${campaignMediaOptions.filter(item =>
             (item.platform === 'both' || item.platform === builderPlatform) &&
             (builderPlatform !== 'tiktok' || item.type === 'video')).map(item =>
-            `<option value="${esc(item.value)}" data-kind="${item.type}" ${state.campaignAssetId && item.value === `asset:${state.campaignAssetId}` ? 'selected' : ''}>${esc(item.label)}</option>`).join('')}</select></div>
+            `<option value="${esc(item.value)}" data-kind="${item.type}" data-content-type="${esc(item.content_type || '')}" ${state.campaignAssetId && item.value === `asset:${state.campaignAssetId}` ? 'selected' : ''}>${esc(item.label)}</option>`).join('')}</select></div>
           <label class="small muted" for="camp-upload">Or upload creative</label>
           <input id="camp-upload" type="file" accept="image/jpeg,image/png,image/gif,video/mp4,video/quicktime" style="width:100%">
+          <button type="button" class="btn sm" id="camp-open-studio" style="margin-top:8px">Edit or create in Studio</button>
           <span id="camp-media-note" class="small muted">${!campaignMediaOptions.some(item =>
             (item.platform === 'both' || item.platform === builderPlatform) && (builderPlatform !== 'tiktok' || item.type === 'video'))
             ? 'Upload a creative to begin. Existing published post media appears here when available.' : ''}</span></div>
@@ -9125,6 +9256,25 @@ pages.ads = async app => {
       }
     };
   }
+  if ($('#camp-open-studio', app)) $('#camp-open-studio', app).onclick = () => {
+    const selected = mediaSelect && mediaSelect.selectedOptions[0];
+    const mediaType = selected ? (selected.dataset.kind === 'video' ? 'video' : 'image')
+      : $('#camp-platform', app).value === 'tiktok' ? 'video' : 'image';
+    const params = new URLSearchParams({ campaign: '1', media: mediaType,
+      session: (window.crypto && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`) });
+    const value = selected && selected.value || '';
+    if (value.startsWith('post:')) params.set('source_post', value.slice(5));
+    else if (value.startsWith('asset:')) {
+      params.set('source_asset', value.slice(6));
+      const extension = { 'image/jpeg': 'jpg', 'image/png': 'png',
+        'video/mp4': 'mp4', 'video/quicktime': 'mov' }[selected.dataset.contentType];
+      if (extension) params.set('source_ext', extension);
+    }
+    campaignStudioWindow = window.open(`#/studio?${params.toString()}`, '_blank');
+    if (!campaignStudioWindow) {
+      toast('Allow pop-ups to open Studio without losing your campaign form.', true);
+    }
+  };
   if (mediaSelect) mediaSelect.onchange = () => {
     const option = mediaSelect.selectedOptions[0];
     if ($('#camp-objective', app).value === 'video_views' && option?.dataset.kind !== 'video') {

@@ -1458,6 +1458,24 @@ async def upload_campaign_asset(request: Request, file: UploadFile = File(...), 
     return {"id": row["id"], "name": name, "size": size, "content_type": content_type}
 
 
+@router.get("/assets/{asset_id}/studio-file.{extension}")
+def campaign_asset_for_studio(asset_id: int, extension: str, ctx: Ctx = Depends(admin)):
+    if extension not in ("jpg", "png", "mp4", "mov"):
+        raise HTTPException(404, "Campaign media was not found.")
+    row = db.one(
+        """SELECT file_path, content_type FROM ad_campaign_assets
+            WHERE id=%s AND workspace_id=%s""",
+        (asset_id, ctx.workspace_id),
+    )
+    path = media._abs(row["file_path"]) if row else None
+    if not path:
+        raise HTTPException(404, "Campaign media was not found.")
+    return FileResponse(
+        path, media_type=row["content_type"],
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.get("/media/ads/{ws}/{asset_id}/{exp}/{sig}")
 def signed_campaign_asset(ws: int, asset_id: int, exp: int, sig: str):
     row = db.one(
